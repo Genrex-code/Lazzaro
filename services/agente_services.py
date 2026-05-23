@@ -1,5 +1,5 @@
 import logging
-from core.state import estado_actual
+from core.state_engine import estado_actual
 from memory.memory_manager import memoria
 from ai_engine.gemini_client import generar_respuesta_lazzaro
 
