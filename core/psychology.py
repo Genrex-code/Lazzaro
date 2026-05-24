@@ -16,6 +16,46 @@ class PsychologyEngine:
     de comportamiento y el contexto que se inyectará al LLM (Gemini).
     """
 
+    @staticmethod
+    def _clamp(valor: float, minimo: float, maximo: float) -> float:
+        return max(minimo, min(maximo, valor))
+
+    @staticmethod
+    def obtener_estado_efectivo(state_engine, policy_offsets: dict | None = None) -> dict:
+        """
+        Combina el estado crudo con los offsets de politica sin mutar el StateEngine.
+        Esta vista derivada se usa solo para interpretacion y contexto narrativo.
+        """
+        estado = {
+            "energia": state_engine.energia,
+            "estres": state_engine.estres,
+            "foco": state_engine.foco,
+            "carga_cognitiva": state_engine.carga_cognitiva,
+            "confianza": state_engine.confianza,
+            "curiosidad": state_engine.curiosidad,
+            "motivacion": state_engine.motivacion,
+            "agresividad": state_engine.agresividad,
+            "tolerancia_riesgo": state_engine.tolerancia_riesgo,
+        }
+
+        if policy_offsets:
+            for clave, valor in policy_offsets.items():
+                if clave in estado:
+                    estado[clave] += valor
+
+        estado["energia"] = PsychologyEngine._clamp(estado["energia"], 0.0, 100.0)
+        estado["estres"] = PsychologyEngine._clamp(estado["estres"], 0.0, 100.0)
+        estado["foco"] = PsychologyEngine._clamp(estado["foco"], 0.0, 100.0)
+        estado["carga_cognitiva"] = PsychologyEngine._clamp(estado["carga_cognitiva"], 0.0, 100.0)
+        estado["confianza"] = PsychologyEngine._clamp(estado["confianza"], -100.0, 100.0)
+        estado["curiosidad"] = PsychologyEngine._clamp(estado["curiosidad"], -100.0, 100.0)
+        estado["motivacion"] = PsychologyEngine._clamp(estado["motivacion"], -100.0, 100.0)
+        estado["agresividad"] = PsychologyEngine._clamp(estado["agresividad"], -100.0, 100.0)
+        estado["tolerancia_riesgo"] = PsychologyEngine._clamp(estado["tolerancia_riesgo"], -100.0, 100.0)
+        estado["foco_efectivo"] = PsychologyEngine._calcular_foco_efectivo(estado)
+
+        return {clave: round(valor, 2) for clave, valor in estado.items()}
+
     # --- Mapeo de valores conductuales a etiquetas ---
 
     @staticmethod
@@ -86,7 +126,7 @@ class PsychologyEngine:
     # --- Umbrales de comportamiento ---
 
     @staticmethod
-    def evaluar_umbrales(state_engine, task_ctx=None) -> dict:
+    def evaluar_umbrales(state_engine, task_ctx=None, policy_offsets: dict | None = None) -> dict:
         """
         Evalúa el estado actual y decide si se deben activar conductas especiales.
         Retorna un diccionario con flags booleanas o valores de intensidad.
@@ -101,11 +141,13 @@ class PsychologyEngine:
             "esta_bloqueado": False,
         }
 
+        estado = PsychologyEngine.obtener_estado_efectivo(state_engine, policy_offsets)
+
         # Estado general
-        estres = state_engine.estres
-        energia = state_engine.energia
-        foco_efectivo = state_engine.foco_efectivo
-        confianza = state_engine.confianza
+        estres = estado["estres"]
+        energia = estado["energia"]
+        foco_efectivo = estado["foco_efectivo"]
+        confianza = estado["confianza"]
 
         # Banderas basadas en umbrales fijos (luego pueden ser dinámicas con personalidad)
         if estres > 75 or energia < 20:
@@ -134,7 +176,7 @@ class PsychologyEngine:
                 flags["debe_cambiar_estrategia"] = True
 
         # Curiosidad alta + energía suficiente puede sugerir exploración
-        if state_engine.curiosidad > 50 and energia > 40:
+        if estado["curiosidad"] > 50 and energia > 40:
             flags["debe_explorar"] = True
 
         return flags
@@ -142,20 +184,27 @@ class PsychologyEngine:
     # --- Resumen narrativo ---
 
     @staticmethod
-    def generar_resumen_narrativo(state_engine, personality_traits=None, task_ctx=None) -> str:
+    def generar_resumen_narrativo(
+        state_engine,
+        personality_traits=None,
+        task_ctx=None,
+        policy_offsets: dict | None = None,
+    ) -> str:
         """
         Produce un texto descriptivo del estado interno de Lazzaro, adecuado
         para ser leído por humanos o inyectado como contexto emocional en el prompt.
         """
+        estado = PsychologyEngine.obtener_estado_efectivo(state_engine, policy_offsets)
+
         # Estado emocional general
-        estres = state_engine.estres
-        energia = state_engine.energia
-        foco = state_engine.foco_efectivo
-        confianza_etq = PsychologyEngine.etiqueta_confianza(state_engine.confianza)
-        curiosidad_etq = PsychologyEngine.etiqueta_curiosidad(state_engine.curiosidad)
-        motivacion_etq = PsychologyEngine.etiqueta_motivacion(state_engine.motivacion)
-        agresividad_etq = PsychologyEngine.etiqueta_agresividad(state_engine.agresividad)
-        riesgo_etq = PsychologyEngine.etiqueta_tolerancia_riesgo(state_engine.tolerancia_riesgo)
+        estres = estado["estres"]
+        energia = estado["energia"]
+        foco = estado["foco_efectivo"]
+        confianza_etq = PsychologyEngine.etiqueta_confianza(estado["confianza"])
+        curiosidad_etq = PsychologyEngine.etiqueta_curiosidad(estado["curiosidad"])
+        motivacion_etq = PsychologyEngine.etiqueta_motivacion(estado["motivacion"])
+        agresividad_etq = PsychologyEngine.etiqueta_agresividad(estado["agresividad"])
+        riesgo_etq = PsychologyEngine.etiqueta_tolerancia_riesgo(estado["tolerancia_riesgo"])
 
         lineas = []
         lineas.append(f"Lazzaro se siente {PsychologyEngine._describir_estres(estres)}.")
@@ -193,22 +242,40 @@ class PsychologyEngine:
         return " ".join(lineas)
 
     @staticmethod
-    def generar_contexto_llm(state_engine, personality_traits=None, task_ctx=None) -> dict:
+    def generar_contexto_llm(
+        state_engine,
+        personality_traits=None,
+        task_ctx=None,
+        policy_offsets: dict | None = None,
+    ) -> dict:
         """
         Construye un diccionario con información estructurada para inyectar en el prompt
         de Gemini. Incluye tanto el resumen narrativo como datos numéricos clave.
         """
+        estado_efectivo = PsychologyEngine.obtener_estado_efectivo(state_engine, policy_offsets)
         contexto = {
             "estado_narrativo": PsychologyEngine.generar_resumen_narrativo(
-                state_engine, personality_traits, task_ctx
+                state_engine,
+                personality_traits,
+                task_ctx,
+                policy_offsets=policy_offsets,
             ),
-            "valores": state_engine.obtener_estado(),
-            "umbrales": PsychologyEngine.evaluar_umbrales(state_engine, task_ctx),
+            "valores": estado_efectivo,
+            "valores_crudos": state_engine.obtener_estado(),
+            "umbrales": PsychologyEngine.evaluar_umbrales(
+                state_engine,
+                task_ctx,
+                policy_offsets=policy_offsets,
+            ),
         }
         if personality_traits is not None:
             contexto["personalidad"] = personality_traits.obtener_rasgos()
         if task_ctx is not None:
             contexto["tarea"] = task_ctx.obtener_resumen()
+        if policy_offsets is not None:
+            contexto["offsets_policy"] = {
+                clave: round(valor, 2) for clave, valor in policy_offsets.items()
+            }
         return contexto
 
     # --- Helpers descriptivos ---
@@ -243,3 +310,21 @@ class PsychologyEngine:
             return "atención aceptable pero con lapsos"
         else:
             return "atención alta y enfocada"
+
+    @staticmethod
+    def _calcular_foco_efectivo(estado: dict) -> float:
+        """
+        Replica la logica de StateEngine.foco_efectivo, pero usando un estado derivado.
+        """
+        foco = estado["foco"]
+        if estado["estres"] > 60:
+            foco -= (estado["estres"] - 60) * 0.5
+        if estado["energia"] < 40:
+            foco -= (40 - estado["energia"]) * 0.4
+        if estado["carga_cognitiva"] > 50:
+            foco -= (estado["carga_cognitiva"] - 50) * 0.3
+        if 20 < estado["curiosidad"] < 60:
+            foco += 5
+        elif estado["curiosidad"] > 80:
+            foco -= 5
+        return PsychologyEngine._clamp(foco, 0.0, 100.0)

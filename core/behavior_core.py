@@ -92,12 +92,13 @@ class BehaviorCore:
             # Ajustar umbral de abandono según la paciencia actual
             self.task_context.actualizar_umbral_abandono(self.personality.paciencia)
             # Si se detectan patrones, generar eventos adicionales automáticamente
+            #correcion de errores :3
             if self.task_context.detectar_loop():
-                self.state_engine.aplicar_evento("loop_detectado", 1.0)
+                self.procesar_evento("loop_detectado", {"intensidad": 1.0})
             if self.task_context.detectar_estancamiento():
-                self.state_engine.aplicar_evento("fracaso", 0.5)  # leve refuerzo de frustración
+                self.procesar_evento("fracaso", {"intensidad": 0.5})
             if self.task_context.detectar_compulsion():
-                self.state_engine.aplicar_evento("sobrecarga", 0.3)
+                self.procesar_evento("sobrecarga", {"intensidad": 0.3})
 
         # 4. Recalcular modificadores globales (personalidad + política)
         self._actualizar_modificadores_globales()
@@ -106,7 +107,8 @@ class BehaviorCore:
         contexto = self.psychology.generar_contexto_llm(
             self.state_engine,
             self.personality,
-            self.task_context
+            self.task_context,
+            policy_offsets=self._offsets_politica,
         )
 
         # 6. Construir respuesta
@@ -186,11 +188,8 @@ class BehaviorCore:
         # Obtener modificadores de la política
         poli_mods = self._policy_modifiers()
 
-        # Construir diccionario final para StateEngine
-        # Los offsets de política se aplican directamente a las variables (StateEngine los aplicará en tick/aplicar_evento)
-        # Pero StateEngine espera modificadores que multiplican tasas, no offsets directos.
-        # Para integrar offsets sin romper la interfaz, podemos almacenar los offsets aparte y aplicarlos en procesar_evento o en un método dedicado.
-        # Solución: guardar los offsets en self._offsets_politica y aplicarlos después de cada actualización importante.
+        # Guardamos los offsets de politica como una capa derivada.
+        # No deben mutar el estado crudo para evitar acumulaciones artificiales.
         self._offsets_politica = {
             "confianza": poli_mods.get("confianza_offset", 0.0),
             "curiosidad": poli_mods.get("curiosidad_offset", 0.0),
@@ -216,21 +215,6 @@ class BehaviorCore:
         }
         self.state_engine.actualizar_modificadores(mods_engine)
 
-        # Aplicar offsets de política al state_engine (suma directa a las variables)
-        self._aplicar_offsets_politica()
-
-    def _aplicar_offsets_politica(self):
-        """Suma los offsets de la política actual a las variables conductuales y homeostáticas."""
-        off = self._offsets_politica
-        self.state_engine.confianza += off["confianza"]
-        self.state_engine.curiosidad += off["curiosidad"]
-        self.state_engine.tolerancia_riesgo += off["tolerancia_riesgo"]
-        self.state_engine.agresividad += off["agresividad"]
-        self.state_engine.motivacion += off["motivacion"]
-        self.state_engine.foco += off["foco"]
-        self.state_engine.carga_cognitiva += off["carga_cognitiva"]
-        self.state_engine._limitar()  # respetar rangos
-
     # ------------------------------------------------------------------
     # Métodos de consulta rápida
     # ------------------------------------------------------------------
@@ -240,7 +224,8 @@ class BehaviorCore:
         return self.psychology.generar_contexto_llm(
             self.state_engine,
             self.personality,
-            self.task_context
+            self.task_context,
+            policy_offsets=self._offsets_politica,
         )
 
     def obtener_resumen(self) -> dict:
@@ -252,7 +237,10 @@ class BehaviorCore:
             "tarea": tarea,
             "policy": self.policy,
             "narrativa": self.psychology.generar_resumen_narrativo(
-                self.state_engine, self.personality, self.task_context
+                self.state_engine,
+                self.personality,
+                self.task_context,
+                policy_offsets=self._offsets_politica,
             ),
         }
 

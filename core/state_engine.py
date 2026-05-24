@@ -17,14 +17,16 @@ class StateEngine:
     Todas las variables son numéricas y se actualizan mediante tick() y aplicar_evento().
     """
 
+    MAX_TICK_DELTA_SEG = 300.0  # Maximo de decaimiento offline: 5 minutos simulados.
+
     def __init__(self):
-        # Variables Homeostáticas (0-100, 0 = ausencia, 100 = máximo)
+        # Variables homeostáticas (0-100, 0 = ausencia, 100 = máximo)
         self.energia = 80.0          # Energía física/mental disponible
         self.estres = 10.0           # Carga negativa acumulada
         self.foco = 70.0             # Capacidad de atención basal
         self.carga_cognitiva = 20.0  # Saturación mental por multitarea/procesamiento
 
-        # Variables Conductuales (-100 a 100, bipolar con significado psicológico)
+        # Variables conductuales (-100 a 100, bipolar con significado psicológico)
         self.confianza = 0.0         # -100 (inseguridad/paranoia) ↔ +100 (sobreconfianza)
         self.curiosidad = 10.0       # -100 (apatía) ↔ +100 (hipercuriosidad)
         self.motivacion = 15.0       # -100 (anhedonia) ↔ +100 (obsesión)
@@ -46,11 +48,11 @@ class StateEngine:
             "tasa_agresividad": 1.0,
             "tasa_tolerancia_riesgo": 1.0,
             "amortiguador_estres": 1.0,  # 1.0 = sin reducción adicional
-            #aca pondria borrachera para que se ambientera
+            # aca pondria borrachera para que se ambientera
         }
 
     def actualizar_modificadores(self, nuevos_mods: dict):
-        """Recibe un diccionario con los modificadores calculados desde personality.py"""
+        """Recibe un diccionario con los modificadores calculados desde personality.py."""
         self.modificadores.update(nuevos_mods)
 
     def tick(self):
@@ -61,8 +63,17 @@ class StateEngine:
         ahora = time.time()
         delta_seg = ahora - self._ultimo_tick
         if delta_seg <= 0:
+            self._ultimo_tick = ahora
             return
+
         self._ultimo_tick = ahora
+        if delta_seg > self.MAX_TICK_DELTA_SEG:
+            logger.info(
+                "Tick limitado de %.2fs a %.2fs para evitar decaimiento excesivo tras una pausa larga.",
+                delta_seg,
+                self.MAX_TICK_DELTA_SEG,
+            )
+            delta_seg = self.MAX_TICK_DELTA_SEG
 
         # --- Tasas base por segundo (ajustables) ---
         # Homeostáticas
@@ -77,37 +88,40 @@ class StateEngine:
         # Aplicar modificadores de personalidad (multiplican las tasas base)
         mod = self.modificadores
 
-        # --- Actualizaciones Homeostáticas ---
+        # --- Actualizaciones homeostáticas ---
         # Energía: decae siempre, más rápido si hay estrés o carga cognitiva altos
         factor_energia = 1.0 + (self.estres / 100.0) * 0.5 + (self.carga_cognitiva / 100.0) * 0.3
         self.energia -= decaimiento_energia * delta_seg * factor_energia * mod["tasa_energia"]
 
         # Estrés: se disipa naturalmente, pero más lento si la resiliencia es baja
         self.estres -= recuperacion_estres * delta_seg * mod["amortiguador_estres"] * mod["tasa_estres"]
+        self.energia = max(0.0, min(100.0, self.energia))
+        self.estres = max(0.0, min(100.0, self.estres))
 
         # Foco: decae con el tiempo, más rápido con estrés alto o energía baja
         factor_foco = 1.0 + (self.estres / 100.0) * 0.4 + ((100 - self.energia) / 100.0) * 0.3
         self.foco -= decaimiento_foco * delta_seg * factor_foco * mod["tasa_foco"]
 
-        # Carga cognitiva: se disipa despacio, pero aumenta si el foco es bajo (esfuerzo compensatorio)
+        # Carga cognitiva: se disipa despacio, pero aumenta si el foco es bajo
         if self.foco < 40:
-            self.carga_cognitiva += 0.2 * delta_seg  # más difícil concentrarse → más carga
+            self.carga_cognitiva += 0.2 * delta_seg  # esfuerzo compensatorio
         self.carga_cognitiva -= decaimiento_carga * delta_seg * mod["tasa_carga_cognitiva"]
 
-        # --- Actualizaciones Conductuales (reversión a la media 0) ---
+        # --- Actualizaciones conductuales (reversión a la media 0) ---
         for attr in ["confianza", "curiosidad", "motivacion", "agresividad", "tolerancia_riesgo"]:
             valor = getattr(self, attr)
+            paso = reversion_conductual * delta_seg * mod[f"tasa_{attr}"]
             if valor > 0:
-                setattr(self, attr, valor - reversion_conductual * delta_seg * mod[f"tasa_{attr}"])
+                setattr(self, attr, max(0.0, valor - paso))
             elif valor < 0:
-                setattr(self, attr, valor + reversion_conductual * delta_seg * mod[f"tasa_{attr}"])
-            # Se acerca gradualmente a 0
+                setattr(self, attr, min(0.0, valor + paso))
 
         # --- Efectos cruzados internos ---
         # Estrés alto drena energía extra y reduce foco efectivo
         if self.estres > 70:
             self.energia -= 0.2 * delta_seg
             self.foco -= 0.3 * delta_seg
+
         # Curiosidad muy alta puede aumentar carga cognitiva (dispersión)
         if abs(self.curiosidad) > 70:
             self.carga_cognitiva += 0.1 * delta_seg
@@ -126,7 +140,6 @@ class StateEngine:
         # Primero, tick para actualizar por tiempo
         self.tick()
 
-        # Mapeo de eventos a cambios (valores base, luego escalados por intensidad y modificadores)
         cambios = {
             # tipo_evento: (delta_energia, delta_estres, delta_foco, delta_carga,
             #               delta_confianza, delta_curiosidad, delta_motivacion,
@@ -161,7 +174,6 @@ class StateEngine:
             logger.warning(f"Evento desconocido: '{tipo_evento}', sin cambios.")
             return
 
-        # Aplicar cambios escalados por intensidad
         delta_energia, delta_estres, delta_foco, delta_carga, \
             delta_confianza, delta_curiosidad, delta_motivacion, \
             delta_agresividad, delta_tolerancia = cambios
@@ -177,7 +189,6 @@ class StateEngine:
         self.agresividad += delta_agresividad * intensidad * mod["tasa_agresividad"]
         self.tolerancia_riesgo += delta_tolerancia * intensidad * mod["tasa_tolerancia_riesgo"]
 
-        # Asegurar rangos
         self._limitar()
 
     def _limitar(self):
@@ -212,32 +223,27 @@ class StateEngine:
         Foco real considerando estrés, energía y carga cognitiva.
         Se usa para calcular probabilidad de errores.
         """
-        f = self.foco
-        # Penalizaciones
+        foco = self.foco
         if self.estres > 60:
-            f -= (self.estres - 60) * 0.5
+            foco -= (self.estres - 60) * 0.5
         if self.energia < 40:
-            f -= (40 - self.energia) * 0.4
+            foco -= (40 - self.energia) * 0.4
         if self.carga_cognitiva > 50:
-            f -= (self.carga_cognitiva - 50) * 0.3
-        # Bonificación por curiosidad moderada (atención focalizada)
+            foco -= (self.carga_cognitiva - 50) * 0.3
         if 20 < self.curiosidad < 60:
-            f += 5
+            foco += 5
         elif self.curiosidad > 80:  # demasiada curiosidad dispersa
-            f -= 5
-        return max(0, min(100, f))
+            foco -= 5
+        return max(0, min(100, foco))
 
     @property
     def resiliencia_actual(self) -> float:
         """Nivel de resiliencia efectiva en este momento (0-1)."""
-        # Base desde el rasgo de personalidad (se inyectará como modificador)
         base = self.modificadores.get("amortiguador_estres", 1.0)  # 1.0 = resiliencia neutra
-        # Modulación por estado: estrés muy alto la reduce temporalmente
         if self.estres > 80:
             base *= 0.8
         elif self.estres < 20:
             base *= 1.1
-        # Motivación alta puede dar resiliencia extra
         if self.motivacion > 50:
             base *= 1.05
         return round(base, 2)
