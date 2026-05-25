@@ -43,8 +43,9 @@ class MemorySummarizer:
         if semanticos:
             fragmentos.append("Reglas aprendidas:")
             for r in semanticos[:2]:
-                regla = r.recuerdo.regla
-                fragmentos.append(f"- {regla}")
+                if isinstance(r.recuerdo, SemanticMemory):  # <-- Añade este escudo
+                    regla = r.recuerdo.regla
+                    fragmentos.append(f"- {regla}")
             fragmentos.append("")
 
         # 2. Patrones detectados en recuerdos episódicos
@@ -65,12 +66,13 @@ class MemorySummarizer:
             )
             fragmentos.append("Experiencias más relevantes:")
             for r in impactantes[:3]:
-                tipo = r.recuerdo.metadata.tipo_evento if r.recuerdo.metadata else "evento"
-                narr = r.recuerdo.narrativa
-                # Acortar narrativa si es muy larga
-                if len(narr) > 120:
-                    narr = narr[:120] + "..."
-                fragmentos.append(f"- [{tipo}] {narr}")
+                if isinstance(r.recuerdo, EpisodicMemory):  # <-- Añade este escudo
+                    tipo = r.recuerdo.metadata.tipo_evento if r.recuerdo.metadata else "evento"
+                    narr = r.recuerdo.narrativa
+                    # Acortar narrativa si es muy larga
+                    if len(narr) > 120:
+                        narr = narr[:120] + "..."
+                    fragmentos.append(f"- [{tipo}] {narr}")
 
         resultado = "\n".join(fragmentos).strip()
         if len(resultado) > max_caracteres:
@@ -100,7 +102,11 @@ class MemorySummarizer:
             patrones.append("Predominio de eventos negativos en los recuerdos recientes.")
 
         # Si hay muchos recuerdos con la misma narrativa base (similitud textual simple)
-        narrativas = [r.recuerdo.narrativa.lower().strip() for r in episodicos]
+        narrativas = [
+            r.recuerdo.narrativa.lower().strip() 
+            for r in episodicos 
+            if isinstance(r.recuerdo, EpisodicMemory)  # <-- Añade este escudo
+        ]
         repeticiones = Counter(narrativas)
         for frase, cuenta in repeticiones.items():
             if cuenta >= 2:

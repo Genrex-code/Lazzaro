@@ -99,8 +99,8 @@ class WorkingMemoryItem:
 # ------------------------------------------------------------------
 # Resultado de una búsqueda en la memoria (para el retriever)
 # ------------------------------------------------------------------
-
-@dataclass(frozen=True)
+# aca le quite el solo lectura para que se mantenga el erro fuera de memorua perro ( retriever como golden retriver jasjas  (por favor duerman a este tipo - codex))
+@dataclass()
 class MemoryResult:
     """
     Elemento devuelto por memory_retriever tras una consulta.

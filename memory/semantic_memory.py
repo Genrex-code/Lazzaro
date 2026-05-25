@@ -1,27 +1,35 @@
 """
-semantic_memory.py - Gestión de memoria semántica.
-Proporciona métodos para almacenar y recuperar reglas, patrones y abstracciones
+semantic_memory.py - Gestion de memoria semantica.
+Proporciona metodos para almacenar y recuperar reglas, patrones y abstracciones
 utilizando ChromaClient y MemoryEncoder.
 """
 
-from typing import List, Optional
 import datetime
+from typing import List
 
-from memory.memory_types import (
-    SemanticMemory,
-    MemoryMetadata,
-    MemoryResult,
-)
-from memory.memory_encoder import MemoryEncoder
-from memory.chroma_client import ChromaClient
+from chromadb.api.types import Metadata, Where
+
 from core.logger import get_logger
+from memory.chroma_client import ChromaClient
+from memory.memory_encoder import MemoryEncoder
+from memory.memory_types import MemoryMetadata, MemoryResult, SemanticMemory
 
 logger = get_logger(__name__)
 
 
+def _valor_a_str(valor: object, default: str) -> str:
+    return valor if isinstance(valor, str) else default
+
+
+def _valor_a_float(valor: object, default: float) -> float:
+    if isinstance(valor, (int, float)) and not isinstance(valor, bool):
+        return float(valor)
+    return default
+
+
 class SemanticMemoryStore:
     """
-    Repositorio de recuerdos semánticos (abstracciones, reglas, patrones).
+    Repositorio de recuerdos semanticos (abstracciones, reglas, patrones).
     Utiliza ChromaClient como backend y MemoryEncoder para transformar objetos.
     """
 
@@ -35,8 +43,8 @@ class SemanticMemoryStore:
 
     def almacenar(self, recuerdo: SemanticMemory) -> bool:
         """
-        Guarda una regla o abstracción en ChromaDB.
-        Retorna True si se guardó correctamente, False en caso de error.
+        Guarda una regla o abstraccion en ChromaDB.
+        Retorna True si se guardo correctamente, False en caso de error.
         """
         doc = self.encoder.a_documento(recuerdo)
         return self.client.agregar(
@@ -49,41 +57,53 @@ class SemanticMemoryStore:
         self,
         query: str,
         n: int = 5,
-        where: Optional[dict] = None,
+        where: Where | None = None,
     ) -> List[MemoryResult]:
         """
-        Busca recuerdos semánticos por similitud semántica.
+        Busca recuerdos semanticos por similitud semantica.
         Retorna una lista de MemoryResult con SemanticMemory reconstruidos.
         """
         resultados = self.client.buscar(query, n, where)
         if not resultados:
             return []
 
-        ids = resultados.get("ids", [[]])[0]
-        documents = resultados.get("documents", [[]])[0]
-        metadatas = resultados.get("metadatas", [[]])[0]
-        distances = resultados.get("distances", [[]])[0]
+        ids = resultados["ids"][0] if resultados["ids"] else []
+        document_batches = resultados.get("documents")
+        metadata_batches = resultados.get("metadatas")
+        distance_batches = resultados.get("distances")
 
-        output = []
+        documents: list[str] = document_batches[0] if document_batches else []
+        metadatas: list[Metadata] = metadata_batches[0] if metadata_batches else []
+        distances: list[float] = distance_batches[0] if distance_batches else []
+
+        output: list[MemoryResult] = []
         for i, id_ in enumerate(ids):
             meta = metadatas[i] if i < len(metadatas) else {}
             doc_text = documents[i] if i < len(documents) else ""
 
-            # Reconstruir MemoryMetadata
-            tipo_evento = meta.get("tipo_evento", "semantica")
-            valencia = meta.get("valencia", 0.0)
-            impacto = meta.get("impacto_emocional", 0.5)
-            ts_str = meta.get("timestamp", "")
+            tipo_evento = _valor_a_str(meta.get("tipo_evento"), "semantica")
+            valencia = _valor_a_float(meta.get("valencia"), 0.0)
+            impacto = _valor_a_float(meta.get("impacto_emocional"), 0.5)
+            ts_str = _valor_a_str(meta.get("timestamp"), "")
             try:
-                ts = datetime.datetime.fromisoformat(ts_str) if ts_str else datetime.datetime.utcnow()
+                ts = (
+                    datetime.datetime.fromisoformat(ts_str)
+                    if ts_str
+                    else datetime.datetime.utcnow()
+                )
             except Exception:
                 ts = datetime.datetime.utcnow()
 
-            # Extraer origen
-            origen = meta.get("origen", "determinista")
+            origen = _valor_a_str(meta.get("origen"), "determinista")
 
-            # Extraer campos adicionales que no son reservados
-            reserved = {"tipo_evento", "valencia", "impacto_emocional", "timestamp", "tipo", "origen"}
+            reserved = {
+                "tipo_evento",
+                "valencia",
+                "impacto_emocional",
+                "timestamp",
+                "tipo",
+                "origen",
+            }
             extra = {k: v for k, v in meta.items() if k not in reserved}
 
             metadata = MemoryMetadata(
@@ -99,5 +119,6 @@ class SemanticMemoryStore:
                 regla=doc_text,
                 origen=origen,
             )
-            output.append(MemoryResult(recuerdo=recuerdo, distancia=distances[i]))
+            distancia = distances[i] if i < len(distances) else 1.0
+            output.append(MemoryResult(recuerdo=recuerdo, distancia=distancia))
         return output

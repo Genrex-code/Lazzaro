@@ -1,11 +1,16 @@
 """
-chroma_client.py - Encapsula toda interacción directa con ChromaDB.
+chroma_client.py - Encapsula toda interaccion directa con ChromaDB.
 Proporciona una interfaz limpia y tolerante a fallos para el resto del sistema.
 """
 
-from typing import Optional
+from typing import Any, cast
+
 import chromadb
+from chromadb.api import ClientAPI
+from chromadb.api.models.Collection import Collection
+from chromadb.api.types import Metadata, QueryResult, Where
 from chromadb.config import Settings as ChromaSettings
+
 from core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -13,8 +18,8 @@ logger = get_logger(__name__)
 
 class ChromaClient:
     """
-    Cliente ligero sobre una única colección de ChromaDB.
-    Abstrae detalles de inicialización, añadido, consulta y eliminación,
+    Cliente ligero sobre una unica coleccion de ChromaDB.
+    Abstrae detalles de inicializacion, anadido, consulta y eliminacion,
     y captura errores para que un fallo en la base de datos no derribe al agente.
     """
 
@@ -22,24 +27,24 @@ class ChromaClient:
         self,
         db_path: str = "./lazzaro_data",
         collection_name: str = "experiencias",
-    ):
+    ) -> None:
         """
         Args:
             db_path: Ruta del almacenamiento persistente de ChromaDB.
-            collection_name: Nombre de la colección a utilizar/crear.
+            collection_name: Nombre de la coleccion a utilizar o crear.
         """
         self.db_path = db_path
         self.collection_name = collection_name
-        self._client = None
-        self._collection = None
+        self._client: ClientAPI | None = None
+        self._collection: Collection | None = None
         self._inicializar()
 
     # ------------------------------------------------------------------
-    # Inicialización y estado
+    # Inicializacion y estado
     # ------------------------------------------------------------------
 
-    def _inicializar(self):
-        """Crea o conecta al cliente y a la colección, con manejo de errores."""
+    def _inicializar(self) -> None:
+        """Crea o conecta al cliente y a la coleccion, con manejo de errores."""
         try:
             self._client = chromadb.PersistentClient(
                 path=self.db_path,
@@ -50,19 +55,19 @@ class ChromaClient:
                 metadata={"hnsw:space": "cosine"},
             )
             logger.info(
-                "ChromaDB inicializado en '%s', colección '%s' lista.",
+                "ChromaDB inicializado en '%s', coleccion '%s' lista.",
                 self.db_path,
                 self.collection_name,
             )
         except Exception as e:
             logger.error("Error al inicializar ChromaDB: %s", e)
-            # El cliente queda a None; los métodos de consulta devolverán vacío.
+            # El cliente queda a None; los metodos devolveran un valor seguro.
             self._client = None
             self._collection = None
 
     @property
     def disponible(self) -> bool:
-        """Indica si la conexión con la colección está activa."""
+        """Indica si la conexion con la coleccion esta activa."""
         return self._collection is not None
 
     # ------------------------------------------------------------------
@@ -72,20 +77,21 @@ class ChromaClient:
     def agregar(
         self,
         documentos: list[str],
-        metadatos: list[dict],
+        metadatos: list[dict[str, Any]],
         ids: list[str],
     ) -> bool:
         """
-        Añade una o varias entradas a la colección.
-        Retorna True si la operación fue exitosa, False en caso de error.
+        Anade una o varias entradas a la coleccion.
+        Retorna True si la operacion fue exitosa, False en caso de error.
         """
-        if not self.disponible:
-            logger.warning("Intento de agregar a ChromaDB sin conexión.")
+        collection = self._collection
+        if collection is None:
+            logger.warning("Intento de agregar a ChromaDB sin conexion.")
             return False
         try:
-            self._collection.add(
+            collection.add(
                 documents=documentos,
-                metadatas=metadatos,
+                metadatas=cast(list[Metadata], metadatos),
                 ids=ids,
             )
             logger.debug("Agregados %d documentos a '%s'.", len(ids), self.collection_name)
@@ -98,35 +104,35 @@ class ChromaClient:
         self,
         consulta: str,
         n_resultados: int = 5,
-        where: Optional[dict] = None,
-    ) -> dict:
+        where: Where | None = None,
+    ) -> QueryResult | None:
         """
-        Realiza una búsqueda por similitud semántica.
-        Retorna un diccionario con la respuesta cruda de ChromaDB,
-        o un diccionario vacío si ocurre un error.
+        Realiza una busqueda por similitud semantica.
+        Retorna la respuesta cruda de ChromaDB, o None si ocurre un error.
         """
-        if not self.disponible:
-            logger.warning("Búsqueda en ChromaDB sin conexión.")
-            return {}
+        collection = self._collection
+        if collection is None:
+            logger.warning("Busqueda en ChromaDB sin conexion.")
+            return None
         try:
-            resultado = self._collection.query(
+            return collection.query(
                 query_texts=[consulta],
                 n_results=n_resultados,
                 where=where,
                 include=["documents", "metadatas", "distances"],
             )
-            return resultado
         except Exception as e:
             logger.error("Error al buscar en ChromaDB: %s", e)
-            return {}
+            return None
 
     def eliminar(self, ids: list[str]) -> bool:
         """Elimina documentos por sus IDs. Retorna True si fue exitoso."""
-        if not self.disponible:
-            logger.warning("Intento de eliminar en ChromaDB sin conexión.")
+        collection = self._collection
+        if collection is None:
+            logger.warning("Intento de eliminar en ChromaDB sin conexion.")
             return False
         try:
-            self._collection.delete(ids=ids)
+            collection.delete(ids=ids)
             logger.debug("Eliminados %d documentos de '%s'.", len(ids), self.collection_name)
             return True
         except Exception as e:
@@ -134,11 +140,12 @@ class ChromaClient:
             return False
 
     def contar(self) -> int:
-        """Devuelve el número de documentos en la colección, o -1 si hay error."""
-        if not self.disponible:
+        """Devuelve el numero de documentos en la coleccion, o -1 si hay error."""
+        collection = self._collection
+        if collection is None:
             return -1
         try:
-            return self._collection.count()
+            return collection.count()
         except Exception as e:
             logger.error("Error al contar documentos: %s", e)
             return -1
