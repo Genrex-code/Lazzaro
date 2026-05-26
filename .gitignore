@@ -1,3 +1,5 @@
 #sacar:
 *.log
 *.pyc
+*.env
+*settings.py
