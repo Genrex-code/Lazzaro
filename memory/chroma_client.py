@@ -4,13 +4,12 @@ Proporciona una interfaz limpia y tolerante a fallos para el resto del sistema.
 """
 
 from typing import Any, cast
-
+import threading
 import chromadb
 from chromadb.api import ClientAPI
 from chromadb.api.models.Collection import Collection
 from chromadb.api.types import Metadata, QueryResult, Where
 from chromadb.config import Settings as ChromaSettings
-
 from core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -36,7 +35,9 @@ class ChromaClient:
         self.db_path = db_path
         self.collection_name = collection_name
         self._client: ClientAPI | None = None
-        self._collection: Collection | None = None
+        #esta es una forma de decir que esto puede ser cualquiercosa o puede ser nada vacia
+        self._collection: Any | None = None
+        self._lock = threading.Lock()
         self._inicializar()
 
     # ------------------------------------------------------------------
@@ -88,17 +89,18 @@ class ChromaClient:
         if collection is None:
             logger.warning("Intento de agregar a ChromaDB sin conexion.")
             return False
-        try:
-            collection.add(
-                documents=documentos,
-                metadatas=cast(list[Metadata], metadatos),
-                ids=ids,
-            )
-            logger.debug("Agregados %d documentos a '%s'.", len(ids), self.collection_name)
-            return True
-        except Exception as e:
-            logger.error("Error al agregar documentos a ChromaDB: %s", e)
-            return False
+        with self._lock:  # <-- EL SEMÁFORO: Solo un hilo pasa a la vez
+            try:
+                collection.add(
+                    documents=documentos,
+                    metadatas=metadatos,
+                    ids=ids,
+                )
+                logger.debug("Agregados %d documentos a '%s'.", len(ids), self.collection_name)
+                return True
+            except Exception as e:
+                logger.error("Error al agregar documentos: %s", e)
+                return False
 
     def buscar(
         self,
