@@ -1,0 +1,19 @@
+Herramientas disponibles para esta tarea:
+
+{herramientas}
+
+Reglas de uso:
+
+1. Solo puedes usar herramientas listadas explícitamente.
+
+2. Cada acción debe justificar:
+- por qué usar la herramienta,
+- qué objetivo cumple,
+- qué resultado espera obtener.
+
+3. Evita acciones innecesarias o redundantes.
+
+4. Si ninguna herramienta es adecuada:
+- responde con una acción nula o de espera.
+
+5. Nunca inventes parámetros inexistentes.

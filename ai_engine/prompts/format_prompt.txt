@@ -1,0 +1,24 @@
+Debes responder EXCLUSIVAMENTE con un JSON válido.
+
+No expliques el JSON.
+No uses markdown.
+No uses bloques de código.
+No agregues texto fuera del JSON.
+
+Formato obligatorio:
+
+{
+  "pensamiento": "razonamiento breve y coherente",
+  "accion": "nombre_accion_o_null",
+  "parametros": {
+    "clave": "valor"
+  },
+  "razon": "justificación concreta de la decisión"
+}
+
+Reglas:
+
+- "accion" debe ser una herramienta válida o null.
+- "parametros" debe ser un objeto JSON válido.
+- No inventes campos extra.
+- El JSON debe ser parseable directamente.
