@@ -17,6 +17,7 @@ from api.schemas import (
 )
 from ai_engine.schemas import ActionResponse
 from core.logger import get_logger
+from tools.executor import ActionExecutor
 
 logger = get_logger(__name__)
 
@@ -131,14 +132,28 @@ class Orchestrator:
         # 5. Convertir ActionResponse a AccionSaliente (modelo de API)
         accion_saliente = self._a_accion_saliente(action_response, politica)
 
-        # 6. Registrar en memoria de trabajo y cache de idempotencia
+        # 6. Ejecutar la acción final si aplica y registrar el resultado
+        resultado_memoria = "sin_accion"
+        detalles_resultado = None
+        if accion_saliente.nombre != "none":
+            resultado_ejecucion = ActionExecutor.ejecutar(accion_saliente)
+            resultado_memoria = "ok" if resultado_ejecucion.exito else "error"
+            detalles_resultado = {
+                "mensaje": resultado_ejecucion.mensaje,
+                "error": resultado_ejecucion.error,
+                "datos_extra": resultado_ejecucion.datos_extra,
+            }
+
         self.memory.agregar_accion(
             accion=action_response.accion,
-            resultado="pendiente",
+            resultado=resultado_memoria,
+            detalles=detalles_resultado,
         )
+
+        # 7. Cache de idempotencia
         self._transacciones_procesadas[evento.id_transaccion] = accion_saliente
 
-        # 7. Si el agente quiere comunicar algo espontáneo, encolar notificación
+        # 8. Si el agente quiere comunicar algo espontáneo, encolar notificación
         self._agregar_notificacion_si_corresponde(action_response)
 
         logger.info("Evento %s procesado. Acción: %s", evento.id_transaccion, accion_saliente.nombre)
@@ -178,9 +193,10 @@ class Orchestrator:
 
     def _a_accion_saliente(self, action_response: ActionResponse, politica: str) -> AccionSaliente:
         """Convierte la ActionResponse interna en el modelo de API."""
-        # Determinar si requiere confirmación (ej. si es herramienta real y no es política autónoma)
+        # Determinar si requiere confirmación usando la metadata real de la herramienta
         requiere_confirmacion = False
-        if action_response.accion in ("mouse_real", "keyboard_real") and politica != "autonoma":
+        tool_info = self.tool_registry.get_tool(action_response.accion) if self.tool_registry else None
+        if tool_info and tool_info.get("requires_confirmation") and politica != "autonoma":
             requiere_confirmacion = True
 
         return AccionSaliente(
