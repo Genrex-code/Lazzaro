@@ -8,7 +8,7 @@ from typing import Optional, List
 from core.logger import get_logger
 from ai_engine.ai_client import BaseAIClient
 from ai_engine.context_builder import ContextBuider
-from ai_engine.prompt_buider import PromptBuilder
+from ai_engine.prompt_builder import PromptBuilder
 from ai_engine.llm_policies import LLMPolicyManager
 from ai_engine.tool_router import ToolRouter
 from ai_engine.response_parser import ResponseParser

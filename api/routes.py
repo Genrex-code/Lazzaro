@@ -1,16 +1,135 @@
-from fastapi import APIRouter
-import logging
-from models.schemas import EventoRoblox
-# from services.agente_services import procesar_evento_lazzaro  <-- Lo usarás pronto
+"""
+api/routes.py - Endpoints REST para Roblox, Unity y otros clientes.
+Recibe eventos externos, los pasa al orquestador central y devuelve acciones.
+"""
 
-router = APIRouter()
-logger = logging.getLogger(__name__)
+from fastapi import APIRouter, Request, HTTPException, Depends
+from typing import Optional
 
-@router.post("/evento")
-async def recibir_evento(evento: EventoRoblox):
-    logger.info(f"📥 Evento recibido desde Roblox: {evento.tipo_evento} con {evento.objeto_involucrado}")
-    
-    # Aquí llamaremos a tu servicio pesado:
-    # respuesta = procesar_evento_lazzaro(evento)
-    
-    return {"status": "recibido", "accion_lazzaro": "pendiente"}
+from api.schemas import (
+    EventoEntrante,
+    RespuestaAPI,
+    AccionSaliente,
+    EstadoAgente,
+    NotificacionSaliente,
+)
+from core.logger import get_logger
+
+logger = get_logger(__name__)
+
+router = APIRouter(prefix="/api/v1", tags=["lazzaro"])
+
+
+# ------------------------------------------------------------------
+# Dependencia para obtener el orquestador desde app.state
+# ------------------------------------------------------------------
+async def get_orchestrator(request: Request):
+    """Obtiene el orquestador inyectado en el estado de la aplicación."""
+    orch = request.app.state.orchestrator
+    if orch is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Orquestador no disponible. Espere a que el agente esté listo.",
+        )
+    return orch
+
+
+# ------------------------------------------------------------------
+# Endpoints principales
+# ------------------------------------------------------------------
+
+@router.post("/evento", response_model=RespuestaAPI)
+async def procesar_evento(
+    evento: EventoEntrante,
+    orchestrator = Depends(get_orchestrator),
+):
+    """
+    Recibe un evento desde Roblox, Unity o el sandbox.
+    El orquestador actualiza el estado interno, consulta la memoria,
+    razona con la IA y devuelve la acción a ejecutar (si procede).
+    """
+    logger.info("Evento recibido: origen=%s, tipo=%s, id_transaccion=%s",
+                evento.origen, evento.tipo_evento, evento.id_transaccion)
+
+    try:
+        # Delegar al orquestador central (devuelve una AccionSaliente o None)
+        accion = await orchestrator.procesar_evento(evento)
+
+        # Si no hay acción, devolvemos estado ok sin acción
+        if accion is None:
+            return RespuestaAPI(
+                status="ok",
+                mensaje="Evento procesado, pero el agente no requiere acción inmediata.",
+                id_transaccion=evento.id_transaccion,
+                accion = None
+            )
+
+        # Si hay acción, la empaquetamos
+        return RespuestaAPI(
+            status="ok",
+            mensaje="Acción generada correctamente.",
+            id_transaccion=evento.id_transaccion,
+            accion=accion,
+        )
+
+    except Exception as e:
+        logger.error("Error al procesar evento %s: %s", evento.id_transaccion, e)
+        return RespuestaAPI(
+            status="error",
+            mensaje=f"Error interno: {str(e)}",
+            id_transaccion=evento.id_transaccion,
+            accion=None,
+        )
+
+
+@router.get("/estado", response_model=EstadoAgente)
+async def obtener_estado(request: Request):
+    """
+    Devuelve el estado interno actual del agente (emocional y de personalidad)
+    para que el frontend pueda visualizarlo en tiempo real.
+    """
+    orch = request.app.state.orchestrator
+    if orch is None:
+        raise HTTPException(status_code=503, detail="Agente no disponible")
+
+    # Obtener snapshot del estado desde el core (el orchestrator expone un método)
+    try:
+        estado = orch.obtener_estado_publico()
+        return estado
+    except Exception as e:
+        logger.error("Error al obtener estado: %s", e)
+        raise HTTPException(status_code=500, detail="Error al leer el estado del agente")
+
+
+@router.get("/notificaciones", response_model=list[NotificacionSaliente])
+async def obtener_notificaciones(request: Request):
+    """
+    Recupera mensajes espontáneos que el agente quiere comunicar al exterior,
+    por ejemplo, avisos de cansancio, sugerencias, etc.
+    """
+    orch = request.app.state.orchestrator
+    if orch is None:
+        raise HTTPException(status_code=503, detail="Agente no disponible")
+
+    # El orchestrator mantiene una cola de notificaciones salientes
+    try:
+        notificaciones = orch.obtener_notificaciones()
+        return notificaciones
+    except Exception as e:
+        logger.error("Error al obtener notificaciones: %s", e)
+        return []
+
+
+@router.post("/comando", response_model=RespuestaAPI)
+async def enviar_comando_directo(
+    comando: EventoEntrante,
+    orchestrator = Depends(get_orchestrator),
+):
+    """
+    Permite a un administrador o al sandbox enviar un comando textual directo
+    al agente (por ejemplo, 'abrir chrome', 'escribir informe').
+    Se procesa igual que un evento, pero con tipo_evento='comando_usuario'.
+    """
+    # Forzamos el tipo de evento para que el core lo interprete como orden directa
+    comando.tipo_evento = "comando_usuario"
+    return await procesar_evento(comando, orchestrator)

@@ -48,8 +48,8 @@ class GeminiClient(BaseAIClient):
         gen_config = self.generation_config
         if 'temperature' in kwargs:
             gen_config = gen_config.copy(update={'temperature': kwargs['temperature']})
-        if 'max_tokens' in kwargs:
-            gen_config = gen_config.copy(update={'max_output_tokens': kwargs['max_tokens']})
+        if 'max_output_tokens' in kwargs:
+            gen_config = gen_config.copy(update={'max_output_tokens': kwargs['max_output_tokens']})
 
         max_retries = 3
         for intento in range(1, max_retries + 1):

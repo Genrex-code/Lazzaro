@@ -9,7 +9,7 @@ if str(project_root) not in sys.path:
 from config.settings import Settings
 from ai_engine.gemini_client import GeminiClient
 from ai_engine.schemas import AgentContext
-from ai_engine.prompt_buider import PromptBuilder
+from ai_engine.prompt_builder import PromptBuilder
 from ai_engine.response_parser import ResponseParser
 
 def probar_cerebro():
