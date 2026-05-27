@@ -1,80 +1,133 @@
-import logging
-from fastapi import FastAPI, Request
-from api.routes import router
-from core.state_engine import LazzaroState
-from memory.vector_db import ChromaDBConnector
-from ai_engine.gemini_client import GeminiClient
-from tools.registry import ToolRegistry
-from tools.simulated.keyboard_sim import KeyboardSim
-from tools.simulated.mouse_sim import MouseSim
-from services.agente_services import AgenteService
+"""
+main.py - Punto de entrada de Lazzaro.
+Construye la aplicación FastAPI con todos los componentes correctamente inyectados.
+
+Correcciones aplicadas vs versión anterior:
+  - LazzaroState → StateEngine (nombre correcto de la clase)
+  - ChromaDBConnector → ChromaClient (nombre correcto de la clase)
+  - CHROMA_DB_PATH añadido a Settings (faltaba en config)
+  - GeminiClient recibe Settings completo, no api_key suelto
+  - Se construye Orchestrator correctamente y se guarda en app.state
+  - Se importan los módulos de herramientas para que los decoradores
+    @ToolRegistry.register se ejecuten (registro automático)
+  - Se elimina el uso de register_tool() que no existe
+  - AgenteService eliminado del arranque (no existe; el Orchestrator lo reemplaza)
+  - startup_event usa la sintaxis moderna de FastAPI (lifespan)
+"""
+
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+
 from config.settings import Settings
 from core.logger import get_logger
+from core.state_engine import StateEngine
+from core.personality import PersonalityTraits
+from core.psychology import PsychologyEngine
+from core.behavior_core import BehaviorCore
+from core.orchestrator import Orchestrator
 
-# configuracion de logs fuertes :3
+from memory.chroma_client import ChromaClient
+from memory.memory_manager import MemoryManager
+
+from ai_engine.gemini_client import GeminiClient
+from ai_engine.reasoning_engine import ReasoningEngine
+
+from tools.registry import ToolRegistry
+
+# Importar los módulos de herramientas para que los decoradores
+# @ToolRegistry.register(...) se ejecuten y queden registradas.
+import tools.simulated.keyboard_sim   # noqa: F401
+import tools.simulated.mouse_sim      # noqa: F401
+import tools.simulated.movimiento_sim # noqa: F401
+# Las herramientas reales NO se importan aquí para evitar que
+# queden disponibles para el LLM fuera de un entorno sandbox.
+# Descomenta la siguiente línea solo si estás en modo sandbox controlado:
+# import tools.real.keyboard_real
+# import tools.real.mouse_real
+
+from api.routes import router
+
 logger = get_logger(__name__)
 
 
-def create_app() -> FastAPI:
-    """Fabrica la aplicacion FastApi con todos los componentes inyectados."""
-    app = FastAPI(title ="Lazzaro backend", version = "0.1")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Ciclo de vida de la aplicación (reemplaza los deprecados @app.on_event).
+    Todo lo que va antes del 'yield' es startup; lo de después es shutdown.
+    """
+    logger.info("=== Iniciando Lazzaro ===")
 
-    #1.- cargar configuracion desde .env (usando settitngs.py)
-    logger.info ("Cargando configuracion desde .env...")
+    # 1. Cargar configuración desde .env
+    logger.info("Cargando configuración...")
     settings = Settings()
-    
-    #2.- inicializar componentes de manejo de errores
 
     try:
-        logger.info("Inicializando estado emocional ...")
-        estado = LazzaroState()
+        # 2. Inicializar capa de comportamiento (estado, personalidad, psicología)
+        logger.info("Inicializando BehaviorCore...")
+        behavior_core = BehaviorCore()
 
-        logger.info("Inicializando base de datos vectorial (ChromaDB)...")
-        vector_db = ChromaDBConnector(
-            persist_directory = settings.CHROMA_DB_PATH
-        )
-        logger.info("configurando cliente gemini...")
-        gemini_client = GeminiClient(
-            api_key = settings.GEMINI_API_KEY
-        )
-# por el momento seran las simuladas ya luego reestablecere el uso de otras
-# herramientas mas avanzadas, pero esto me permite avanzar con el desarrollo
-# del backend sin depender de herramientas externas
-        logger.info("Registrando herramientas... ")
-        tool_registry = ToolRegistry()
-        tool_registry.register_tool("keyboard", KeyboardSim())
-        tool_registry.register_tool("mouse", MouseSim())
+        # 3. Inicializar base de datos vectorial (ChromaDB)
+        logger.info("Inicializando ChromaDB en '%s'...", settings.CHROMA_DB_PATH)
+        chroma_client = ChromaClient(db_path=settings.CHROMA_DB_PATH)
+        memory_manager = MemoryManager(chroma_client=chroma_client)
 
-        logger.info("Construyendo servicio orquestador ...")
-        agente_service = AgenteService(
-            estado = estado,
-            vector_db = vector_db,
-            gemini_client = gemini_client,
-            tool_registry = tool_registry
+        # 4. Inicializar cliente de IA (Gemini)
+        logger.info("Configurando cliente Gemini (modelo: %s)...", settings.GEMINI_MODEL_NAME)
+        gemini_client = GeminiClient(settings=settings)
+
+        # 5. Inicializar motor de razonamiento
+        logger.info("Inicializando ReasoningEngine...")
+        reasoning_engine = ReasoningEngine(ai_client=gemini_client)
+
+        # 6. Las herramientas ya están registradas gracias a los imports de arriba.
+        herramientas_disponibles = ToolRegistry.listar_nombres()
+        logger.info(
+            "Herramientas registradas (%d): %s",
+            len(herramientas_disponibles),
+            herramientas_disponibles,
         )
-        #guardamos el servicio en el estado global para que los endpoints puedan acceder a el
-        app.state.agente_service = agente_service
-        logger.info("AgenteService inicializado correctamente.")
-        #excepcion con raise para que la app no levante si algo esta mal
+
+        # 7. Construir el Orchestrator central
+        logger.info("Construyendo Orchestrator...")
+        orchestrator = Orchestrator(
+            behavior_core=behavior_core,
+            memory_manager=memory_manager,
+            reasoning_engine=reasoning_engine,
+            tool_registry=ToolRegistry,  # pasamos la clase, no una instancia
+        )
+
+        # 8. Guardar en app.state para que los endpoints puedan accederlo
+        app.state.orchestrator = orchestrator
+        logger.info("✅ Lazzaro inicializado correctamente. Sistemas nominales.")
+
     except Exception as e:
-        logger.error(f"Error al inicializar componentes: {e}")
+        logger.error("❌ Error crítico durante el arranque: %s", e, exc_info=True)
         raise
 
-    #3.- incluir las rutas de api
+    yield  # La app está corriendo — aquí FastAPI maneja los requests
+
+    # --- Shutdown ---
+    logger.info("=== Apagando Lazzaro ===")
+    # Si en el futuro necesitas cerrar conexiones o hacer flush de memoria, hazlo aquí.
+
+
+def create_app() -> FastAPI:
+    """Fábrica de la aplicación FastAPI."""
+    app = FastAPI(
+        title="Lazzaro Backend",
+        version="0.1",
+        description="Sistema cognitivo autónomo con estado emocional, memoria y razonamiento con LLM.",
+        lifespan=lifespan,
+    )
     app.include_router(router)
-
-    #4.- evento de inicio ( startup)
-
-    @app.on_event("startup")
-    async def startup_event():
-        logger.info("Aplicacion iniciada correctamente con sistemas nominales cargados.")
-        #desde aca cargaremos los recuerdos 
-        #ejemplo #await vector_db.initialize() o algo asi si es necesario
     return app
-#punto de entrada principal
+
+
+# Punto de entrada
 app = create_app()
 
 if __name__ == "__main__":
     import uvicorn
-    logger.info("Iniciando servidor Uvicorn en puerto 8000...")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    logger.info("Iniciando servidor Uvicorn en http://0.0.0.0:8000 ...")
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
