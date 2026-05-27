@@ -1,22 +1,21 @@
 """
-context_buider.py - Construye el contexto estrcuturado que alimenta el prompt del LLM.
-Recibe las salida de PsychologyEngine (contexto_llm), la memoria resumida,
-las herramientas disponibles y la politica activa, y los empaquetadso en un AgentContext.
-No reinterpreta emociones; solo organiza los datos.
+context_builder.py - Construye el contexto estructurado que alimenta el prompt del LLM.
+Recibe la salida de PsychologyEngine, la memoria resumida, las herramientas
+disponibles y la politica activa, y las empaqueta en un AgentContext.
 """
 
-from typing import Optional,List
+from typing import Optional
 
-from core.logger import get_logger
 from ai_engine.schemas import AgentContext
+from core.logger import get_logger
 
-#logs
 logger = get_logger(__name__)
 
-class ContextBuider: 
+
+class ContextBuilder:
     """
-    Resposable de consolidad toda la informacio relevante de un unico objeto
-    AgentContext, listo para que el prompt_buider lo transforme en texto.
+    Consolida toda la informacion relevante en un unico AgentContext
+    listo para que el PromptBuilder lo transforme en texto.
     """
 
     @staticmethod
@@ -28,37 +27,30 @@ class ContextBuider:
         tarea: Optional[dict] = None,
     ) -> AgentContext:
         """
-        Construye un AgentContext inmutable a partir de las piezas proporcionadas.
-        
-        Args:
-            contexto_llm: diccionario devuelto por PsychologyEngine.generar_contexto_llm.
-                Contiene 'estado_narrativo', 'valores', 'umbrales', 'personalidad', etc.
-            memoria_texto: texto resumido de la memoria (desde MemoryManager.obtener_contexto_memoria).
-            herramientas: lista de nombres de herramientas disponibles.
-            politica: nombre de la política activa (ej. "cautelosa").
-            tarea: diccionario opcional con 'objetivo_id', 'frustracion_local', etc.
+        Construye un AgentContext a partir de las piezas proporcionadas.
 
-        Returns:
-            AgentContext listo para el prompt_builder.
+        Soporta tanto el resumen crudo de TaskContext como una tarea ya
+        normalizada con claves como 'objetivo', 'intentos' y 'fallos'.
         """
-        #Extraer campos del context_llm con valores por defecto "seguros"
-        estado_narrativo = contexto_llm.get("estado_narrativo","")
-        valores = contexto_llm.get("valores",{})
+        estado_narrativo = contexto_llm.get("estado_narrativo", "")
+        valores = contexto_llm.get("valores", {})
         personalidad = contexto_llm.get("personalidad", {})
-        umbrales = contexto_llm.get("umbrales",{})
+        umbrales = contexto_llm.get("umbrales", {})
         tarea_data = tarea if tarea else contexto_llm.get("tarea")
 
-        #construimos el contexto de tarea si existe+
         tarea_contexto = None
-        if tarea_data: 
+        if tarea_data:
             tarea_contexto = {
-                "objetivo": tarea_data.get("objetivo_id", ""),
-                "intentos": tarea_data.get("intentos_totales", 0),
-                "fallos": tarea_data.get("intentos_fallidos", 0),
-                "frustracion": tarea_data.get("frustracion_local", 0.0),
+                "objetivo": tarea_data.get("objetivo", tarea_data.get("objetivo_id", "")),
+                "intentos": tarea_data.get("intentos", tarea_data.get("intentos_totales", 0)),
+                "fallos": tarea_data.get("fallos", tarea_data.get("intentos_fallidos", 0)),
+                "frustracion": tarea_data.get("frustracion", tarea_data.get("frustracion_local", 0.0)),
                 "umbral_abandono": tarea_data.get("umbral_abandono", 80.0),
                 "loop_detectado": tarea_data.get("loop_detectado", False),
-                "estancamiento": tarea_data.get("estancamiento_detectado", False),
+                "estancamiento": tarea_data.get(
+                    "estancamiento",
+                    tarea_data.get("estancamiento_detectado", False),
+                ),
             }
 
         agent_context = AgentContext(
@@ -71,6 +63,9 @@ class ContextBuider:
             politica=politica,
             banderas=umbrales,
         )
-        logger.debug("AgentContext construido con política '%s' y %d herramientas.",
-                     politica, len(herramientas or []))
+        logger.debug(
+            "AgentContext construido con politica '%s' y %d herramientas.",
+            politica,
+            len(herramientas or []),
+        )
         return agent_context

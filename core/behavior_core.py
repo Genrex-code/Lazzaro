@@ -30,7 +30,7 @@ class BehaviorCore:
 
         # Política actual
         self.policy = "exploradora"  # por defecto
-        self.policies_disponibles = ["cautelosa", "exploradora", "eficiente", "social"]
+        self.policies_disponibles = ["cautelosa", "exploradora", "eficiente", "social", "autonoma"]
 
         # Aplicar modificadores iniciales
         self._actualizar_modificadores_globales()
@@ -174,6 +174,14 @@ class BehaviorCore:
             mods["confianza_offset"] = 5.0
             mods["tasa_estres_mult"] = 0.8    # el apoyo social reduce estrés
             # La sociabilidad de personalidad también se potenciará indirectamente
+
+        elif self.policy == "autonoma":
+            mods["confianza_offset"] = 12.0
+            mods["tolerancia_riesgo_offset"] = 20.0
+            mods["motivacion_offset"] = 8.0
+            mods["foco_offset"] = 5.0
+            mods["tasa_energia_mult"] = 1.1
+            mods["tasa_confianza_mult"] = 1.1
 
         return mods
 

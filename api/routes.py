@@ -4,6 +4,7 @@ Recibe eventos externos, los pasa al orquestador central y devuelve acciones.
 """
 
 from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi.concurrency import run_in_threadpool
 from typing import Optional
 
 from api.schemas import (
@@ -53,7 +54,7 @@ async def procesar_evento(
 
     try:
         # Delegar al orquestador central (devuelve una AccionSaliente o None)
-        accion = await orchestrator.procesar_evento(evento)
+        accion = await run_in_threadpool(orchestrator.procesar_evento, evento)
 
         # Si no hay acción, devolvemos estado ok sin acción
         if accion is None:

@@ -37,3 +37,7 @@ class BaseAIClient(ABC):
             True si el servicio está accesible, False en caso contrario.
         """
         ...
+
+    def close(self) -> None:
+        """Libera recursos del cliente si la implementacion concreta lo requiere."""
+        return None

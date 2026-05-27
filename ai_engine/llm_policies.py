@@ -94,6 +94,7 @@ class LLMPolicyManager:
         gen_params = {
             "temperature": config["temperature"],
             "max_output_tokens": config["max_tokens"],
+            "response_mime_type": "application/json",
         }
 
         # Filtrar herramientas según riesgo

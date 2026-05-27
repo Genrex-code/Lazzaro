@@ -15,7 +15,7 @@ from ai_engine.response_parser import ResponseParser
 def probar_cerebro():
     print("1. Iniciando cliente Gemini...")
     # El cliente leerá la key de tu archivo .env automáticamente gracias a Pydantic
-    client = GeminiClient(Settings()) 
+    client = GeminiClient(settings=Settings()) 
     
     print("2. Simulando el contexto de Lazzaro...")
     # Simulamos lo que escupiría el motor emocional y la memoria

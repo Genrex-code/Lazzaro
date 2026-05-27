@@ -4,7 +4,7 @@ Centraliza las estructuras que viajan entre el core, la memoria , el LLM y las h
 """
 
 from datetime import datetime
-from typing import Any,Optional
+from typing import Any, Optional
 from pydantic import BaseModel, Field
 from datetime import timezone
 #==========================================================================================
@@ -78,7 +78,10 @@ class PromptSections (BaseModel):
 class LLMResponse(BaseModel):
     """formato que el LLM debe devolver"""
     pensamiento: str = Field(...,description="Razonamiento interno del agente")
-    accion: str = Field(...,description= "Nombre de la accion a ejecutar")
+    accion: Optional[str] = Field(
+        default=None,
+        description="Nombre de la accion a ejecutar o null si no aplica",
+    )
     parametros: dict[str,Any] = Field(default_factory=dict,description="Parametros de la accion")
     razon: str = Field("",description="Motivo por el que se elige esta accion")
 

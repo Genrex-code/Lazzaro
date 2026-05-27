@@ -57,6 +57,8 @@ async def lifespan(app: FastAPI):
     Todo lo que va antes del 'yield' es startup; lo de después es shutdown.
     """
     logger.info("=== Iniciando Lazzaro ===")
+    app.state.orchestrator = None
+    gemini_client = None
 
     # 1. Cargar configuración desde .env
     logger.info("Cargando configuración...")
@@ -109,6 +111,8 @@ async def lifespan(app: FastAPI):
 
     # --- Shutdown ---
     logger.info("=== Apagando Lazzaro ===")
+    if gemini_client is not None:
+        gemini_client.close()
     # Si en el futuro necesitas cerrar conexiones o hacer flush de memoria, hazlo aquí.
 
 
@@ -120,6 +124,7 @@ def create_app() -> FastAPI:
         description="Sistema cognitivo autónomo con estado emocional, memoria y razonamiento con LLM.",
         lifespan=lifespan,
     )
+    app.state.orchestrator = None
     app.include_router(router)
     return app
 

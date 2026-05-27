@@ -1,83 +1,168 @@
 """
-gemini_client.py - Implementación concreta de BaseAIClient para Google Gemini.
-Maneja autenticación, envío de prompts y recuperación de respuestas.
+gemini_client.py - Cliente robusto para Google Gemini usando google.genai.
 """
 
+import random
+import re
 import time
-from typing import Optional
+from typing import Any, Optional
 
-import google.generativeai as genai
-from google.generativeai.types import GenerationConfig
+from google import genai
+from google.genai import types
 
 from ai_engine.ai_client import BaseAIClient
 from core.logger import get_logger
-from config.settings import Settings
 
 logger = get_logger(__name__)
 
 
 class GeminiClient(BaseAIClient):
-    """
-    Cliente para interactuar con la API de Google Gemini.
-    """
+    """Cliente para Google Gemini con reintentos y manejo basico de rate limits."""
 
-    def __init__(self, settings: Optional[Settings] = None):
-        """
-        Args:
-            settings: instancia de config.settings (si es None, se crea una por defecto).
-        """
+    def __init__(self, settings: Optional[Any] = None):
+        from config.settings import Settings
+
         self.settings = settings or Settings()
-        genai.configure(api_key=self.settings.GEMINI_API_KEY)
-        self.model = genai.GenerativeModel(
-            model_name=self.settings.GEMINI_MODEL_NAME or "models/gemini-2.0-flash",
+
+        api_key = getattr(self.settings, "GEMINI_API_KEY", "").strip()
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY no esta definida en la configuracion.")
+
+        self.model_name = self._normalizar_modelo(
+            getattr(self.settings, "GEMINI_MODEL_NAME", "gemini-2.5-flash")
         )
-        self.generation_config = GenerationConfig(
-            temperature=self.settings.GEMINI_TEMPERATURE if hasattr(self.settings, 'GEMINI_TEMPERATURE') else 0.7,
-            max_output_tokens=self.settings.GEMINI_MAX_TOKENS if hasattr(self.settings, 'GEMINI_MAX_TOKENS') else 1024,
+        self.client = genai.Client(api_key=api_key)
+        self.generation_config = types.GenerateContentConfig(
+            temperature=getattr(self.settings, "GEMINI_TEMPERATURE", 0.7),
+            max_output_tokens=getattr(self.settings, "GEMINI_MAX_TOKENS", 1024),
             top_p=0.95,
             top_k=40,
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                disable=True,
+                maximum_remote_calls=None,
+            ),
         )
-        logger.info("Cliente Gemini inicializado con modelo '%s'.", self.settings.GEMINI_MODEL_NAME)
+
+        logger.info("GeminiClient listo (modelo: %s).", self.model_name)
 
     def generate(self, prompt: str, **kwargs) -> str:
-        """
-        Envía el prompt a Gemini y devuelve el texto generado.
-        Soporta reintentos básicos ante errores transitorios.
-        """
-        # Permitir sobrescribir temperatura/max_tokens por llamada
-        gen_config = self.generation_config
-        if 'temperature' in kwargs:
-            gen_config = gen_config.copy(update={'temperature': kwargs['temperature']})
-        if 'max_output_tokens' in kwargs:
-            gen_config = gen_config.copy(update={'max_output_tokens': kwargs['max_output_tokens']})
+        """Envia un prompt a Gemini y devuelve el texto generado."""
+        max_retries = 4
+        backoff = 1.0
+        gen_config = self._build_generation_config(kwargs)
 
-        max_retries = 3
         for intento in range(1, max_retries + 1):
             try:
-                response = self.model.generate_content(
-                    prompt,
-                    generation_config=gen_config,
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                    config=gen_config,
                 )
-                # Extraer texto de la respuesta
-                texto = response.text or ""
-                logger.debug("Gemini respondió con %d caracteres.", len(texto))
-                return texto
+                texto = self._extraer_texto(response)
+                if texto:
+                    logger.debug("Gemini -> %d caracteres (intento %d).", len(texto), intento)
+                    return texto
+
+                logger.warning("Gemini devolvio texto vacio (intento %d).", intento)
 
             except Exception as e:
-                logger.warning("Error en llamada a Gemini (intento %d/%d): %s", intento, max_retries, str(e))
-                if intento < max_retries:
-                    time.sleep(2 ** intento)  # backoff exponencial
-                else:
-                    logger.error("Todos los intentos fallaron. Devolviendo cadena vacía.")
-                    return ""
+                msg = str(e)
+                wait = self._calcular_espera(msg, backoff)
+                logger.warning(
+                    "Error Gemini (intento %d/%d): %.160s. Esperando %.1fs...",
+                    intento,
+                    max_retries,
+                    msg,
+                    wait,
+                )
+                time.sleep(wait)
+                backoff *= 2
+
+        logger.error("Gemini no respondio tras %d intentos.", max_retries)
+        return ""
 
     def health_check(self) -> bool:
-        """
-        Verifica que el servicio de Gemini esté accesible realizando una consulta mínima.
-        """
+        """Verifica accesibilidad al servicio con una generacion minima."""
         try:
-            self.generate("Responde solo con 'ok'.")
-            return True
+            respuesta = self.generate(
+                "Responde solo con: ok",
+                temperature=0.0,
+                max_output_tokens=8,
+                response_mime_type="text/plain",
+            )
+            return bool(respuesta and "ok" in respuesta.lower())
         except Exception as e:
-            logger.error("Health check de Gemini falló: %s", e)
+            logger.error("Health check Gemini fallido: %s", e)
             return False
+
+    def close(self) -> None:
+        """Cierra las conexiones HTTP mantenidas por el SDK."""
+        client = getattr(self, "client", None)
+        if client is None:
+            return
+
+        try:
+            client.close()
+        except Exception as e:
+            logger.warning("No se pudo cerrar el cliente Gemini limpiamente: %s", e)
+        finally:
+            self.client = None
+
+    def _build_generation_config(self, overrides: dict[str, Any]) -> types.GenerateContentConfig:
+        """Construye un GenerateContentConfig a partir de la base y los kwargs recibidos."""
+        base = self.generation_config.model_dump(exclude_none=True)
+        new_kwargs = {
+            "temperature": overrides.get("temperature", base.get("temperature")),
+            "max_output_tokens": overrides.get("max_output_tokens", base.get("max_output_tokens")),
+            "top_p": overrides.get("top_p", base.get("top_p")),
+            "top_k": overrides.get("top_k", base.get("top_k")),
+            "stop_sequences": overrides.get("stop_sequences"),
+            "response_mime_type": overrides.get("response_mime_type"),
+            "automatic_function_calling": overrides.get(
+                "automatic_function_calling",
+                base.get("automatic_function_calling"),
+            ),
+        }
+        return types.GenerateContentConfig(
+            **{key: value for key, value in new_kwargs.items() if value is not None}
+        )
+
+    @staticmethod
+    def _normalizar_modelo(model_name: str) -> str:
+        """Acepta nombres con o sin prefijo 'models/'."""
+        return model_name.removeprefix("models/").strip()
+
+    @staticmethod
+    def _extraer_texto(response: Any) -> str:
+        """Extrae texto del response de google.genai de forma tolerante."""
+        texto = getattr(response, "text", None)
+        if isinstance(texto, str) and texto.strip():
+            return texto.strip()
+
+        candidates = getattr(response, "candidates", None) or []
+        for candidate in candidates:
+            content = getattr(candidate, "content", None)
+            parts = getattr(content, "parts", None) or []
+            fragmentos = []
+            for part in parts:
+                part_text = getattr(part, "text", None)
+                if isinstance(part_text, str) and part_text.strip():
+                    fragmentos.append(part_text.strip())
+            if fragmentos:
+                return "\n".join(fragmentos)
+
+        return ""
+
+    @staticmethod
+    def _calcular_espera(msg: str, backoff: float) -> float:
+        """Calcula el tiempo de espera a partir del mensaje de error y un backoff base."""
+        wait = backoff + random.uniform(0, 1)
+        match = re.search(r"retry_delay\s*\{\s*seconds\s*:\s*(\d+)", msg, re.IGNORECASE)
+        if match:
+            return int(match.group(1)) + random.uniform(0, 0.5)
+
+        match = re.search(r"retry in (\d+)s", msg, re.IGNORECASE)
+        if match:
+            return int(match.group(1)) + random.uniform(0, 1)
+
+        return wait
