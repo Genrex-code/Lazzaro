@@ -2,14 +2,17 @@
 tools/simulated/movimiento_sim.py - Acciones dentro del mundo virtual 3D.
 """
 
+from typing import Union
 from tools.registry import ToolRegistry
 from pydantic import BaseModel, Field
 
 # 1. Definimos estrictamente qué necesita Lazzaro para moverse
 class MoverseParams(BaseModel):
     direccion: str = Field(..., description="'adelante', 'atras', 'izquierda', 'derecha'")
-    distancia: float = Field(..., description="Unidades o metros a recorrer en el entorno 3D")
-    velocidad: str = Field("caminar", description="'caminar', 'correr' o 'sigilo'")
+    # Usamos Union para que acepte float, int o string si Gemini se pone creativo
+    distancia: Union[float, int, str] = Field(..., description="Unidades o metros a recorrer en el entorno 3D")
+    # Aceptamos string o números
+    velocidad: Union[str, float, int] = Field("caminar", description="'caminar', 'correr' o 'sigilo'")
 
 # 2. Registramos la herramienta
 @ToolRegistry.register(
@@ -22,9 +25,16 @@ def moverse_entorno_3d(params: MoverseParams) -> str:
     """
     Como es simulado, no ejecutamos código físico.
     Devolvemos el string que Lazzaro leerá en su memoria de trabajo para saber qué hizo.
-    El Orchestrator se encargará de mandar el JSON real a Roblox.
     """
-    return f"[Mundo Virtual] Comando enviado al motor: {params.velocidad} hacia {params.direccion} por {params.distancia} unidades."
+    # Limpiamos los datos de forma segura para no romper el motor
+    try:
+        distancia_segura = float(params.distancia)
+    except (ValueError, TypeError):
+        distancia_segura = 1.0 # Fallback si manda texto incomprensible
+        
+    velocidad_segura = str(params.velocidad)
+    
+    return f"[Mundo Virtual] Comando enviado al motor: {velocidad_segura} hacia {params.direccion} por {distancia_segura} unidades."
 
 
 class InteraccionParams(BaseModel):

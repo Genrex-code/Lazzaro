@@ -55,6 +55,21 @@ class Orchestrator:
         contexto_llm = respuesta_core.get("contexto_llm", {})
         tarea = respuesta_core.get("tarea")
         politica = respuesta_core.get("policy_activa", "exploradora")
+        # --- PARCHE DE MISIONES DESDE UNITY ---
+        # Si el core no generó una tarea formal, pero Unity mandó un objetivo, lo inyectamos a la fuerza
+        if not tarea and evento.detalles and "mensaje" in evento.detalles:
+            mensaje_unity = str(evento.detalles["mensaje"])
+            if "objetivo" in mensaje_unity.lower():
+                tarea = {
+                    "objetivo": mensaje_unity,
+                    "intentos": 0,
+                    "fallos": 0,
+                    "frustracion": 0.0,
+                    "umbral_abandono": 80.0,
+                    "loop_detectado": False,
+                    "estancamiento": False
+                }
+        # --------------------------------------
 
         memoria_texto = ""
         try:
