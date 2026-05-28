@@ -26,6 +26,9 @@ class AgentContext(BaseModel):
     #memoria recuperada y resumida
     memoria_texto: str = ""
 
+    #percepcion actual del entorno resumida
+    percepcion_texto: str = ""
+
     #herramientas disponibles (lsita de nombres)
     herramientas: list[str] = Field(default_factory=list)
 
@@ -51,6 +54,7 @@ class PromptSections (BaseModel):
     system:str = ""
     personalidad:str = ""
     estado_emocional:str = ""    #de mejico 
+    entorno:str = ""
     objetivo:str = ""
     memoria:str = ""
     herramientas:str = ""
@@ -63,6 +67,7 @@ class PromptSections (BaseModel):
             self.system,
             self.personalidad,
             self.estado_emocional,
+            self.entorno,
             self.objetivo,
             self.memoria,
             self.herramientas,

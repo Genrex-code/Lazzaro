@@ -5,12 +5,11 @@ Recibe eventos externos, los pasa al orquestador central y devuelve acciones.
 
 from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.concurrency import run_in_threadpool
-from typing import Optional
+from fastapi.responses import JSONResponse
 
 from api.schemas import (
     EventoEntrante,
     RespuestaAPI,
-    AccionSaliente,
     EstadoAgente,
     NotificacionSaliente,
 )
@@ -74,13 +73,14 @@ async def procesar_evento(
         )
 
     except Exception as e:
-        logger.error("Error al procesar evento %s: %s", evento.id_transaccion, e)
-        return RespuestaAPI(
+        logger.error("Error al procesar evento %s: %s", evento.id_transaccion, e, exc_info=True)
+        error = RespuestaAPI(
             status="error",
             mensaje=f"Error interno: {str(e)}",
             id_transaccion=evento.id_transaccion,
             accion=None,
         )
+        return JSONResponse(status_code=500, content=error.model_dump(mode="json"))
 
 
 @router.get("/estado", response_model=EstadoAgente)

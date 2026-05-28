@@ -1,11 +1,11 @@
 """
 state_engine.py - Capa 1 del sistema de comportamiento de Lazzaro.
-Contiene las variables emocionales/cognitivas crudas, el decaimiento temporal (tick),
-y la aplicación de eventos. Los valores se actualizan con reglas matemáticas deterministas.
-Los rasgos de personalidad (personality.py) actuarán como modificadores externos de las tasas.
+Contiene las variables emocionales/cognitivas crudas, el decaimiento temporal
+y la aplicacion de eventos deterministas.
 """
 
 import time
+
 from core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -14,29 +14,28 @@ logger = get_logger(__name__)
 class StateEngine:
     """
     Motor de estado interno de Lazzaro.
-    Todas las variables son numéricas y se actualizan mediante tick() y aplicar_evento().
+    Todas las variables son numericas y se actualizan mediante tick() y aplicar_evento().
     """
 
-    MAX_TICK_DELTA_SEG = 300.0  # Maximo de decaimiento offline: 5 minutos simulados.
+    MAX_TICK_DELTA_SEG = 300.0
+    DOLOR_FISICO_DURACION_SEG = 15.0
 
     def __init__(self):
-        # Variables homeostáticas (0-100, 0 = ausencia, 100 = máximo)
-        self.energia = 80.0          # Energía física/mental disponible
-        self.estres = 10.0           # Carga negativa acumulada
-        self.foco = 70.0             # Capacidad de atención basal
-        self.carga_cognitiva = 20.0  # Saturación mental por multitarea/procesamiento
+        self.energia = 80.0
+        self.estres = 10.0
+        self.foco = 70.0
+        self.carga_cognitiva = 20.0
 
-        # Variables conductuales (-100 a 100, bipolar con significado psicológico)
-        self.confianza = 0.0         # -100 (inseguridad/paranoia) ↔ +100 (sobreconfianza)
-        self.curiosidad = 10.0       # -100 (apatía) ↔ +100 (hipercuriosidad)
-        self.motivacion = 15.0       # -100 (anhedonia) ↔ +100 (obsesión)
-        self.agresividad = 0.0       # -100 (pasividad) ↔ +100 (hostilidad)
-        self.tolerancia_riesgo = 0.0 # -100 (aversión total) ↔ +100 (temeridad)
+        self.confianza = 0.0
+        self.curiosidad = 10.0
+        self.motivacion = 15.0
+        self.agresividad = 0.0
+        self.tolerancia_riesgo = 0.0
 
-        # Control interno
         self._ultimo_tick = time.time()
+        self.dolor_fisico_reciente = False
+        self._dolor_fisico_expira = 0.0
 
-        # Modificadores por defecto (sin personalidad). Luego behavior_core los actualizará.
         self.modificadores = {
             "tasa_estres": 1.0,
             "tasa_energia": 1.0,
@@ -47,8 +46,7 @@ class StateEngine:
             "tasa_motivacion": 1.0,
             "tasa_agresividad": 1.0,
             "tasa_tolerancia_riesgo": 1.0,
-            "amortiguador_estres": 1.0,  # 1.0 = sin reducción adicional
-            # aca pondria borrachera para que se ambientera
+            "amortiguador_estres": 1.0,
         }
 
     def actualizar_modificadores(self, nuevos_mods: dict):
@@ -57,8 +55,8 @@ class StateEngine:
 
     def tick(self):
         """
-        Aplica decaimiento/recuperación natural según el tiempo transcurrido.
-        Debe llamarse antes de cualquier evaluación para mantener el estado fresco.
+        Aplica decaimiento/recuperacion natural segun el tiempo transcurrido.
+        Debe llamarse antes de cualquier evaluacion para mantener el estado fresco.
         """
         ahora = time.time()
         delta_seg = ahora - self._ultimo_tick
@@ -75,39 +73,31 @@ class StateEngine:
             )
             delta_seg = self.MAX_TICK_DELTA_SEG
 
-        # --- Tasas base por segundo (ajustables) ---
-        # Homeostáticas
-        decaimiento_energia = 0.1      # se gasta solo por existir
-        recuperacion_estres = 0.2      # se relaja con el tiempo
-        decaimiento_foco = 0.05        # se dispersa lentamente
-        decaimiento_carga = 0.15       # la carga cognitiva también se disipa
+        if self.dolor_fisico_reciente and ahora >= self._dolor_fisico_expira:
+            self.dolor_fisico_reciente = False
 
-        # Conductuales (tienden a volver a 0 si no hay refuerzo)
-        reversion_conductual = 0.05    # tasa a la que regresan a neutro
+        decaimiento_energia = 0.1
+        recuperacion_estres = 0.2
+        decaimiento_foco = 0.05
+        decaimiento_carga = 0.15
+        reversion_conductual = 0.05
 
-        # Aplicar modificadores de personalidad (multiplican las tasas base)
         mod = self.modificadores
 
-        # --- Actualizaciones homeostáticas ---
-        # Energía: decae siempre, más rápido si hay estrés o carga cognitiva altos
         factor_energia = 1.0 + (self.estres / 100.0) * 0.5 + (self.carga_cognitiva / 100.0) * 0.3
         self.energia -= decaimiento_energia * delta_seg * factor_energia * mod["tasa_energia"]
 
-        # Estrés: se disipa naturalmente, pero más lento si la resiliencia es baja
         self.estres -= recuperacion_estres * delta_seg * mod["amortiguador_estres"] * mod["tasa_estres"]
         self.energia = max(0.0, min(100.0, self.energia))
         self.estres = max(0.0, min(100.0, self.estres))
 
-        # Foco: decae con el tiempo, más rápido con estrés alto o energía baja
         factor_foco = 1.0 + (self.estres / 100.0) * 0.4 + ((100 - self.energia) / 100.0) * 0.3
         self.foco -= decaimiento_foco * delta_seg * factor_foco * mod["tasa_foco"]
 
-        # Carga cognitiva: se disipa despacio, pero aumenta si el foco es bajo
         if self.foco < 40:
-            self.carga_cognitiva += 0.2 * delta_seg  # esfuerzo compensatorio
+            self.carga_cognitiva += 0.2 * delta_seg
         self.carga_cognitiva -= decaimiento_carga * delta_seg * mod["tasa_carga_cognitiva"]
 
-        # --- Actualizaciones conductuales (reversión a la media 0) ---
         for attr in ["confianza", "curiosidad", "motivacion", "agresividad", "tolerancia_riesgo"]:
             valor = getattr(self, attr)
             paso = reversion_conductual * delta_seg * mod[f"tasa_{attr}"]
@@ -116,67 +106,42 @@ class StateEngine:
             elif valor < 0:
                 setattr(self, attr, min(0.0, valor + paso))
 
-        # --- Efectos cruzados internos ---
-        # Estrés alto drena energía extra y reduce foco efectivo
         if self.estres > 70:
             self.energia -= 0.2 * delta_seg
             self.foco -= 0.3 * delta_seg
 
-        # Curiosidad muy alta puede aumentar carga cognitiva (dispersión)
         if abs(self.curiosidad) > 70:
             self.carga_cognitiva += 0.1 * delta_seg
 
-        # Asegurar rangos
         self._limitar()
 
     def aplicar_evento(self, tipo_evento: str, intensidad: float = 1.0, contexto: dict | None = None):
         """
-        Ajusta las variables según un evento externo.
-        - tipo_evento: cadena que describe el suceso (ver mapeo abajo)
-        - intensidad: multiplicador de la magnitud del cambio (1.0 normal)
-        - contexto: información adicional (opcional)
+        Ajusta las variables segun un evento externo.
         """
-        logger.debug(f"Aplicando evento '{tipo_evento}' con intensidad {intensidad}")
-        # Primero, tick para actualizar por tiempo
+        logger.debug("Aplicando evento '%s' con intensidad %s", tipo_evento, intensidad)
         self.tick()
 
-        cambios = {
-            # tipo_evento: (delta_energia, delta_estres, delta_foco, delta_carga,
-            #               delta_confianza, delta_curiosidad, delta_motivacion,
-            #               delta_agresividad, delta_tolerancia_riesgo)
-        }
-
-        if tipo_evento == "recompensa":
-            cambios = (0, -15, 5, -5, 10, 5, 10, -5, 0)
-        elif tipo_evento == "tarea_completada":
-            cambios = (-5, -10, 0, -10, 15, 0, 20, 0, 5)
-        elif tipo_evento == "error_critico":
-            cambios = (-10, 25, -15, 15, -20, -5, -15, 5, -10)
-        elif tipo_evento == "fracaso":
-            cambios = (-5, 20, -10, 10, -25, 0, -20, 0, -5)
-        elif tipo_evento == "interaccion_social":
-            cambios = (2, -5, 0, 0, 5, 0, 5, 0, 0)
-        elif tipo_evento == "critica":
-            cambios = (0, 15, -5, 5, -15, 0, -10, 5, 0)
-        elif tipo_evento == "descanso":
-            cambios = (20, -10, 10, -10, 0, -5, 0, -5, 0)
-        elif tipo_evento == "sobrecarga":
-            cambios = (-15, 30, -20, 30, -5, 0, -5, 10, 5)
-        elif tipo_evento == "exploracion_exitosa":
-            cambios = (-5, -5, 0, 5, 10, 15, 10, 0, 5)
-        elif tipo_evento == "exploracion_fallida":
-            cambios = (-5, 10, -5, 10, -10, -5, -5, 0, -5)
-        elif tipo_evento == "ayuda_recibida":
-            cambios = (5, -15, 5, -5, 10, 0, 5, -10, 0)
-        elif tipo_evento == "loop_detectado":
-            cambios = (-5, 20, -10, 15, -10, 0, -10, 10, 0)
-        else:
-            logger.warning(f"Evento desconocido: '{tipo_evento}', sin cambios.")
+        cambios = self._obtener_cambios_evento(tipo_evento)
+        if cambios is None:
+            logger.warning("Evento desconocido: '%s', sin cambios.", tipo_evento)
             return
 
-        delta_energia, delta_estres, delta_foco, delta_carga, \
-            delta_confianza, delta_curiosidad, delta_motivacion, \
-            delta_agresividad, delta_tolerancia = cambios
+        if tipo_evento == "alerta_dolor_fisico":
+            self.dolor_fisico_reciente = True
+            self._dolor_fisico_expira = time.time() + self.DOLOR_FISICO_DURACION_SEG
+
+        (
+            delta_energia,
+            delta_estres,
+            delta_foco,
+            delta_carga,
+            delta_confianza,
+            delta_curiosidad,
+            delta_motivacion,
+            delta_agresividad,
+            delta_tolerancia,
+        ) = cambios
 
         mod = self.modificadores
         self.energia += delta_energia * intensidad * mod["tasa_energia"]
@@ -190,6 +155,43 @@ class StateEngine:
         self.tolerancia_riesgo += delta_tolerancia * intensidad * mod["tasa_tolerancia_riesgo"]
 
         self._limitar()
+
+    def _obtener_cambios_evento(self, tipo_evento: str) -> tuple[float, ...] | None:
+        if tipo_evento == "recompensa":
+            return (0, -15, 5, -5, 10, 5, 10, -5, 0)
+        if tipo_evento == "tarea_completada":
+            return (-5, -10, 0, -10, 15, 0, 20, 0, 5)
+        if tipo_evento == "error_critico":
+            return (-10, 25, -15, 15, -20, -5, -15, 5, -10)
+        if tipo_evento == "fracaso":
+            return (-5, 20, -10, 10, -25, 0, -20, 0, -5)
+        if tipo_evento == "interaccion_social":
+            return (2, -5, 0, 0, 5, 0, 5, 0, 0)
+        if tipo_evento == "critica":
+            return (0, 15, -5, 5, -15, 0, -10, 5, 0)
+        if tipo_evento == "descanso":
+            return (20, -10, 10, -10, 0, -5, 0, -5, 0)
+        if tipo_evento == "sobrecarga":
+            return (-15, 30, -20, 30, -5, 0, -5, 10, 5)
+        if tipo_evento == "exploracion_exitosa":
+            return (-5, -5, 0, 5, 10, 15, 10, 0, 5)
+        if tipo_evento == "exploracion_fallida":
+            return (-5, 10, -5, 10, -10, -5, -5, 0, -5)
+        if tipo_evento == "ayuda_recibida":
+            return (5, -15, 5, -5, 10, 0, 5, -10, 0)
+        if tipo_evento == "loop_detectado":
+            return (-5, 20, -10, 15, -10, 0, -10, 10, 0)
+        if tipo_evento == "alerta_dolor_fisico":
+            return (-20, 40, -25, 20, -20, -10, -15, 20, -25)
+        if tipo_evento == "inicio_simulacion":
+            return (0, -3, 5, 0, 0, 8, 6, 0, 0)
+        if tipo_evento in {"actualizacion_estado", "percepcion_entorno"}:
+            return (0, 0, 0, 0, 0, 0, 0, 0, 0)
+        if tipo_evento == "comando_usuario":
+            return (0, -2, 6, -2, 4, 0, 8, 0, 0)
+        if tipo_evento == "resultado_accion":
+            return (0, 0, 0, 0, 0, 0, 0, 0, 0)
+        return None
 
     def _limitar(self):
         """Restringe todas las variables a sus rangos permitidos."""
@@ -215,12 +217,13 @@ class StateEngine:
             "motivacion": round(self.motivacion, 2),
             "agresividad": round(self.agresividad, 2),
             "tolerancia_riesgo": round(self.tolerancia_riesgo, 2),
+            "dolor_fisico_reciente": self.dolor_fisico_reciente,
         }
 
     @property
     def foco_efectivo(self) -> float:
         """
-        Foco real considerando estrés, energía y carga cognitiva.
+        Foco real considerando estres, energia y carga cognitiva.
         Se usa para calcular probabilidad de errores.
         """
         foco = self.foco
@@ -232,14 +235,14 @@ class StateEngine:
             foco -= (self.carga_cognitiva - 50) * 0.3
         if 20 < self.curiosidad < 60:
             foco += 5
-        elif self.curiosidad > 80:  # demasiada curiosidad dispersa
+        elif self.curiosidad > 80:
             foco -= 5
         return max(0, min(100, foco))
 
     @property
     def resiliencia_actual(self) -> float:
         """Nivel de resiliencia efectiva en este momento (0-1)."""
-        base = self.modificadores.get("amortiguador_estres", 1.0)  # 1.0 = resiliencia neutra
+        base = self.modificadores.get("amortiguador_estres", 1.0)
         if self.estres > 80:
             base *= 0.8
         elif self.estres < 20:
@@ -249,5 +252,4 @@ class StateEngine:
         return round(base, 2)
 
 
-# Instancia global para que el servidor mantenga el estado en memoria
 estado_actual = StateEngine()

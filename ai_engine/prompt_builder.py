@@ -54,6 +54,7 @@ class PromptBuilder:
         secciones.system = self.templates.get("system_prompt.txt", "")
         secciones.personalidad = self._construir_personalidad(context.personalidad)
         secciones.estado_emocional = self._construir_estado_emocional(context.estado_narrativo)
+        secciones.entorno = self._construir_entorno(context.percepcion_texto)
         secciones.objetivo = self._construir_objetivo(context.tarea)
         secciones.memoria = self._construir_memoria(context.memoria_texto)
         secciones.herramientas = self._construir_herramientas(context.herramientas)
@@ -74,6 +75,11 @@ class PromptBuilder:
     def _construir_estado_emocional(self, narrativa: str) -> str:
         plantilla = self.templates.get("estado_prompt.txt", "")
         return plantilla.replace("{estado_narrativo}", narrativa or "estable")
+
+    def _construir_entorno(self, percepcion_texto: str) -> str:
+        if not percepcion_texto:
+            return ""
+        return "Percepcion actual del entorno:\n" + percepcion_texto
 
     def _construir_memoria(self, memoria: str) -> str:
         plantilla = self.templates.get("memoria_prompt.txt", "")

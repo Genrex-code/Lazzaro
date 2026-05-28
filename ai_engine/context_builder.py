@@ -36,6 +36,7 @@ class ContextBuilder:
         valores = contexto_llm.get("valores", {})
         personalidad = contexto_llm.get("personalidad", {})
         umbrales = contexto_llm.get("umbrales", {})
+        percepcion_texto = contexto_llm.get("percepcion_resumida", "")
         tarea_data = tarea if tarea else contexto_llm.get("tarea")
 
         tarea_contexto = None
@@ -59,6 +60,7 @@ class ContextBuilder:
             personalidad=personalidad,
             tarea=tarea_contexto,
             memoria_texto=memoria_texto,
+            percepcion_texto=percepcion_texto,
             herramientas=herramientas or [],
             politica=politica,
             banderas=umbrales,

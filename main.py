@@ -20,9 +20,6 @@ from fastapi import FastAPI
 
 from config.settings import Settings
 from core.logger import get_logger
-from core.state_engine import StateEngine
-from core.personality import PersonalityTraits
-from core.psychology import PsychologyEngine
 from core.behavior_core import BehaviorCore
 from core.orchestrator import Orchestrator
 
@@ -39,6 +36,7 @@ from tools.registry import ToolRegistry
 import tools.simulated.keyboard_sim   # noqa: F401
 import tools.simulated.mouse_sim      # noqa: F401
 import tools.simulated.movimiento_sim # noqa: F401
+import tools.simulated.interaccion_sim # noqa: F401
 # Las herramientas reales NO se importan aquí para evitar que
 # queden disponibles para el LLM fuera de un entorno sandbox.
 # Descomenta la siguiente línea solo si estás en modo sandbox controlado:
@@ -101,10 +99,10 @@ async def lifespan(app: FastAPI):
 
         # 8. Guardar en app.state para que los endpoints puedan accederlo
         app.state.orchestrator = orchestrator
-        logger.info("✅ Lazzaro inicializado correctamente. Sistemas nominales.")
+        logger.info("Lazzaro inicializado correctamente. Sistemas nominales.")
 
     except Exception as e:
-        logger.error("❌ Error crítico durante el arranque: %s", e, exc_info=True)
+        logger.error("Error critico durante el arranque: %s", e, exc_info=True)
         raise
 
     yield  # La app está corriendo — aquí FastAPI maneja los requests

@@ -63,7 +63,8 @@ class SemanticMemoryStore:
         Busca recuerdos semanticos por similitud semantica.
         Retorna una lista de MemoryResult con SemanticMemory reconstruidos.
         """
-        resultados = self.client.buscar(query, n, where)
+        where_real = self.client.combinar_where(where, {"tipo": "semantico"})
+        resultados = self.client.buscar(query, n, where_real)
         if not resultados:
             return []
 

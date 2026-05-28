@@ -149,11 +149,14 @@ class TaskContext:
         """Devuelve un diccionario con los datos relevantes para el resto del sistema."""
         return {
             "objetivo_id": self.objetivo_id,
+            "objetivo": self.objetivo_id,
             "intentos_totales": self.intentos_totales,
             "intentos_fallidos": self.intentos_fallidos,
             "frustracion_local": round(self.frustracion_local, 2),
             "umbral_abandono": round(self.umbral_abandono, 2),
             "loop_detectado": self.detectar_loop(),
             "estancamiento_detectado": self.detectar_estancamiento(),
+            "estancamiento": self.detectar_estancamiento(),
             "compulsion_detectada": self.detectar_compulsion(),
+            "compulsion": self.detectar_compulsion(),
         }

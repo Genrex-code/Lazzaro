@@ -1,77 +1,78 @@
 """
 api/schemas.py - Modelos de datos robustos y bidireccionales para la API REST.
 Soporta eventos desde Roblox, Unity y cualquier otro frontend,
-así como la devolución de acciones estructuradas que el agente decide ejecutar.
+asi como la devolucion de acciones estructuradas que el agente decide ejecutar.
 """
 
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
-from pydantic import BaseModel, Field, validator
 
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-# ------------------------------------------------------------------
-# 1. Eventos entrantes (Roblox, Unity, etc.)
-# ------------------------------------------------------------------
 
 class EventoEntrante(BaseModel):
     """
-    Evento que envía un frontend al agente.
-    Campos mínimos requeridos y un payload flexible según el tipo de evento.
+    Evento que envia un frontend al agente.
+    Campos minimos requeridos y un payload flexible segun el tipo de evento.
     """
+
     origen: Literal["roblox", "unity", "sandbox", "otro"] = Field(
         ...,
-        description="Fuente del evento. Permite filtrar o cambiar comportamiento si es necesario."
+        description="Fuente del evento. Permite filtrar o cambiar comportamiento si es necesario.",
     )
     tipo_evento: str = Field(
         ...,
         min_length=1,
-        description="Identificador del suceso: 'recompensa', 'error_critico', 'comando_usuario', etc."
+        description="Identificador del suceso: 'actualizacion_estado', 'alerta_dolor_fisico', etc.",
     )
     id_transaccion: str = Field(
         ...,
         min_length=1,
-        description="UUID único generado por el cliente. Garantiza idempotencia y trazabilidad."
+        description="UUID unico generado por el cliente. Garantiza idempotencia y trazabilidad.",
     )
     timestamp: Optional[datetime] = Field(
         default_factory=datetime.utcnow,
-        description="Momento en que ocurrió el evento en el cliente. Si no se envía, usamos UTC ahora."
+        description="Momento en que ocurrio el evento en el cliente. Si no se envia, usamos UTC ahora.",
     )
     objeto_involucrado: str = Field(
         "ninguno",
-        description="Entidad principal afectada: nombre de herramienta, objeto del mundo, etc."
+        description="Entidad principal afectada: nombre de herramienta, objeto del mundo, etc.",
     )
     detalles: Dict[str, Any] = Field(
         default_factory=dict,
-        description="Payload flexible con información específica del evento."
+        description="Payload flexible con informacion especifica del evento.",
     )
 
-    @validator("id_transaccion")
-    def id_no_vacio(cls, v):
-        if not v or not v.strip():
-            raise ValueError("id_transaccion no puede estar vacío")
-        return v.strip()
-
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
-                "origen": "roblox",
-                "tipo_evento": "colision",
+                "origen": "unity",
+                "tipo_evento": "actualizacion_estado",
                 "id_transaccion": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-                "objeto_involucrado": "cubo_rojo",
-                "detalles": {"velocidad": 10.5, "punto_impacto": {"x": 1.2, "y": 3.4}}
+                "objeto_involucrado": "ninguno",
+                "detalles": {
+                    "mensaje": "Objetivo: explora el bosque y acercate al arbol mas cercano.",
+                    "posicion_lazzaro": {"x": 1.2, "y": 0.0, "z": 3.4},
+                    "objetos_visibles": [{"nombre": "Arbol_01", "distancia": 2.4}],
+                },
             }
         }
+    )
 
+    @field_validator("id_transaccion")
+    @classmethod
+    def id_no_vacio(cls, value: str) -> str:
+        if not value or not value.strip():
+            raise ValueError("id_transaccion no puede estar vacio")
+        return value.strip()
 
-# ------------------------------------------------------------------
-# 2. Acciones que el agente decide ejecutar (salida)
-# ------------------------------------------------------------------
 
 class ParametroHerramienta(BaseModel):
     """
-    Descripción de un parámetro que acompaña a una acción.
-    Se incluye para ayudar al frontend a entender qué se espera.
+    Descripcion de un parametro que acompana a una accion.
+    Se incluye para ayudar al frontend a entender que se espera.
     """
+
     nombre: str
     tipo: Literal["float", "int", "str", "bool", "coordenadas", "array", "objeto"] = "str"
     descripcion: str = ""
@@ -80,108 +81,105 @@ class ParametroHerramienta(BaseModel):
 
 class AccionSaliente(BaseModel):
     """
-    Acción que el agente ha decidido ejecutar.
-    Se envía al frontend para que la materialice en su entorno.
+    Accion que el agente ha decidido ejecutar.
+    Se envia al frontend para que la materialice en su entorno.
     """
+
     id_accion: str = Field(
         ...,
-        description="Identificador único de la acción (para correlación con logs y memoria)."
+        description="Identificador unico de la accion (para correlacion con logs y memoria).",
     )
     nombre: str = Field(
         ...,
-        description="Nombre de la acción: 'mover_mouse', 'escribir_teclado', 'hablar', etc."
+        description="Nombre de la accion: 'mover_mouse', 'escribir_teclado', 'hablar', etc.",
     )
     parametros: Dict[str, Any] = Field(
         default_factory=dict,
-        description="Argumentos necesarios para ejecutar la acción."
+        description="Argumentos necesarios para ejecutar la accion.",
     )
     razonamiento: str = Field(
         "",
-        description="Explicación textual de por qué el agente eligió esta acción."
+        description="Explicacion textual de por que el agente eligio esta accion.",
     )
     pensamiento_privado: str = Field(
         "",
-        description="Monólogo interno del agente (visible para depuración, no para el usuario final)."
+        description="Monologo interno del agente para depuracion.",
     )
     requiere_confirmacion: bool = Field(
         False,
-        description="Si es True, el frontend debería pedir confirmación al usuario antes de ejecutar."
+        description="Si es True, el frontend deberia pedir confirmacion antes de ejecutar.",
     )
     parametros_descripcion: List[ParametroHerramienta] = Field(
         default_factory=list,
-        description="Metadatos opcionales que describen los parámetros esperados."
+        description="Metadatos opcionales que describen los parametros esperados.",
     )
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "id_accion": "550e8400-e29b-41d4-a716-446655440000",
-                "nombre": "mover_mouse",
-                "parametros": {"x": 500, "y": 300},
-                "razonamiento": "Necesito hacer clic en el botón 'Aceptar'.",
-                "pensamiento_privado": "El botón está en la posición (500,300) según mi última observación.",
-                "requiere_confirmacion": False
+                "nombre": "moverse_entorno_3d",
+                "parametros": {"direccion": "adelante", "distancia": 2.5, "velocidad": "caminar"},
+                "razonamiento": "Necesito acercarme al arbol mas cercano para explorarlo.",
+                "pensamiento_privado": "La ruta esta libre y el objetivo sigue vigente.",
+                "requiere_confirmacion": False,
             }
         }
+    )
 
-
-# ------------------------------------------------------------------
-# 3. Respuesta estándar de la API
-# ------------------------------------------------------------------
 
 class RespuestaAPI(BaseModel):
     """
     Formato unificado de respuesta para cualquier endpoint.
-    Incluye estado, mensaje y opcionalmente una acción a ejecutar.
+    Incluye estado, mensaje y opcionalmente una accion a ejecutar.
     """
+
     status: Literal["ok", "error", "pendiente"] = Field(
         "ok",
-        description="Resultado del procesamiento."
+        description="Resultado del procesamiento.",
     )
     mensaje: str = Field(
         "",
-        description="Descripción legible del resultado."
+        description="Descripcion legible del resultado.",
     )
     id_transaccion: Optional[str] = Field(
         None,
-        description="ID de la transacción original (si se proporcionó)."
+        description="ID de la transaccion original (si se proporciono).",
     )
     accion: Optional[AccionSaliente] = Field(
         None,
-        description="Acción que el agente desea ejecutar en el frontend."
+        description="Accion que el agente desea ejecutar en el frontend.",
     )
     timestamp_servidor: datetime = Field(
         default_factory=datetime.utcnow,
-        description="Momento en que el servidor generó la respuesta."
+        description="Momento en que el servidor genero la respuesta.",
     )
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": "ok",
-                "mensaje": "Evento procesado y acción generada.",
+                "mensaje": "Evento procesado y accion generada.",
                 "id_transaccion": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
                 "accion": {
                     "id_accion": "550e8400-e29b-41d4-a716-446655440000",
-                    "nombre": "hablar",
-                    "parametros": {"texto": "¡He completado la tarea!"},
-                    "razonamiento": "Quiero informar al usuario del éxito.",
-                    "pensamiento_privado": "Estoy orgulloso de este logro.",
-                    "requiere_confirmacion": False
-                }
+                    "nombre": "interactuar_objeto_3d",
+                    "parametros": {"nombre_objeto": "Arbol_01", "tipo_accion": "golpear"},
+                    "razonamiento": "Ya estoy lo bastante cerca para interactuar con el arbol.",
+                    "pensamiento_privado": "Debo aprovechar la proximidad antes de seguir moviendome.",
+                    "requiere_confirmacion": False,
+                },
             }
         }
+    )
 
-
-# ------------------------------------------------------------------
-# 4. Modelos auxiliares para notificaciones y estado
-# ------------------------------------------------------------------
 
 class NotificacionSaliente(BaseModel):
     """
-    Mensaje espontáneo que el agente puede enviar al frontend
-    sin que haya un evento de entrada previo (por ejemplo, un aviso de descanso).
+    Mensaje espontaneo que el agente puede enviar al frontend
+    sin que haya un evento de entrada previo.
     """
+
     tipo: str = Field(..., description="'info', 'alerta', 'error', 'pensamiento'")
     mensaje: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
@@ -189,8 +187,9 @@ class NotificacionSaliente(BaseModel):
 
 class EstadoAgente(BaseModel):
     """
-    Versión resumida del estado interno para que el frontend pueda visualizarlo.
+    Version resumida del estado interno para que el frontend pueda visualizarlo.
     """
+
     dopamina: float
     estres: float
     energia: float

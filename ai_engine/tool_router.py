@@ -17,12 +17,18 @@ class ToolRouter:
     """
 
     HERRAMIENTAS_RIESGOSAS_BASE = {
-        "mouse_real",
         "keyboard_real",
         "shell",
         "system",
         "ejecutar_script",
     }
+    HERRAMIENTAS_RIESGOSAS_PREFIJOS = (
+        "mouse_real",
+        "keyboard_real",
+        "shell",
+        "system",
+        "ejecutar_script",
+    )
 
     @staticmethod
     def filtrar(
@@ -39,7 +45,7 @@ class ToolRouter:
             return {"permitidas": [], "riesgosas": []}
 
         tipo_tarea = ToolRouter._inferir_tipo_tarea(objetivo, tipo_tarea)
-        riesgosas = [h for h in herramientas if h in ToolRouter.HERRAMIENTAS_RIESGOSAS_BASE]
+        riesgosas = [h for h in herramientas if ToolRouter._es_herramienta_riesgosa(h)]
 
         if tipo_tarea == "documentacion":
             permitidas = ToolRouter._para_documentacion(herramientas)
@@ -62,6 +68,12 @@ class ToolRouter:
             len(riesgosas),
         )
         return {"permitidas": permitidas, "riesgosas": riesgosas}
+
+    @staticmethod
+    def _es_herramienta_riesgosa(nombre: str) -> bool:
+        if nombre in ToolRouter.HERRAMIENTAS_RIESGOSAS_BASE:
+            return True
+        return any(nombre.startswith(prefijo) for prefijo in ToolRouter.HERRAMIENTAS_RIESGOSAS_PREFIJOS)
 
     @staticmethod
     def _inferir_tipo_tarea(objetivo: Optional[str], tipo_tarea: str) -> str:

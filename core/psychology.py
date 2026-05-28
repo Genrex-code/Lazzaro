@@ -1,8 +1,7 @@
 """
-psychology.py - Capa 2 (interpretación) del sistema de comportamiento de Lazzaro.
+psychology.py - Capa 2 (interpretacion) del sistema de comportamiento de Lazzaro.
 Convierte los valores crudos de StateEngine y PersonalityTraits en etiquetas,
 umbrales de comportamiento y un resumen narrativo determinista.
-No utiliza ningún modelo de lenguaje; todo se basa en reglas condicionales.
 """
 
 from core.logger import get_logger
@@ -13,7 +12,7 @@ logger = get_logger(__name__)
 class PsychologyEngine:
     """
     Interpreta el estado interno del agente y genera descripciones, banderas
-    de comportamiento y el contexto que se inyectará al LLM (Gemini).
+    de comportamiento y el contexto que se inyectara al LLM.
     """
 
     @staticmethod
@@ -56,80 +55,70 @@ class PsychologyEngine:
 
         return {clave: round(valor, 2) for clave, valor in estado.items()}
 
-    # --- Mapeo de valores conductuales a etiquetas ---
-
     @staticmethod
     def etiqueta_confianza(valor: float) -> str:
         if valor < -60:
             return "paranoico"
-        elif valor < -20:
+        if valor < -20:
             return "inseguro"
-        elif valor <= 20:
+        if valor <= 20:
             return "neutral"
-        elif valor <= 60:
+        if valor <= 60:
             return "seguro"
-        else:
-            return "sobreconfiado"
+        return "sobreconfiado"
 
     @staticmethod
     def etiqueta_curiosidad(valor: float) -> str:
         if valor < -60:
-            return "apático"
-        elif valor < -20:
+            return "apatico"
+        if valor < -20:
             return "desinteresado"
-        elif valor <= 20:
+        if valor <= 20:
             return "curiosidad normal"
-        elif valor <= 60:
+        if valor <= 60:
             return "curioso"
-        else:
-            return "hipercurioso"
+        return "hipercurioso"
 
     @staticmethod
     def etiqueta_motivacion(valor: float) -> str:
         if valor < -60:
-            return "anhedónico"
-        elif valor < -20:
+            return "anhedonico"
+        if valor < -20:
             return "desmotivado"
-        elif valor <= 20:
-            return "motivación normal"
-        elif valor <= 60:
+        if valor <= 20:
+            return "motivacion normal"
+        if valor <= 60:
             return "motivado"
-        else:
-            return "obsesivo"
+        return "obsesivo"
 
     @staticmethod
     def etiqueta_agresividad(valor: float) -> str:
         if valor < -60:
             return "sumiso"
-        elif valor < -20:
+        if valor < -20:
             return "pasivo"
-        elif valor <= 20:
+        if valor <= 20:
             return "asertivo"
-        elif valor <= 60:
-            return "enérgico"
-        else:
-            return "hostil"
+        if valor <= 60:
+            return "energico"
+        return "hostil"
 
     @staticmethod
     def etiqueta_tolerancia_riesgo(valor: float) -> str:
         if valor < -60:
             return "averso al riesgo"
-        elif valor < -20:
+        if valor < -20:
             return "cauteloso"
-        elif valor <= 20:
+        if valor <= 20:
             return "riesgo equilibrado"
-        elif valor <= 60:
+        if valor <= 60:
             return "arriesgado"
-        else:
-            return "temerario"
-
-    # --- Umbrales de comportamiento ---
+        return "temerario"
 
     @staticmethod
     def evaluar_umbrales(state_engine, task_ctx=None, policy_offsets: dict | None = None) -> dict:
         """
-        Evalúa el estado actual y decide si se deben activar conductas especiales.
-        Retorna un diccionario con flags booleanas o valores de intensidad.
+        Evalua el estado actual y decide si se deben activar conductas especiales.
         """
         flags = {
             "debe_pedir_ayuda": False,
@@ -139,17 +128,15 @@ class PsychologyEngine:
             "debe_explorar": False,
             "debe_ser_precavido": False,
             "esta_bloqueado": False,
+            "dolor_fisico_critico": bool(getattr(state_engine, "dolor_fisico_reciente", False)),
         }
 
         estado = PsychologyEngine.obtener_estado_efectivo(state_engine, policy_offsets)
-
-        # Estado general
         estres = estado["estres"]
         energia = estado["energia"]
         foco_efectivo = estado["foco_efectivo"]
         confianza = estado["confianza"]
 
-        # Banderas basadas en umbrales fijos (luego pueden ser dinámicas con personalidad)
         if estres > 75 or energia < 20:
             flags["debe_descansar"] = True
 
@@ -157,9 +144,8 @@ class PsychologyEngine:
             flags["debe_pedir_ayuda"] = True
 
         if foco_efectivo < 30:
-            flags["debe_ser_precavido"] = True  # Alta probabilidad de error
+            flags["debe_ser_precavido"] = True
 
-        # Tarea específica (si hay task_context)
         if task_ctx is not None:
             frustracion = task_ctx.frustracion_local
             umbral_abandono = task_ctx.umbral_abandono
@@ -168,20 +154,16 @@ class PsychologyEngine:
             elif frustracion > umbral_abandono * 0.7:
                 flags["debe_cambiar_estrategia"] = True
 
-            # Detecciones de patrones
             if task_ctx.detectar_loop() or task_ctx.detectar_estancamiento():
                 flags["debe_cambiar_estrategia"] = True
                 flags["esta_bloqueado"] = True
             if task_ctx.detectar_compulsion():
                 flags["debe_cambiar_estrategia"] = True
 
-        # Curiosidad alta + energía suficiente puede sugerir exploración
         if estado["curiosidad"] > 50 and energia > 40:
             flags["debe_explorar"] = True
 
         return flags
-
-    # --- Resumen narrativo ---
 
     @staticmethod
     def generar_resumen_narrativo(
@@ -192,11 +174,10 @@ class PsychologyEngine:
     ) -> str:
         """
         Produce un texto descriptivo del estado interno de Lazzaro, adecuado
-        para ser leído por humanos o inyectado como contexto emocional en el prompt.
+        para ser inyectado como contexto emocional en el prompt.
         """
         estado = PsychologyEngine.obtener_estado_efectivo(state_engine, policy_offsets)
 
-        # Estado emocional general
         estres = estado["estres"]
         energia = estado["energia"]
         foco = estado["foco_efectivo"]
@@ -206,30 +187,32 @@ class PsychologyEngine:
         agresividad_etq = PsychologyEngine.etiqueta_agresividad(estado["agresividad"])
         riesgo_etq = PsychologyEngine.etiqueta_tolerancia_riesgo(estado["tolerancia_riesgo"])
 
-        lineas = []
-        lineas.append(f"Lazzaro se siente {PsychologyEngine._describir_estres(estres)}.")
-        lineas.append(f"Tiene {PsychologyEngine._describir_energia(energia)}.")
-        lineas.append(f"Su nivel de atención es {PsychologyEngine._describir_foco(foco)}.")
-        lineas.append(f"Confianza: {confianza_etq}.")
-        lineas.append(f"Curiosidad: {curiosidad_etq}.")
-        lineas.append(f"Motivación: {motivacion_etq}.")
-        lineas.append(f"Agresividad: {agresividad_etq}.")
-        lineas.append(f"Tolerancia al riesgo: {riesgo_etq}.")
+        lineas = [
+            f"Lazzaro se siente {PsychologyEngine._describir_estres(estres)}.",
+            f"Tiene {PsychologyEngine._describir_energia(energia)}.",
+            f"Su nivel de atencion es {PsychologyEngine._describir_foco(foco)}.",
+            f"Confianza: {confianza_etq}.",
+            f"Curiosidad: {curiosidad_etq}.",
+            f"Motivacion: {motivacion_etq}.",
+            f"Agresividad: {agresividad_etq}.",
+            f"Tolerancia al riesgo: {riesgo_etq}.",
+        ]
+        if getattr(state_engine, "dolor_fisico_reciente", False):
+            lineas.append(
+                "Ha detectado dolor fisico reciente; debe detenerse y corregir la ruta antes de continuar."
+            )
 
-        # Rasgos de personalidad (si se proporcionan)
         if personality_traits is not None:
             rasgos = personality_traits.obtener_rasgos()
-            linea_rasgos = "Rasgos: " + ", ".join(
-                f"{k}={v:.2f}" for k, v in rasgos.items()
-            )
+            linea_rasgos = "Rasgos: " + ", ".join(f"{k}={v:.2f}" for k, v in rasgos.items())
             lineas.append(linea_rasgos)
 
-        # Información de la tarea (si hay)
         if task_ctx is not None and task_ctx.objetivo_id:
             resumen_tarea = (
                 f"Objetivo actual: '{task_ctx.objetivo_id}'. "
                 f"Intentos: {task_ctx.intentos_totales}, Fallos: {task_ctx.intentos_fallidos}. "
-                f"Frustración local: {task_ctx.frustracion_local:.1f}/100 (umbral de abandono: {task_ctx.umbral_abandono:.1f})."
+                f"Frustracion local: {task_ctx.frustracion_local:.1f}/100 "
+                f"(umbral de abandono: {task_ctx.umbral_abandono:.1f})."
             )
             lineas.append(resumen_tarea)
             if task_ctx.detectar_loop():
@@ -237,7 +220,7 @@ class PsychologyEngine:
             if task_ctx.detectar_estancamiento():
                 lineas.append("Hay estancamiento: muchos fallos consecutivos.")
             if task_ctx.detectar_compulsion():
-                lineas.append("Se ha detectado compulsión por repetir una misma acción.")
+                lineas.append("Se ha detectado compulsion por repetir una misma accion.")
 
         return " ".join(lineas)
 
@@ -247,10 +230,11 @@ class PsychologyEngine:
         personality_traits=None,
         task_ctx=None,
         policy_offsets: dict | None = None,
+        percepcion: dict | None = None,
+        percepcion_resumida: str = "",
     ) -> dict:
         """
-        Construye un diccionario con información estructurada para inyectar en el prompt
-        de Gemini. Incluye tanto el resumen narrativo como datos numéricos clave.
+        Construye un diccionario con informacion estructurada para inyectar en el prompt.
         """
         estado_efectivo = PsychologyEngine.obtener_estado_efectivo(state_engine, policy_offsets)
         contexto = {
@@ -267,6 +251,7 @@ class PsychologyEngine:
                 task_ctx,
                 policy_offsets=policy_offsets,
             ),
+            "percepcion_resumida": percepcion_resumida,
         }
         if personality_traits is not None:
             contexto["personalidad"] = personality_traits.obtener_rasgos()
@@ -276,46 +261,41 @@ class PsychologyEngine:
             contexto["offsets_policy"] = {
                 clave: round(valor, 2) for clave, valor in policy_offsets.items()
             }
+        if percepcion:
+            contexto["percepcion"] = percepcion
         return contexto
-
-    # --- Helpers descriptivos ---
 
     @staticmethod
     def _describir_estres(valor: float) -> str:
         if valor < 20:
             return "relajado"
-        elif valor < 50:
+        if valor < 50:
             return "ligeramente tenso"
-        elif valor < 75:
+        if valor < 75:
             return "estresado"
-        else:
-            return "muy estresado y abrumado"
+        return "muy estresado y abrumado"
 
     @staticmethod
     def _describir_energia(valor: float) -> str:
         if valor < 20:
-            return "muy poca energía, casi agotado"
-        elif valor < 50:
-            return "energía moderada, algo cansado"
-        elif valor < 80:
-            return "buena energía"
-        else:
-            return "mucha energía, enérgico"
+            return "muy poca energia, casi agotado"
+        if valor < 50:
+            return "energia moderada, algo cansado"
+        if valor < 80:
+            return "buena energia"
+        return "mucha energia, energico"
 
     @staticmethod
     def _describir_foco(valor: float) -> str:
         if valor < 30:
             return "muy disperso y con dificultad para concentrarse"
-        elif valor < 60:
-            return "atención aceptable pero con lapsos"
-        else:
-            return "atención alta y enfocada"
+        if valor < 60:
+            return "atencion aceptable pero con lapsos"
+        return "atencion alta y enfocada"
 
     @staticmethod
     def _calcular_foco_efectivo(estado: dict) -> float:
-        """
-        Replica la logica de StateEngine.foco_efectivo, pero usando un estado derivado.
-        """
+        """Replica la logica de StateEngine.foco_efectivo sobre un estado derivado."""
         foco = estado["foco"]
         if estado["estres"] > 60:
             foco -= (estado["estres"] - 60) * 0.5

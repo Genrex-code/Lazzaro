@@ -56,6 +56,9 @@ class MemoryRetriever:
         episodicos = self._buscar_episodica(query, limite * 2, where_episodica)
         semanticos = self._buscar_semantica(query, limite, where_semantica)
 
+        ids_semanticos = {r.recuerdo.id for r in semanticos}
+        episodicos = [r for r in episodicos if r.recuerdo.id not in ids_semanticos]
+
         # Combinar todos los resultados
         todos = episodicos + semanticos
 

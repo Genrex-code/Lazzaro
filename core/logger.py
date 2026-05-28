@@ -1,36 +1,41 @@
 import logging
+import sys
 from logging import Logger
 
-# Configuración por defecto para todo el proyecto
-_log_format = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
-_log_level = logging.INFO
+_LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+_LOG_LEVEL = logging.INFO
 
-def configurar_logger_root():
-    """Configura el logger raíz una sola vez (si no se ha hecho ya)."""
+
+def _crear_stream_handler() -> logging.StreamHandler:
+    stream = sys.stdout
+    try:
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+    except Exception:
+        pass
+    return logging.StreamHandler(stream)
+
+
+def configurar_logger_root() -> None:
+    """Configura el logger raiz una sola vez."""
+    root = logging.getLogger()
+    if root.handlers:
+        return
+
     logging.basicConfig(
-        level=_log_level,
-        format=_log_format,
+        level=_LOG_LEVEL,
+        format=_LOG_FORMAT,
         handlers=[
-            logging.FileHandler("lazzaro.log"),
-            logging.StreamHandler()
-        ]
+            logging.FileHandler("lazzaro.log", encoding="utf-8"),
+            _crear_stream_handler(),
+        ],
     )
 
+
 def get_logger(nombre: str | None = None) -> Logger:
-    """
-    Devuelve un logger configurado. Si no se ha configurado el root,
-    lo hace automáticamente.
-    """
-    # Asegura que el logger raíz tenga al menos la configuración básica
-    if not logging.getLogger().hasHandlers():
-        configurar_logger_root()
+    """Devuelve un logger configurado para el modulo solicitado."""
+    configurar_logger_root()
     return logging.getLogger(nombre)
 
-# Ejecutar configuración inicial al importar el módulo por primera vez
+
 configurar_logger_root()
-
-
-#con esto puedo hacer 
-# from core.logger import get_logger
-#logger = get_logger(__name__)
-#logger.info("Mensaje")

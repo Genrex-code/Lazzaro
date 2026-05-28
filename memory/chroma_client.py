@@ -71,6 +71,17 @@ class ChromaClient:
         """Indica si la conexion con la coleccion esta activa."""
         return self._collection is not None
 
+    @staticmethod
+    def combinar_where(base: Where | None, extra: Where | None) -> Where | None:
+        """Combina dos filtros Chroma usando $and cuando ambos existen."""
+        if not base:
+            return extra
+        if not extra:
+            return base
+        if isinstance(base, dict) and "$and" in base and isinstance(base["$and"], list):
+            return {"$and": [*base["$and"], extra]}
+        return {"$and": [base, extra]}
+
     # ------------------------------------------------------------------
     # Operaciones CRUD
     # ------------------------------------------------------------------
@@ -125,6 +136,31 @@ class ChromaClient:
             )
         except Exception as e:
             logger.error("Error al buscar en ChromaDB: %s", e)
+            return None
+
+    def listar(
+        self,
+        where: Where | None = None,
+        limite: int | None = None,
+    ) -> dict[str, list[Any]] | None:
+        """
+        Recupera documentos sin consulta semantica.
+        Sirve para tareas de mantenimiento como consolidacion o limpieza.
+        """
+        collection = self._collection
+        if collection is None:
+            logger.warning("Lectura en ChromaDB sin conexion.")
+            return None
+        try:
+            kwargs: dict[str, Any] = {
+                "where": where,
+                "include": ["documents", "metadatas"],
+            }
+            if limite is not None:
+                kwargs["limit"] = limite
+            return cast(dict[str, list[Any]], collection.get(**kwargs))
+        except Exception as e:
+            logger.error("Error al listar documentos en ChromaDB: %s", e)
             return None
 
     def eliminar(self, ids: list[str]) -> bool:

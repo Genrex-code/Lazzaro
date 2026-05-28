@@ -63,7 +63,8 @@ class EpisodicMemoryStore:
         Busca recuerdos episodicos por similitud semantica.
         Retorna una lista de MemoryResult con EpisodicMemory reconstruidos.
         """
-        resultados = self.client.buscar(query, n, where)
+        where_real = self.client.combinar_where(where, {"tipo": "episodico"})
+        resultados = self.client.buscar(query, n, where_real)
         if not resultados:
             return []
 
