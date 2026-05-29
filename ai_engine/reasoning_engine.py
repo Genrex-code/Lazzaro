@@ -1,7 +1,5 @@
 """
 reasoning_engine.py - Orquestador central del modulo ai_engine.
-Coordina el pipeline completo: contexto -> prompt -> LLM -> parseo -> accion.
-Actua como director de orquesta y delega cada paso a los modulos especializados.
 """
 
 from typing import List, Optional
@@ -21,8 +19,6 @@ logger = get_logger(__name__)
 class ReasoningEngine:
     """
     Coordina el flujo de razonamiento sin contener logica de dominio.
-    Recibe un cliente de IA y orquesta los pasos necesarios para obtener
-    una accion validada a partir del estado actual del agente.
     """
 
     def __init__(self, ai_client: BaseAIClient):
@@ -38,25 +34,15 @@ class ReasoningEngine:
         contexto_llm: dict,
         memoria_texto: str = "",
         herramientas: Optional[List[str]] = None,
+        herramientas_detalle: Optional[dict[str, str]] = None,
         politica: str = "exploradora",
         tarea: Optional[dict] = None,
     ) -> ActionResponse:
-        """
-        Ejecuta el pipeline cognitivo completo.
-
-        Args:
-            contexto_llm: diccionario generado por PsychologyEngine.
-            memoria_texto: resumen de recuerdos relevantes desde MemoryManager.
-            herramientas: lista de nombres de herramientas disponibles.
-            politica: nombre de la politica activa.
-            tarea: informacion opcional sobre el objetivo actual.
-
-        Returns:
-            ActionResponse con la accion a ejecutar o un fallback seguro.
-        """
         try:
             if herramientas is None:
                 herramientas = []
+            if herramientas_detalle is None:
+                herramientas_detalle = {}
 
             herramientas_info = self.tool_router.filtrar(
                 herramientas,
@@ -65,19 +51,31 @@ class ReasoningEngine:
                 tipo_tarea="general",
             )
             herramientas_filtradas = herramientas_info["permitidas"]
+            herramientas_detalle_filtradas = {
+                nombre: detalle
+                for nombre, detalle in herramientas_detalle.items()
+                if nombre in herramientas_filtradas
+            }
 
             agent_context = self.context_builder.build(
                 contexto_llm=contexto_llm,
                 memoria_texto=memoria_texto,
                 herramientas=herramientas_filtradas,
+                herramientas_detalle=herramientas_detalle_filtradas,
                 politica=politica,
                 tarea=tarea,
             )
 
+            proveedor = getattr(
+                self.ai_client,
+                "provider_name",
+                self.ai_client.__class__.__name__.lower(),
+            )
             policy_config = self.policy_manager.ajustar_parametros(
                 politica,
                 herramientas=herramientas_filtradas,
                 herramientas_riesgosas=herramientas_info.get("riesgosas"),
+                proveedor=proveedor,
             )
             gen_params = policy_config["generation"]
 

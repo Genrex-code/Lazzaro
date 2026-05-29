@@ -1,6 +1,6 @@
 """
 prompt_builder.py - Construye el prompt final para el LLM a partir de plantillas
-y del AgentContext proporcionado por context_builder.
+y del AgentContext proporcionado por ContextBuilder.
 """
 
 from pathlib import Path
@@ -15,8 +15,6 @@ logger = get_logger(__name__)
 class PromptBuilder:
     """
     Ensambla prompts dinamicos basados en plantillas de texto y el contexto actual.
-    Las plantillas se cargan desde la carpeta prompts/ y se rellenan con los datos
-    del agente.
     """
 
     def __init__(self, prompts_dir: Optional[str] = None):
@@ -25,7 +23,6 @@ class PromptBuilder:
         self.templates = self._cargar_plantillas()
 
     def _cargar_plantillas(self) -> dict[str, str]:
-        """Lee los archivos .txt de la carpeta prompts/ y los devuelve como dict."""
         plantillas = {}
         archivos = [
             "system_prompt.txt",
@@ -38,26 +35,28 @@ class PromptBuilder:
         for archivo in archivos:
             ruta = self.prompts_dir / archivo
             try:
-                with ruta.open("r", encoding="utf-8") as f:
-                    plantillas[archivo] = f.read()
+                with ruta.open("r", encoding="utf-8") as file:
+                    plantillas[archivo] = file.read()
             except FileNotFoundError:
                 logger.warning("Plantilla no encontrada: %s. Se usara una cadena vacia.", ruta)
                 plantillas[archivo] = ""
         return plantillas
 
     def build(self, context: AgentContext) -> str:
-        """
-        Construye el prompt completo a partir del AgentContext.
-        Retorna un string listo para enviar al LLM.
-        """
         secciones = PromptSections()
         secciones.system = self.templates.get("system_prompt.txt", "")
         secciones.personalidad = self._construir_personalidad(context.personalidad)
         secciones.estado_emocional = self._construir_estado_emocional(context.estado_narrativo)
-        secciones.entorno = self._construir_entorno(context.percepcion_texto)
+        secciones.entorno = self._construir_entorno(
+            context.percepcion_texto,
+            context.constelacion_resumen,
+        )
         secciones.objetivo = self._construir_objetivo(context.tarea)
         secciones.memoria = self._construir_memoria(context.memoria_texto)
-        secciones.herramientas = self._construir_herramientas(context.herramientas)
+        secciones.herramientas = self._construir_herramientas(
+            context.herramientas,
+            context.herramientas_detalle,
+        )
         secciones.restricciones = self._construir_restricciones(context)
         secciones.formato_respuestas = self.templates.get("format_prompt.txt", "")
 
@@ -76,26 +75,45 @@ class PromptBuilder:
         plantilla = self.templates.get("estado_prompt.txt", "")
         return plantilla.replace("{estado_narrativo}", narrativa or "estable")
 
-    def _construir_entorno(self, percepcion_texto: str) -> str:
-        if not percepcion_texto:
-            return ""
-        return "Percepcion actual del entorno:\n" + percepcion_texto
+    def _construir_entorno(self, percepcion_texto: str, constelacion_resumen: str) -> str:
+        bloques: list[str] = []
+        if percepcion_texto:
+            bloques.append("Percepcion actual del entorno:\n" + percepcion_texto)
+        if constelacion_resumen:
+            bloques.append("Constelacion cognitiva resumida:\n" + constelacion_resumen)
+        return "\n\n".join(bloque for bloque in bloques if bloque)
 
     def _construir_memoria(self, memoria: str) -> str:
         plantilla = self.templates.get("memoria_prompt.txt", "")
         return plantilla.replace("{memoria}", memoria or "sin recuerdos relevantes")
 
-    def _construir_herramientas(self, herramientas: list[str]) -> str:
+    def _construir_herramientas(
+        self,
+        herramientas: list[str],
+        herramientas_detalle: dict[str, str],
+    ) -> str:
         plantilla = self.templates.get("tool_prompt.txt", "")
         if not herramientas:
-            return plantilla.replace("{herramientas}", "ninguna (solo modo texto)")
-        return plantilla.replace("{herramientas}", ", ".join(herramientas))
+            return plantilla.replace("{herramientas}", "ninguna")
 
-    def _construir_objetivo(self, tarea: Optional[dict]) -> str:
+        lineas = []
+        for herramienta in herramientas:
+            detalle = herramientas_detalle.get(herramienta)
+            if detalle:
+                lineas.append(f"- {herramienta}: {detalle}")
+            else:
+                lineas.append(f"- {herramienta}")
+        return plantilla.replace("{herramientas}", "\n".join(lineas))
+
+    @staticmethod
+    def _construir_objetivo(tarea: Optional[dict]) -> str:
         if not tarea or not tarea.get("objetivo"):
-            return "No hay un objetivo activo en este momento."
+            return (
+                "No hay un objetivo activo en este momento. "
+                "Si no existe una necesidad inmediata de seguridad o interaccion, responde con accion null."
+            )
 
-        obj = tarea["objetivo"]
+        objetivo = tarea["objetivo"]
         frustracion = tarea.get("frustracion", 0.0)
         umbral = tarea.get("umbral_abandono", 80.0)
         intentos = tarea.get("intentos", 0)
@@ -103,7 +121,7 @@ class PromptBuilder:
         loop = tarea.get("loop_detectado", False)
         estancado = tarea.get("estancamiento", False)
 
-        lineas = [f"Objetivo actual: {obj}."]
+        lineas = [f"Objetivo actual: {objetivo}."]
         lineas.append(
             f"Intentos: {intentos}, Fallos: {fallos}. Frustracion: {frustracion:.1f}/100 "
             f"(umbral de abandono: {umbral:.1f})."
@@ -114,7 +132,8 @@ class PromptBuilder:
             lineas.append("Estas estancado con muchos fallos consecutivos.")
         return " ".join(lineas)
 
-    def _construir_restricciones(self, context: AgentContext) -> str:
+    @staticmethod
+    def _construir_restricciones(context: AgentContext) -> str:
         restricciones = []
         politica = context.politica
         if politica == "cautelosa":

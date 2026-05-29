@@ -1,7 +1,5 @@
 """
 context_builder.py - Construye el contexto estructurado que alimenta el prompt del LLM.
-Recibe la salida de PsychologyEngine, la memoria resumida, las herramientas
-disponibles y la politica activa, y las empaqueta en un AgentContext.
 """
 
 from typing import Optional
@@ -23,20 +21,16 @@ class ContextBuilder:
         contexto_llm: dict,
         memoria_texto: str = "",
         herramientas: Optional[list[str]] = None,
+        herramientas_detalle: Optional[dict[str, str]] = None,
         politica: str = "exploradora",
         tarea: Optional[dict] = None,
     ) -> AgentContext:
-        """
-        Construye un AgentContext a partir de las piezas proporcionadas.
-
-        Soporta tanto el resumen crudo de TaskContext como una tarea ya
-        normalizada con claves como 'objetivo', 'intentos' y 'fallos'.
-        """
         estado_narrativo = contexto_llm.get("estado_narrativo", "")
         valores = contexto_llm.get("valores", {})
         personalidad = contexto_llm.get("personalidad", {})
         umbrales = contexto_llm.get("umbrales", {})
         percepcion_texto = contexto_llm.get("percepcion_resumida", "")
+        constelacion_resumen = contexto_llm.get("constelacion_resumen", "")
         tarea_data = tarea if tarea else contexto_llm.get("tarea")
 
         tarea_contexto = None
@@ -61,7 +55,9 @@ class ContextBuilder:
             tarea=tarea_contexto,
             memoria_texto=memoria_texto,
             percepcion_texto=percepcion_texto,
+            constelacion_resumen=constelacion_resumen,
             herramientas=herramientas or [],
+            herramientas_detalle=herramientas_detalle or {},
             politica=politica,
             banderas=umbrales,
         )

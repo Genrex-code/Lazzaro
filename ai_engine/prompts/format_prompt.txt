@@ -1,24 +1,29 @@
-Debes responder EXCLUSIVAMENTE con un JSON válido.
+Debes responder EXCLUSIVAMENTE con un JSON valido.
 
 No expliques el JSON.
 No uses markdown.
-No uses bloques de código.
+No uses bloques de codigo.
 No agregues texto fuera del JSON.
+No emitas etiquetas <think>.
 
 Formato obligatorio:
 
 {
-  "pensamiento": "razonamiento breve y coherente",
-  "accion": "nombre_accion_o_null",
-  "parametros": {
-    "clave": "valor"
-  },
-  "razon": "justificación concreta de la decisión"
+  "pensamiento": "resumen breve de la decision",
+  "accion": "nombre_exacto_de_herramienta_o_null",
+  "parametros": {},
+  "razon": "justificacion concreta y corta"
 }
 
-Reglas:
+Reglas obligatorias:
 
-- "accion" debe ser una herramienta válida o null.
-- "parametros" debe ser un objeto JSON válido.
+- Usa exactamente estas 4 claves: "pensamiento", "accion", "parametros", "razon".
+- "pensamiento" debe ser breve. No incluyas cadena de pensamiento larga.
+- "accion" debe ser una herramienta valida o null.
+- Si "accion" es null, "parametros" debe ser {}.
+- Si "accion" no es null, "parametros" debe contener solo claves permitidas para esa herramienta.
 - No inventes campos extra.
 - El JSON debe ser parseable directamente.
+
+Ejemplo valido sin accion:
+{"pensamiento":"No hay una accion segura que ejecutar ahora.","accion":null,"parametros":{},"razon":"Falta un objetivo ejecutable o una herramienta adecuada."}

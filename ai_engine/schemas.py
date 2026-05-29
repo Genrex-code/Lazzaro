@@ -1,68 +1,46 @@
 """
-schemas.py - Modelos de datos escritos para el modo ia_engine.
-Centraliza las estructuras que viajan entre el core, la memoria , el LLM y las herramientas.
+schemas.py - Modelos de datos escritos para el modo ai_engine.
+Centraliza las estructuras que viajan entre el core, la memoria, el LLM y las herramientas.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
-from pydantic import BaseModel, Field
-from datetime import timezone
-#==========================================================================================
-#Contexto que recibe el reasoning engine desde el exterior
-#==========================================================================================
+
+from pydantic import BaseModel, ConfigDict, Field
+
 
 class AgentContext(BaseModel):
     """Estado completo del agente justo antes de armar el prompt."""
-    #estado emocinal / cognitivo (desde psychology / behavior_core)
+
     estado_narrativo: str = ""
-    valores_estado: dict[str,float] = Field(default_factory=dict)
-
-    #pesonalidad
-    personalidad: dict[str,float] = Field(default_factory=dict)
-
-    #tarea actual
-    tarea: Optional[dict[str,Any]] = None # borren none quiero estar solo
-
-    #memoria recuperada y resumida
+    valores_estado: dict[str, float] = Field(default_factory=dict)
+    personalidad: dict[str, float] = Field(default_factory=dict)
+    tarea: Optional[dict[str, Any]] = None
     memoria_texto: str = ""
-
-    #percepcion actual del entorno resumida
     percepcion_texto: str = ""
-
-    #herramientas disponibles (lsita de nombres)
+    constelacion_resumen: str = ""
     herramientas: list[str] = Field(default_factory=list)
-
-    #politica activa (cautelosa,exploradora,etc.)
-    politica:str = "exploradora" #harcodeado? #nota por si esto truena ya tengo un sospechoso
-
-    #umbrales /banderas de comportamiento
-    banderas: dict[str,bool] = Field(default_factory=dict)
-
-    #TIMESTAMP del contexto # te la comex sin pretexto jasjasjas
-    #timestamp: datetime = Field(default_factory=datetime.utcnow) # ya se que esta obsoleto pero dejenme ser feliz :c
-    #act: no me dejaron ser feliz :c
-
+    herramientas_detalle: dict[str, str] = Field(default_factory=dict)
+    politica: str = "exploradora"
+    banderas: dict[str, bool] = Field(default_factory=dict)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-# ===========================================================================================
-#secciones del promp que arma prompt_buider # chingaderita 1 
-# ===========================================================================================
 
-class PromptSections (BaseModel):
+class PromptSections(BaseModel):
     """Cada seccion del prompt final."""
 
-    system:str = ""
-    personalidad:str = ""
-    estado_emocional:str = ""    #de mejico 
-    entorno:str = ""
-    objetivo:str = ""
-    memoria:str = ""
-    herramientas:str = ""
-    restricciones:str = ""
-    formato_respuestas:str = ""
+    system: str = ""
+    personalidad: str = ""
+    estado_emocional: str = ""
+    entorno: str = ""
+    objetivo: str = ""
+    memoria: str = ""
+    herramientas: str = ""
+    restricciones: str = ""
+    formato_respuestas: str = ""
 
     def ensamblar(self) -> str:
-        """combina las secciones no vacias en un solo string"""
+        """Combina las secciones no vacias en un solo string."""
         partes = [
             self.system,
             self.personalidad,
@@ -74,29 +52,35 @@ class PromptSections (BaseModel):
             self.restricciones,
             self.formato_respuestas,
         ]
-        return "\n\n".join(p for p in partes if p)
-    
-#===========================================================================================
-#Respuestas cruda esperada del LLM (json obligatorio)
-#===========================================================================================
+        return "\n\n".join(parte for parte in partes if parte)
+
 
 class LLMResponse(BaseModel):
-    """formato que el LLM debe devolver"""
-    pensamiento: str = Field(...,description="Razonamiento interno del agente")
+    """Formato estructurado que el LLM debe devolver."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    pensamiento: str = Field(
+        ...,
+        description="Resumen breve de la decision. No incluyas cadena de pensamiento extensa.",
+    )
     accion: Optional[str] = Field(
         default=None,
-        description="Nombre de la accion a ejecutar o null si no aplica",
+        description="Nombre exacto de la accion a ejecutar o null si no aplica.",
     )
-    parametros: dict[str,Any] = Field(default_factory=dict,description="Parametros de la accion")
-    razon: str = Field("",description="Motivo por el que se elige esta accion")
+    parametros: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Parametros validos para la accion elegida. Si accion es null, usa {}.",
+    )
+    razon: str = Field(
+        default="",
+        description="Justificacion corta y concreta de la decision.",
+    )
 
-#============================================================================================
-#Resultado final despues de parsear y validar
-#============================================================================================
 
 class ActionResponse(BaseModel):
-    """Accion validad lista para ser ejecutada (o rechazada)""" # cough cough maria antonieta couhg cough 
-    #mejor si me cayo con el chiste del rechazo
+    """Accion validada lista para ser ejecutada o rechazada."""
+
     pensamiento: str
     accion: str
     parametros: dict[str, Any] = Field(default_factory=dict)

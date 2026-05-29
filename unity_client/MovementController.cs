@@ -9,10 +9,12 @@ public class MovementController : MonoBehaviour
     public bool IsMoving { get; private set; } = false;
 
     private LazzaroAgent agente;
+    private Rigidbody cuerpoRigido;
 
     void Awake()
     {
         agente = GetComponent<LazzaroAgent>();
+        cuerpoRigido = GetComponent<Rigidbody>();
     }
 
     public void EjecutarMovimiento(JObject parametros)
@@ -30,6 +32,7 @@ public class MovementController : MonoBehaviour
         string direccion = parametros["direccion"]?.ToString() ?? "adelante";
         float distancia = parametros["distancia"]?.Value<float>() ?? 1.0f;
         string velocidad = parametros["velocidad"]?.ToString() ?? "caminar";
+        float rotacionY = parametros["rotacion_y"]?.Value<float>() ?? transform.eulerAngles.y;
 
         if (!TryResolverDireccion(direccion, out Vector3 vectorMovimiento))
         {
@@ -41,12 +44,21 @@ public class MovementController : MonoBehaviour
             return;
         }
 
-        StartCoroutine(MoverSuavemente(direccion, vectorMovimiento * distancia, velocidad));
+        StartCoroutine(MoverSuavemente(direccion, vectorMovimiento * distancia, velocidad, rotacionY));
     }
 
-    private IEnumerator MoverSuavemente(string direccion, Vector3 desplazamiento, string velocidad)
+    private IEnumerator MoverSuavemente(string direccion, Vector3 desplazamiento, string velocidad, float rotacionY)
     {
         IsMoving = true;
+        Quaternion rotacionObjetivo = Quaternion.Euler(0f, rotacionY, 0f);
+        if (cuerpoRigido != null)
+        {
+            cuerpoRigido.transform.rotation = rotacionObjetivo;
+        }
+        else
+        {
+            transform.rotation = rotacionObjetivo;
+        }
 
         Vector3 posicionInicial = transform.position;
         Vector3 posicionFinal = posicionInicial + desplazamiento;
@@ -93,6 +105,7 @@ public class MovementController : MonoBehaviour
                 { "direccion", direccion },
                 { "distancia_recorrida", Math.Round(desplazamiento.magnitude, 2) },
                 { "velocidad", velocidad },
+                { "rotacion_y", Math.Round(rotacionY, 2) },
             }
         );
     }

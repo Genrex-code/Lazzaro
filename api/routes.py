@@ -121,6 +121,23 @@ async def obtener_notificaciones(request: Request):
         return []
 
 
+@router.get("/constelacion")
+async def obtener_constelacion(request: Request):
+    """
+    Devuelve el snapshot cognitivo actual del agente en formato estructurado.
+    Es util para depuracion, visualizacion y telemetria del estado interno.
+    """
+    orch = request.app.state.orchestrator
+    if orch is None:
+        raise HTTPException(status_code=503, detail="Agente no disponible")
+
+    try:
+        return await run_in_threadpool(orch.obtener_constelacion_publica)
+    except Exception as e:
+        logger.error("Error al obtener constelacion cognitiva: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Error al leer la constelacion cognitiva")
+
+
 @router.post("/comando", response_model=RespuestaAPI)
 async def enviar_comando_directo(
     comando: EventoEntrante,

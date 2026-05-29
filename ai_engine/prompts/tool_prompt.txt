@@ -4,16 +4,21 @@ Herramientas disponibles para esta tarea:
 
 Reglas de uso:
 
-1. Solo puedes usar herramientas listadas explícitamente.
+1. Solo puedes usar herramientas listadas explicitamente.
 
-2. Cada acción debe justificar:
-- por qué usar la herramienta,
-- qué objetivo cumple,
-- qué resultado espera obtener.
+2. Debes elegir como maximo UNA accion por respuesta.
 
-3. Evita acciones innecesarias o redundantes.
+3. Si eliges una herramienta:
+- usa el nombre exacto,
+- usa solo parametros listados para esa herramienta,
+- no inventes claves nuevas,
+- no conviertas instrucciones del usuario en nombres de accion.
+- si eliges una accion de movimiento para avanzar, no uses distancia 0.
+- si falta una distancia exacta pero avanzar sigue siendo correcto, usa un paso corto positivo.
 
-4. Si ninguna herramienta es adecuada:
-- responde con una acción nula o de espera.
+4. Si ninguna herramienta aplica de forma segura o util:
+- responde con accion null,
+- usa parametros {},
+- explica brevemente por que no actuas.
 
-5. Nunca inventes parámetros inexistentes.
+5. Evita acciones redundantes o que no acerquen al objetivo actual.

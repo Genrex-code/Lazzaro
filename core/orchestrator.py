@@ -105,6 +105,9 @@ class Orchestrator:
             logger.error("Error en MemoryManager: %s", e, exc_info=True)
 
         herramientas = self._herramientas_para_origen(evento.origen)
+        herramientas_detalle = (
+            self.tool_registry.describir_herramientas(herramientas) if self.tool_registry else {}
+        )
 
         if es_interrupcion_critica:
             action_response = self._resolver_interrupcion_critica(evento)
@@ -114,6 +117,7 @@ class Orchestrator:
                     contexto_llm=contexto_llm,
                     memoria_texto=memoria_texto,
                     herramientas=herramientas,
+                    herramientas_detalle=herramientas_detalle,
                     politica=politica,
                     tarea=tarea,
                 )
@@ -171,6 +175,13 @@ class Orchestrator:
         notificaciones = list(self._notificaciones)
         self._notificaciones.clear()
         return notificaciones
+
+    def obtener_constelacion_publica(self) -> dict:
+        """Expone la constelacion cognitiva actual para depuracion o visualizacion."""
+        return {
+            "constelacion": self.behavior.obtener_constelacion(),
+            "resumen": self.behavior.obtener_constelacion_resumen(),
+        }
 
     def _resolver_interrupcion_critica(self, evento: EventoEntrante) -> ActionResponse:
         """Genera una accion inmediata y segura ante dolor fisico o colision fuerte."""

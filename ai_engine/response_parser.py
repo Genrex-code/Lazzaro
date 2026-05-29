@@ -1,9 +1,9 @@
 """
 response_parser.py - Valida y limpia la respuesta JSON del LLM.
-Convierte la salida cruda del modelo en una ActionResponse segura.
 """
 
 import json
+import re
 from typing import Optional
 
 from ai_engine.schemas import ActionResponse, LLMResponse
@@ -15,21 +15,11 @@ logger = get_logger(__name__)
 class ResponseParser:
     """
     Parsea la respuesta cruda del LLM, la valida contra el esquema esperado
-    y produce una ActionResponse lista para ser ejecutada (o rechazada).
+    y produce una ActionResponse lista para ser ejecutada o rechazada.
     """
 
     @staticmethod
     def parse(texto_crudo: str, acciones_permitidas: Optional[set[str]] = None) -> ActionResponse:
-        """
-        Convierte la cadena devuelta por Gemini en una accion validada.
-
-        Args:
-            texto_crudo: respuesta textual del LLM (debe contener un JSON).
-            acciones_permitidas: conjunto opcional de nombres de accion validos.
-
-        Returns:
-            ActionResponse con los campos normalizados y la bandera 'valido'.
-        """
         json_str = ResponseParser._extraer_json(texto_crudo)
         if json_str is None:
             logger.warning("No se encontro JSON en la respuesta del LLM. Texto: %s", texto_crudo[:200])
@@ -73,7 +63,6 @@ class ResponseParser:
             )
 
         accion_normalizada = ResponseParser._normalizar_accion(respuesta.accion)
-
         if (
             acciones_permitidas is not None
             and accion_normalizada != "none"
@@ -104,23 +93,21 @@ class ResponseParser:
 
     @staticmethod
     def _extraer_json(texto: str) -> Optional[str]:
-        """
-        Intenta aislar un bloque JSON del texto, manejando fences de Markdown
-        o texto adicional alrededor.
-        """
         if not texto:
             return None
 
-        inicio = texto.find("{")
-        fin = texto.rfind("}")
+        texto_limpio = re.sub(r"<think>.*?</think>", "", texto, flags=re.DOTALL | re.IGNORECASE)
+        texto_limpio = texto_limpio.replace("```json", "").replace("```", "").strip()
+
+        inicio = texto_limpio.find("{")
+        fin = texto_limpio.rfind("}")
         if inicio != -1 and fin != -1 and fin > inicio:
-            return texto[inicio : fin + 1]
+            return texto_limpio[inicio : fin + 1]
 
         return None
 
     @staticmethod
     def _normalizar_accion(accion: object) -> str:
-        """Normaliza la accion del LLM a un nombre de herramienta o 'none'."""
         if accion is None or not isinstance(accion, str):
             return "none"
 

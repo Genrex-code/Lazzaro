@@ -76,6 +76,57 @@ class ToolRegistry:
         return list(cls._tools.keys())
 
     @classmethod
+    def describir_herramientas(cls, nombres: list[str] | None = None) -> dict[str, str]:
+        """Devuelve descripciones compactas y parametros reales para el prompt."""
+        nombres_objetivo = nombres or cls.listar_nombres()
+        descripciones: dict[str, str] = {}
+
+        for name in nombres_objetivo:
+            data = cls._tools.get(name)
+            if not data:
+                continue
+
+            schema = cls._schema_dict(data["schema"])
+            props = schema.get("properties", {})
+            required = set(schema.get("required", []))
+            params = []
+            for pname, pinfo in props.items():
+                tipo = cls._formatear_tipo_parametro(pinfo)
+                desc = pinfo.get("description", "")
+                obligatoriedad = "obligatorio" if pname in required else "opcional"
+                if desc:
+                    params.append(f"{pname} [{obligatoriedad}, {tipo}]: {desc}")
+                else:
+                    params.append(f"{pname} [{obligatoriedad}, {tipo}]")
+
+            descripcion = data["description"]
+            if params:
+                descripcion += " Parametros: " + "; ".join(params) + "."
+            descripciones[name] = descripcion
+
+        return descripciones
+
+    @staticmethod
+    def _formatear_tipo_parametro(pinfo: dict[str, Any]) -> str:
+        tipos: list[str] = []
+        tipo_simple = pinfo.get("type")
+        if isinstance(tipo_simple, str):
+            tipos.append(tipo_simple)
+        elif isinstance(tipo_simple, list):
+            tipos.extend(str(tipo) for tipo in tipo_simple)
+
+        for variante in pinfo.get("anyOf", []):
+            tipo_variante = variante.get("type")
+            if isinstance(tipo_variante, str):
+                tipos.append(tipo_variante)
+
+        tipos_unicos: list[str] = []
+        for tipo in tipos:
+            if tipo not in tipos_unicos:
+                tipos_unicos.append(tipo)
+        return "|".join(tipos_unicos) if tipos_unicos else "any"
+
+    @classmethod
     def get_tools_for_prompt(cls) -> str:
         """Genera un texto con las herramientas y sus parametros para el prompt del LLM."""
         lineas = []

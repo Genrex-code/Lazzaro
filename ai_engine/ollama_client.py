@@ -1,0 +1,130 @@
+"""
+ollama_client.py - Cliente BaseAIClient para modelos locales servidos por Ollama.
+"""
+
+from __future__ import annotations
+
+import re
+from typing import Any, Optional
+
+import httpx
+
+from ai_engine.ai_client import BaseAIClient
+from ai_engine.schemas import LLMResponse
+from core.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+class OllamaClient(BaseAIClient):
+    """Cliente sincronico para usar DeepSeek R1 u otros modelos locales via Ollama."""
+    provider_name = "ollama"
+
+    def __init__(self, settings: Optional[Any] = None):
+        from config.settings import Settings
+
+        self.settings = settings or Settings()
+        self.base_url = self._resolver_base_url(self.settings)
+        self.model_name = self._resolver_modelo(self.settings)
+        self.timeout_seconds = float(getattr(self.settings, "OLLAMA_TIMEOUT_SECONDS", 120.0))
+        self.client = httpx.Client(base_url=self.base_url, timeout=self.timeout_seconds)
+
+        logger.info(
+            "OllamaClient listo (modelo: %s, base_url: %s).",
+            self.model_name,
+            self.base_url,
+        )
+
+    def generate(self, prompt: str, **kwargs) -> str:
+        """Envia un prompt a Ollama y devuelve el texto generado."""
+        payload = {
+            "model": self.model_name,
+            "prompt": prompt,
+            "stream": False,
+            "options": self._build_options(kwargs),
+        }
+
+        if kwargs.get("response_mime_type") == "application/json":
+            payload["format"] = self._response_format_schema()
+
+        try:
+            response = self.client.post("/api/generate", json=payload)
+            response.raise_for_status()
+            data = response.json()
+            texto = self._limpiar_respuesta(str(data.get("response", "")))
+            if texto:
+                logger.debug("Ollama -> %d caracteres.", len(texto))
+            else:
+                logger.warning("Ollama devolvio texto vacio.")
+            return texto
+        except Exception as e:
+            logger.error("Error conectando con Ollama local: %s", e)
+            return ""
+
+    def health_check(self) -> bool:
+        """Verifica que Ollama este accesible y que el modelo configurado exista."""
+        try:
+            response = self.client.get("/api/tags")
+            response.raise_for_status()
+            data = response.json()
+            modelos = data.get("models", [])
+            nombres = {str(modelo.get("name", "")).strip() for modelo in modelos}
+            return bool(nombres) and self.model_name in nombres
+        except Exception as e:
+            logger.error("Health check Ollama fallido: %s", e)
+            return False
+
+    def close(self) -> None:
+        """Cierra la sesion HTTP persistente."""
+        client = getattr(self, "client", None)
+        if client is None:
+            return
+
+        try:
+            client.close()
+        except Exception as e:
+            logger.warning("No se pudo cerrar el cliente Ollama limpiamente: %s", e)
+        finally:
+            self.client = None
+
+    @staticmethod
+    def _resolver_base_url(settings: Any) -> str:
+        base_url = getattr(settings, "OLLAMA_BASE_URL", None)
+        if isinstance(base_url, str) and base_url.strip():
+            return base_url.strip().rstrip("/")
+
+        host = str(getattr(settings, "OLLAMA_HOST", "127.0.0.1")).strip()
+        port = int(getattr(settings, "OLLAMA_PORT", 11434))
+        return f"http://{host}:{port}"
+
+    @staticmethod
+    def _resolver_modelo(settings: Any) -> str:
+        modelo = getattr(settings, "OLLAMA_MODEL_NAME", None) or getattr(
+            settings,
+            "DEEPSEEK_MODEL",
+            "deepseek-r1:8b",
+        )
+        return str(modelo).strip()
+
+    @staticmethod
+    def _build_options(overrides: dict[str, Any]) -> dict[str, Any]:
+        options = {
+            "temperature": overrides.get("temperature", 0.7),
+            "num_predict": overrides.get("max_output_tokens", 1024),
+            "top_p": overrides.get("top_p"),
+            "top_k": overrides.get("top_k"),
+            "stop": overrides.get("stop_sequences"),
+        }
+        return {key: value for key, value in options.items() if value is not None}
+
+    @staticmethod
+    def _limpiar_respuesta(texto: str) -> str:
+        texto_limpio = re.sub(r"<think>.*?</think>", "", texto, flags=re.DOTALL | re.IGNORECASE)
+        texto_limpio = texto_limpio.replace("```json", "").replace("```", "").strip()
+        return texto_limpio
+
+    @staticmethod
+    def _response_format_schema() -> dict[str, Any]:
+        schema = LLMResponse.model_json_schema()
+        schema["additionalProperties"] = False
+        return schema

@@ -18,6 +18,7 @@ logger = get_logger(__name__)
 
 class GeminiClient(BaseAIClient):
     """Cliente para Google Gemini con reintentos y manejo basico de rate limits."""
+    provider_name = "gemini"
 
     def __init__(self, settings: Optional[Any] = None):
         from config.settings import Settings

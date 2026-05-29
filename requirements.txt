@@ -4,3 +4,4 @@ pydantic
 pydantic-settings
 google-genai
 chromadb
+httpx
