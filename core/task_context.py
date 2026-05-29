@@ -97,6 +97,8 @@ class TaskContext:
         for registro in ultimas[1:]:
             if registro["accion"] != referencia["accion"] or registro["exito"] != referencia["exito"]:
                 return False
+        if referencia["exito"] and referencia["accion"] == "moverse_entorno_3d":
+            return False
         logger.warning(f"Loop detectado: {ventana} repeticiones de '{referencia['accion']}' "
                        f"con resultado {'éxito' if referencia['exito'] else 'fallo'}")
         return True
@@ -138,6 +140,8 @@ class TaskContext:
         conteo = {}
         for reg in acciones_recientes:
             accion = reg["accion"]
+            if accion == "moverse_entorno_3d":
+                continue
             conteo[accion] = conteo.get(accion, 0) + 1
         for accion, count in conteo.items():
             if count >= repeticiones:
