@@ -26,6 +26,7 @@ class Orchestrator:
         "unity": {
             "navegar_a_objeto", #agregado
             "navegar_a_posicion", # agregado
+            "alejarse_de_objeto",
             "moverse_entorno_3d",
             "interactuar_objeto_3d",
             "agarrar_objeto",
@@ -36,6 +37,7 @@ class Orchestrator:
         "roblox": {
             "navegar_a_objeto",#agregado
             "navegar_a_posicion",#agregado
+            "alejarse_de_objeto",
             "moverse_entorno_3d",
             "interactuar_objeto_3d",
             "agarrar_objeto",
@@ -44,6 +46,8 @@ class Orchestrator:
             "hablar",
         },
     }
+    HERRAMIENTAS_CONVERSACION = {"hablar"}
+    HERRAMIENTAS_INTERACCION = {"interactuar_objeto_3d", "agarrar_objeto", "soltar_objeto", "aplicar_fuerza"}
     MAX_TRANSACCIONES_CACHE = 2000
 
     def __init__(self, behavior_core, memory_manager, reasoning_engine, tool_registry):
@@ -108,13 +112,21 @@ class Orchestrator:
         except Exception as e:
             logger.error("Error en MemoryManager: %s", e, exc_info=True)
 
-        herramientas = self._herramientas_para_origen(evento.origen)
+        solicita_decision = self._evento_solicita_decision(evento, es_interrupcion_critica)
+        herramientas = self._filtrar_herramientas_por_intencion(
+            evento,
+            self._herramientas_para_origen(evento.origen),
+        )
         herramientas_detalle = (
             self.tool_registry.describir_herramientas(herramientas) if self.tool_registry else {}
         )
 
         if es_interrupcion_critica:
             action_response = self._resolver_interrupcion_critica(evento)
+        elif self._es_resultado_hablar(evento):
+            action_response = self._accion_pasiva()
+        elif not solicita_decision:
+            action_response = self._accion_pasiva()
         else:
             try:
                 action_response = self.reasoning.process(
@@ -151,6 +163,17 @@ class Orchestrator:
 
         logger.info("Evento %s procesado. Accion: %s", evento.id_transaccion, accion_saliente.nombre)
         return accion_saliente
+
+    @staticmethod
+    def _accion_pasiva() -> ActionResponse:
+        return ActionResponse(
+            pensamiento="",
+            accion="none",
+            parametros={},
+            razon="Evento tratado como telemetria pasiva.",
+            valido=True,
+            emocion_facial="Fcl_ALL_Neutral",
+        )
 
     def obtener_estado_publico(self) -> EstadoAgente:
         """Devuelve un snapshot del estado interno para el frontend."""
@@ -359,6 +382,96 @@ class Orchestrator:
         if not permitidas:
             return herramientas
         return [herramienta for herramienta in herramientas if herramienta in permitidas]
+
+    @staticmethod
+    def _evento_solicita_decision(evento: EventoEntrante, es_interrupcion_critica: bool) -> bool:
+        if es_interrupcion_critica:
+            return True
+        if evento.detalles.get("solicita_decision") is True:
+            return True
+        return evento.tipo_evento == "comando_usuario"
+
+    @staticmethod
+    def _es_resultado_hablar(evento: EventoEntrante) -> bool:
+        return evento.tipo_evento == "resultado_accion" and evento.detalles.get("accion") == "hablar"
+
+    def _filtrar_herramientas_por_intencion(
+        self,
+        evento: EventoEntrante,
+        herramientas: list[str],
+    ) -> list[str]:
+        if evento.tipo_evento != "comando_usuario":
+            return herramientas
+
+        mensaje = str(evento.detalles.get("mensaje", "")).lower()
+        if not self._es_intencion_fisica(mensaje):
+            return [herramienta for herramienta in herramientas if herramienta in self.HERRAMIENTAS_CONVERSACION]
+
+        if "sin interactuar" in mensaje or "no interact" in mensaje:
+            return [
+                herramienta
+                for herramienta in herramientas
+                if herramienta not in self.HERRAMIENTAS_INTERACCION
+            ]
+        return herramientas
+
+    @staticmethod
+    def _es_intencion_fisica(mensaje: str) -> bool:
+        marcadores_conversacion = (
+            "te gusta",
+            "como te llamas",
+            "cómo te llamas",
+            "quien eres",
+            "quién eres",
+            "por que",
+            "por qué",
+            "fuiste",
+            "eras",
+            "historia",
+            "hablemos",
+            "charlemos",
+        )
+        marcadores_comando = (
+            "podrias",
+            "podrías",
+            "intenta",
+            "intentar",
+            "deja de",
+            "ve a",
+            "vete",
+            "dirigete",
+            "dirígete",
+        )
+        verbos_fisicos = (
+            "mov",
+            "muev",
+            "muév",
+            "camina",
+            "acerc",
+            "alej",
+            "aléj",
+            "navega",
+            "retrocede",
+            "atras",
+            "atrás",
+            "paso",
+            "seguir",
+            "sigue",
+            "interact",
+            "agarr",
+            "suelta",
+            "golpea",
+            "empuja",
+            "fuerza",
+        )
+
+        es_conversacion = any(marcador in mensaje for marcador in marcadores_conversacion)
+        es_comando_explicito = any(marcador in mensaje for marcador in marcadores_comando)
+        tiene_verbo_fisico = any(verbo in mensaje for verbo in verbos_fisicos)
+
+        if es_conversacion and not es_comando_explicito:
+            return False
+        return tiene_verbo_fisico
 
     def _gestionar_ejecucion(
         self,

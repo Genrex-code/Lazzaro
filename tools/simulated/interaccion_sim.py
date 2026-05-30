@@ -11,6 +11,11 @@ class AgarrarObjetoParams(BaseModel):
     nombre_objeto: str = Field(..., description="Nombre del objeto a agarrar")
 
 
+class InteractuarObjeto3DParams(BaseModel):
+    nombre_objeto: str = Field(..., description="Nombre del objeto con el que se quiere interactuar")
+    tipo_accion: str = Field("mirar", description="Tipo de interaccion: mirar, tocar, golpear, inspeccionar")
+
+
 class SoltarObjetoParams(BaseModel):
     fuerza_lanzamiento: float = Field(0.0, description="Fuerza de lanzamiento (0 = soltar suavemente)")
 
@@ -28,6 +33,15 @@ class HablarParams(BaseModel):
 
 
 # -------------------- Funciones registradas --------------------
+@ToolRegistry.register(
+    name="interactuar_objeto_3d",
+    description="Interactua de forma simple con un objeto cercano del entorno 3D.",
+    params_schema=InteractuarObjeto3DParams
+)
+def interactuar_objeto_3d(params: InteractuarObjeto3DParams) -> str:
+    return f"[Mundo Virtual] Lazzaro ejecuta '{params.tipo_accion}' sobre '{params.nombre_objeto}'."
+
+
 @ToolRegistry.register(
     name="agarrar_objeto",
     description="Agarra un objeto del entorno 3D identificado por su nombre.",

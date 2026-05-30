@@ -24,6 +24,8 @@ public class LazzaroAgent : MonoBehaviour
     private string ultimoObjetoNavegacion = "ninguno";
     private string ultimaAccionMovimiento = "navegar_a_objeto";
     private Dictionary<string, object> ultimosParametrosMovimiento = new Dictionary<string, object>();
+    private const float DistanciaMaximaInteraccion = 2.0f;
+    private const float DistanciaMaximaAgarrar = 1.5f;
 
     void Awake()
     {
@@ -81,7 +83,6 @@ public class LazzaroAgent : MonoBehaviour
             }
 
             var detallesVision = percepcion.EscanearEntorno();
-            detallesVision["mensaje"] = ConstruirManualEspacial();
 
             if (movimientoTerminadoPendiente)
             {
@@ -224,6 +225,9 @@ public class LazzaroAgent : MonoBehaviour
             case "navegar_a_posicion":
                 EjecutarNavegarAPosicion(respuesta.accion.parametros);
                 break;
+            case "alejarse_de_objeto":
+                EjecutarAlejarseDeObjeto(respuesta.accion.parametros);
+                break;
             case "interactuar_objeto_3d":
                 EjecutarInteraccion(respuesta.accion.parametros);
                 break;
@@ -307,6 +311,32 @@ public class LazzaroAgent : MonoBehaviour
         };
 
         movimiento.NavegarAPosicion(destino, ultimoObjetoNavegacion);
+    }
+
+    private void EjecutarAlejarseDeObjeto(JObject parametros)
+    {
+        string objeto = parametros?["nombre_objeto"]?.ToString() ?? "";
+        float distancia = parametros?["distancia"]?.Value<float>() ?? 2.0f;
+
+        if (string.IsNullOrWhiteSpace(objeto))
+        {
+            ReportarResultadoAccion(
+                "alejarse_de_objeto",
+                false,
+                "La accion alejarse_de_objeto no incluyo el parametro nombre_objeto."
+            );
+            return;
+        }
+
+        ultimoObjetoNavegacion = objeto;
+        ultimaAccionMovimiento = "alejarse_de_objeto";
+        ultimosParametrosMovimiento = new Dictionary<string, object>
+        {
+            { "nombre_objeto", objeto },
+            { "distancia", Math.Round(distancia, 2) },
+        };
+
+        movimiento.AlejarseDeObjeto(objeto, distancia);
     }
 
     private void ManejarMovimientoCompletado(bool exito, string mensaje)
@@ -398,24 +428,34 @@ public class LazzaroAgent : MonoBehaviour
     {
         string objeto = parametros?["nombre_objeto"]?.ToString() ?? "objeto_desconocido";
         string tipo = parametros?["tipo_accion"]?.ToString() ?? "mirar";
-        Debug.Log($"Interactuando con {objeto} mediante '{tipo}'.");
+        if (!TryBuscarObjetoCercano(objeto, DistanciaMaximaInteraccion, "interactuar_objeto_3d", out Collider objetivo))
+        {
+            return;
+        }
+
+        Debug.Log($"Interactuando con {objetivo.name} mediante '{tipo}'.");
         ReportarResultadoAccion(
             "interactuar_objeto_3d",
             true,
-            $"Interaccion '{tipo}' ejecutada sobre '{objeto}'.",
+            $"Interaccion '{tipo}' ejecutada sobre '{objetivo.name}'.",
             new Dictionary<string, object>
             {
                 { "tipo_accion", tipo },
             },
-            objeto
+            objetivo.name
         );
     }
 
     private void EjecutarAgarrar(JObject parametros)
     {
         string objeto = parametros?["nombre_objeto"]?.ToString() ?? "objeto_desconocido";
-        Debug.Log($"Lazzaro intenta agarrar {objeto}.");
-        ReportarResultadoAccion("agarrar_objeto", true, $"Objeto '{objeto}' agarrado.", null, objeto);
+        if (!TryBuscarObjetoCercano(objeto, DistanciaMaximaAgarrar, "agarrar_objeto", out Collider objetivo))
+        {
+            return;
+        }
+
+        Debug.Log($"Lazzaro intenta agarrar {objetivo.name}.");
+        ReportarResultadoAccion("agarrar_objeto", true, $"Objeto '{objetivo.name}' agarrado.", null, objetivo.name);
     }
 
     private void EjecutarSoltar(JObject parametros)
@@ -456,12 +496,43 @@ public class LazzaroAgent : MonoBehaviour
     private void EjecutarHablar(JObject parametros)
     {
         string texto = parametros?["texto_a_comunicar"]?.ToString() ?? "...";
-        Debug.Log($"Lazzaro dice: {texto}");
-        ReportarResultadoAccion(
-            "hablar",
-            true,
-            "Mensaje emitido correctamente.",
-            new Dictionary<string, object> { { "texto_a_comunicar", texto } }
-        );
+        Debug.Log($"[VOZ LAZZARO]: {texto}");
+    }
+
+    private bool TryBuscarObjetoCercano(
+        string nombreObjeto,
+        float distanciaMaxima,
+        string accion,
+        out Collider objetivo
+    )
+    {
+        objetivo = null;
+        if (string.IsNullOrWhiteSpace(nombreObjeto) || nombreObjeto == "objeto_desconocido")
+        {
+            ReportarResultadoAccion(accion, false, $"La accion {accion} no incluyo un objeto valido.");
+            return false;
+        }
+
+        objetivo = percepcion.BuscarObjeto(nombreObjeto);
+        if (objetivo == null)
+        {
+            ReportarResultadoAccion(accion, false, $"No pude encontrar el objeto '{nombreObjeto}'.");
+            return false;
+        }
+
+        float distancia = Vector3.Distance(transform.position, objetivo.transform.position);
+        if (distancia > distanciaMaxima)
+        {
+            ReportarResultadoAccion(
+                accion,
+                false,
+                $"El objeto '{objetivo.name}' esta demasiado lejos ({distancia:0.##}m). Primero debo acercarme.",
+                new Dictionary<string, object> { { "distancia_objeto", Math.Round(distancia, 2) } },
+                objetivo.name
+            );
+            return false;
+        }
+
+        return true;
     }
 }

@@ -51,9 +51,9 @@ class EventoEntrante(BaseModel):
                 "id_transaccion": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
                 "objeto_involucrado": "ninguno",
                 "detalles": {
-                    "mensaje": "Objetivo: explora el bosque y acercate al arbol mas cercano.",
                     "posicion_lazzaro": {"x": 1.2, "y": 0.0, "z": 3.4},
                     "objetos_visibles": "Veo Arbol_01 a 2.4m al norte.",
+                    "solicita_decision": False,
                 },
             }
         }
@@ -113,7 +113,7 @@ class AccionSaliente(BaseModel):
         default_factory=list,
         description="Metadatos opcionales que describen los parametros esperados.",
     )
-    emocion_facial: str = Field ( default="Fcl_ALL_Neutral",description="Expresion VRM a usar.") #agregado
+    emocion_facial: str = Field(default="Fcl_ALL_Neutral", description="Expresion VRM a usar.")
 
     model_config = ConfigDict(
         json_schema_extra={

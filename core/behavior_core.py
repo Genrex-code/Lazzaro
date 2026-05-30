@@ -28,6 +28,7 @@ class BehaviorCore:
     ACCIONES_EXPLORATORIAS = {
         "navegar_a_objeto", #agregado
         "navegar_a_posicion",# agregado
+        "alejarse_de_objeto",
         "moverse_entorno_3d",
         "interactuar_objeto_3d",
         "agarrar_objeto",
@@ -300,6 +301,9 @@ class BehaviorCore:
             self.finalizar_tarea(exito=True)
 
     def _extraer_objetivo_desde_detalles(self, tipo_evento: str, detalles: dict[str, Any]) -> str | None:
+        if tipo_evento not in {"comando_usuario", "inicio_simulacion"}:
+            return None
+
         mensaje = str(detalles.get("mensaje", "")).strip()
         if not mensaje:
             return None

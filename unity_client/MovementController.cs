@@ -96,6 +96,37 @@ public class MovementController : MonoBehaviour
         rutinaMovimiento = StartCoroutine(NavegarHastaDestino(etiquetaDestino, navHit.position));
     }
 
+    public void AlejarseDeObjeto(string nombreObjeto, float distancia)
+    {
+        if (IsMoving)
+        {
+            OnMovimientoCompletado?.Invoke(
+                false,
+                "Se recibio una nueva orden de navegacion mientras otra seguia en curso."
+            );
+            return;
+        }
+
+        Collider objetivo = percepcion.BuscarObjeto(nombreObjeto);
+        if (objetivo == null)
+        {
+            OnMovimientoCompletado?.Invoke(false, $"No pude encontrar el objeto '{nombreObjeto}'.");
+            return;
+        }
+
+        Vector3 puntoCercano = objetivo.ClosestPoint(transform.position);
+        Vector3 direccionEscape = transform.position - puntoCercano;
+        direccionEscape.y = 0f;
+
+        if (direccionEscape.sqrMagnitude < 0.01f)
+        {
+            direccionEscape = -transform.forward;
+        }
+
+        Vector3 destino = transform.position + direccionEscape.normalized * Mathf.Clamp(distancia, 0.5f, 5f);
+        NavegarAPosicion(destino, $"alejarme de {objetivo.name}");
+    }
+
     private IEnumerator NavegarHastaDestino(string nombreObjeto, Vector3 destino)
     {
         IsMoving = true;

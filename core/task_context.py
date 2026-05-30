@@ -17,7 +17,12 @@ class TaskContext:
     behavior_core, que leerá la frustración local y aplicará el estímulo necesario.
     """
 
-    ACCIONES_MOVIMIENTO = {"moverse_entorno_3d", "navegar_a_objeto", "navegar_a_posicion"}
+    ACCIONES_MOVIMIENTO = {
+        "moverse_entorno_3d",
+        "navegar_a_objeto",
+        "navegar_a_posicion",
+        "alejarse_de_objeto",
+    }
 
     def __init__(self, objetivo_id: str = "", max_historial: int = 20):
         self.objetivo_id = objetivo_id
