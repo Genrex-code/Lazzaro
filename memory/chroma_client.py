@@ -187,3 +187,26 @@ class ChromaClient:
         except Exception as e:
             logger.error("Error al contar documentos: %s", e)
             return -1
+
+    def close(self) -> None:
+        """Libera recursos de ChromaDB para evitar locks de archivos en Windows."""
+        with self._lock:
+            client = self._client
+            self._collection = None
+            self._client = None
+
+            if client is None:
+                return
+
+            try:
+                close = getattr(client, "close", None)
+                if callable(close):
+                    close()
+                    return
+
+                system = getattr(client, "_system", None)
+                stop = getattr(system, "stop", None)
+                if callable(stop):
+                    stop()
+            except Exception as e:
+                logger.warning("No se pudo cerrar ChromaDB limpiamente: %s", e)

@@ -24,6 +24,8 @@ class Orchestrator:
 
     HERRAMIENTAS_POR_ORIGEN = {
         "unity": {
+            "navegar_a_objeto", #agregado
+            "navegar_a_posicion", # agregado
             "moverse_entorno_3d",
             "interactuar_objeto_3d",
             "agarrar_objeto",
@@ -32,6 +34,8 @@ class Orchestrator:
             "hablar",
         },
         "roblox": {
+            "navegar_a_objeto",#agregado
+            "navegar_a_posicion",#agregado
             "moverse_entorno_3d",
             "interactuar_objeto_3d",
             "agarrar_objeto",
@@ -200,6 +204,24 @@ class Orchestrator:
             "antes de continuar con cualquier objetivo."
         )
 
+        posicion_actual = self._leer_posicion_lazzaro(evento.detalles)
+        if self.tool_registry and self.tool_registry.get_tool("navegar_a_posicion") and posicion_actual:
+            x, y, z = posicion_actual
+            dx, dz = self._vector_escape(direccion_escape)
+            distancia_segura = self._leer_distancia_escape(distancia)
+            return ActionResponse(
+                pensamiento=pensamiento,
+                accion="navegar_a_posicion",
+                parametros={
+                    "x": round(x + dx * distancia_segura, 2),
+                    "y": round(y, 2),
+                    "z": round(z + dz * distancia_segura, 2),
+                },
+                razon=razon,
+                valido=True,
+                emocion_facial="Fcl_ALL_Sorrow",
+            )
+
         if self.tool_registry and self.tool_registry.get_tool("moverse_entorno_3d"):
             return ActionResponse(
                 pensamiento=pensamiento,
@@ -211,6 +233,7 @@ class Orchestrator:
                 },
                 razon=razon,
                 valido=True,
+                emocion_facial="Fcl_ALL_Sorrow",
             )
 
         return ActionResponse(
@@ -220,6 +243,7 @@ class Orchestrator:
             razon=razon,
             valido=False,
             error="No hay herramienta de movimiento disponible para reaccionar al dolor fisico.",
+            emocion_facial="Fcl_ALL_Sorrow",
         )
 
     def _sanitizar_action_response(self, action_response: ActionResponse) -> ActionResponse:
@@ -238,6 +262,7 @@ class Orchestrator:
                 razon=action_response.razon,
                 valido=False,
                 error=action_response.error or "Respuesta invalida del modelo.",
+                emocion_facial=action_response.emocion_facial,
             )
 
         if (
@@ -254,6 +279,7 @@ class Orchestrator:
                 razon=action_response.razon,
                 valido=False,
                 error=error,
+                emocion_facial=action_response.emocion_facial,
             )
 
         return action_response
@@ -272,7 +298,40 @@ class Orchestrator:
             razonamiento=action_response.razon,
             pensamiento_privado=action_response.pensamiento,
             requiere_confirmacion=requiere_confirmacion,
+            emocion_facial=action_response.emocion_facial,
         )
+
+    @staticmethod
+    def _leer_posicion_lazzaro(detalles: dict) -> tuple[float, float, float] | None:
+        posicion = detalles.get("posicion_lazzaro")
+        if not isinstance(posicion, dict):
+            return None
+        try:
+            return (
+                float(posicion.get("x", 0.0)),
+                float(posicion.get("y", 0.0)),
+                float(posicion.get("z", 0.0)),
+            )
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _leer_distancia_escape(valor: object) -> float:
+        try:
+            distancia = float(valor)
+        except (TypeError, ValueError):
+            distancia = 1.5
+        return max(0.5, min(5.0, distancia))
+
+    @staticmethod
+    def _vector_escape(direccion_escape: str) -> tuple[float, float]:
+        vectores = {
+            "adelante": (0.0, 1.0),
+            "atras": (0.0, -1.0),
+            "izquierda": (-1.0, 0.0),
+            "derecha": (1.0, 0.0),
+        }
+        return vectores.get(direccion_escape, (0.0, -1.0))
 
     def _agregar_notificacion_si_corresponde(self, action_response: ActionResponse):
         """Si el agente quiere comunicar algo espontaneo, lo encola."""

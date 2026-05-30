@@ -58,12 +58,12 @@ def aplicar_fuerza(params: AplicarFuerzaParams) -> str:
         f"[Mundo Virtual] Aplicando fuerza {params.fuerza} al objeto '{params.nombre_objeto}' "
         f"en dirección ({params.vector_x}, {params.vector_y}, {params.vector_z})."
     )
-
-
+#agregado de aca hacia abajo
 @ToolRegistry.register(
     name="hablar",
-    description="Lazzaro habla en voz alta para comunicar un mensaje.",
-    params_schema=HablarParams
+    description="Comunica un mensaje directamente al usuario. NUNCA pongas tu monólogo interno aquí, solo lo que el usuario debe escuchar.",
+    params_schema=HablarParams,
+    requires_confirmation=False
 )
 def hablar(params: HablarParams) -> str:
-    return f"[Mundo Virtual] Lazzaro dice: '{params.texto_a_comunicar}'."
+    return f"[Comunicación] Lazzaro dijo: '{params.texto_a_comunicar}'"

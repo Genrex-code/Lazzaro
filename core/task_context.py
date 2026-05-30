@@ -17,6 +17,8 @@ class TaskContext:
     behavior_core, que leerá la frustración local y aplicará el estímulo necesario.
     """
 
+    ACCIONES_MOVIMIENTO = {"moverse_entorno_3d", "navegar_a_objeto", "navegar_a_posicion"}
+
     def __init__(self, objetivo_id: str = "", max_historial: int = 20):
         self.objetivo_id = objetivo_id
         self.intentos_totales = 0
@@ -97,7 +99,7 @@ class TaskContext:
         for registro in ultimas[1:]:
             if registro["accion"] != referencia["accion"] or registro["exito"] != referencia["exito"]:
                 return False
-        if referencia["exito"] and referencia["accion"] == "moverse_entorno_3d":
+        if referencia["exito"] and referencia["accion"] in self.ACCIONES_MOVIMIENTO:
             return False
         logger.warning(f"Loop detectado: {ventana} repeticiones de '{referencia['accion']}' "
                        f"con resultado {'éxito' if referencia['exito'] else 'fallo'}")
@@ -140,7 +142,7 @@ class TaskContext:
         conteo = {}
         for reg in acciones_recientes:
             accion = reg["accion"]
-            if accion == "moverse_entorno_3d":
+            if accion in self.ACCIONES_MOVIMIENTO:
                 continue
             conteo[accion] = conteo.get(accion, 0) + 1
         for accion, count in conteo.items():

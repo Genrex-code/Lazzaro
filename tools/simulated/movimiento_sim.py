@@ -1,78 +1,49 @@
 """
-tools/simulated/movimiento_sim.py - Acciones dentro del mundo virtual 3D.
+tools/simulated/navegacion_sim.py - Navegación semántica y geométrica en el mundo 3D.
+Reemplaza a movimiento_sim.py. Las herramientas devuelven solo una confirmación,
+porque Unity se encarga de ejecutar la física real con NavMesh.
 """
 
-from typing import Union
 from tools.registry import ToolRegistry
 from pydantic import BaseModel, Field
 
-# 1. Definimos estrictamente qué necesita Lazzaro para moverse
-class MoverseParams(BaseModel):
-    direccion: str = Field(
+
+# -------------------- Modelos de parámetros --------------------
+class NavegarAObjetoParams(BaseModel):
+    nombre_objeto: str = Field(
         ...,
-        description=(
-            "'adelante', 'atras', 'izquierda', 'derecha'. "
-            "Si usas rotacion_y para mirar a un nuevo rumbo y luego avanzar, normalmente usa 'adelante'. "
-            "Usa 'izquierda' o 'derecha' solo para desplazamiento lateral."
-        ),
-    )
-    # Usamos Union para que acepte float, int o string si Gemini se pone creativo
-    distancia: Union[float, int, str] = Field(
-        ...,
-        description=(
-            "Unidades o metros a recorrer en el entorno 3D. "
-            "Debe ser mayor que 0 si realmente deseas avanzar. "
-            "Si necesitas acercarte pero no conoces la distancia exacta, usa un paso corto positivo como 1.0."
-        ),
-    )
-    # Aceptamos string o números
-    velocidad: Union[str, float, int] = Field("caminar", description="'caminar', 'correr' o 'sigilo'")
-    rotacion_y: float = Field(
-        0.0,
-        description=(
-            "Grados de giro sobre el eje Y antes de avanzar. "
-            "Ejemplo: 90 para mirar a la derecha y luego avanzar hacia adelante."
-        ),
+        description="Nombre exacto del objeto al que quieres dirigirte (ej. 'CuboRojo', 'ArbolCentral').",
     )
 
-# 2. Registramos la herramienta
+
+class NavegarAPosicionParams(BaseModel):
+    x: float = Field(..., description="Coordenada X del destino.")
+    y: float = Field(..., description="Coordenada Y del destino.")
+    z: float = Field(..., description="Coordenada Z del destino.")
+
+
+# -------------------- Herramientas registradas --------------------
 @ToolRegistry.register(
-    name="moverse_entorno_3d",
+    name="navegar_a_objeto",
     description=(
-        "Mueve el avatar de Lazzaro dentro del entorno virtual (Roblox/Unity). "
-        "Puede girar primero con rotacion_y y despues desplazarse."
+        "Ordena a Unity que navegue autónomamente hacia el objeto indicado. "
+        "El NavMeshAgent se encarga de esquivar obstáculos. Recibirás un evento cuando llegues o si falla."
     ),
-    params_schema=MoverseParams,
-    requires_confirmation=False
+    params_schema=NavegarAObjetoParams,
+    requires_confirmation=False,
 )
-def moverse_entorno_3d(params: MoverseParams) -> str:
-    """
-    Como es simulado, no ejecutamos código físico.
-    Devolvemos el string que Lazzaro leerá en su memoria de trabajo para saber qué hizo.
-    """
-    # Limpiamos los datos de forma segura para no romper el motor
-    try:
-        distancia_segura = float(params.distancia)
-    except (ValueError, TypeError):
-        distancia_segura = 1.0 # Fallback si manda texto incomprensible
-        
-    velocidad_segura = str(params.velocidad)
-    rotacion_segura = float(params.rotacion_y)
+def navegar_a_objeto(params: NavegarAObjetoParams) -> str:
+    return f"[Navegación] Orden de ir hacia '{params.nombre_objeto}' enviada al NavMesh de Unity."
 
-    return (
-        f"[Mundo Virtual] Comando enviado al motor: {velocidad_segura} hacia "
-        f"{params.direccion} por {distancia_segura} unidades con rotacion_y={rotacion_segura}."
-    )
-
-
-class InteraccionParams(BaseModel):
-    nombre_objeto: str = Field(..., description="Nombre del objeto con el que interactuar (ej. 'puerta_principal')")
-    tipo_accion: str = Field(..., description="'agarrar', 'presionar', 'mirar'")
 
 @ToolRegistry.register(
-    name="interactuar_objeto_3d",
-    description="Permite a Lazzaro interactuar con elementos del mapa en Roblox o Unity.",
-    params_schema=InteraccionParams
+    name="navegar_a_posicion",
+    description=(
+        "Ordena a Unity que navegue hacia las coordenadas (x, y, z) proporcionadas. "
+        "Útil cuando conoces la posición exacta pero no el nombre del objeto."
+    ),
+    params_schema=NavegarAPosicionParams,
+    requires_confirmation=False,
 )
-def interactuar_objeto_3d(params: InteraccionParams) -> str:
-    return f"[Mundo Virtual] Intento de {params.tipo_accion} sobre el objeto '{params.nombre_objeto}'."
+def navegar_a_posicion(params: NavegarAPosicionParams) -> str:
+    return f"[Navegación] Orden de ir a la posición ({params.x}, {params.y}, {params.z}) enviada a Unity."

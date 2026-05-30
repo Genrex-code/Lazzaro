@@ -28,7 +28,6 @@ import tools.simulated.interaccion_sim  # noqa: F401
 import tools.simulated.keyboard_sim  # noqa: F401
 import tools.simulated.mouse_sim  # noqa: F401
 import tools.simulated.movimiento_sim  # noqa: F401
-
 logger = get_logger(__name__)
 
 
@@ -42,6 +41,7 @@ async def lifespan(app: FastAPI):
     app.state.orchestrator = None
     app.state.ai_client = None
     ai_client = None
+    memory_manager = None
 
     logger.info("Cargando configuracion...")
     settings = Settings()
@@ -90,6 +90,8 @@ async def lifespan(app: FastAPI):
 
     except Exception as e:
         logger.error("Error critico durante el arranque: %s", e, exc_info=True)
+        if memory_manager is not None:
+            memory_manager.close()
         if ai_client is not None:
             ai_client.close()
         raise
@@ -97,6 +99,8 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("=== Apagando Lazzaro ===")
+    if memory_manager is not None:
+        memory_manager.close()
     if ai_client is not None:
         ai_client.close()
 

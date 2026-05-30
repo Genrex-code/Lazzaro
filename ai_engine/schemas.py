@@ -24,7 +24,7 @@ class AgentContext(BaseModel):
     politica: str = "exploradora"
     banderas: dict[str, bool] = Field(default_factory=dict)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
+    proveedor: str = "ollama" # agregado
 
 class PromptSections(BaseModel):
     """Cada seccion del prompt final."""
@@ -76,6 +76,10 @@ class LLMResponse(BaseModel):
         default="",
         description="Justificacion corta y concreta de la decision.",
     )
+    emocion_facial: str = Field(
+        default="Fcl_ALL_Neutral",
+        description="Expresion facial a mostrar (ej. Fcl_ALL_Joy, Fcl_ALL_Sorrow, Fcl_ALL_Angry, Fcl_ALL_Fun, Fcl_ALL_Neutral).",
+    )
 
 
 class ActionResponse(BaseModel):
@@ -87,3 +91,4 @@ class ActionResponse(BaseModel):
     razon: str = ""
     valido: bool = True
     error: Optional[str] = None
+    emocion_facial: str = "Fcl_ALL_Neutral"

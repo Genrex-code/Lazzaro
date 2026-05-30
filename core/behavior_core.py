@@ -26,6 +26,8 @@ class BehaviorCore:
     EVENTOS_CON_RESULTADO = {"resultado_accion", "alerta_dolor_fisico"}
     EVENTOS_PERCEPTIVOS = {"inicio_simulacion", "actualizacion_estado", "percepcion_entorno"}
     ACCIONES_EXPLORATORIAS = {
+        "navegar_a_objeto", #agregado
+        "navegar_a_posicion",# agregado
         "moverse_entorno_3d",
         "interactuar_objeto_3d",
         "agarrar_objeto",
@@ -321,6 +323,7 @@ class BehaviorCore:
     def _extraer_percepcion(detalles: dict[str, Any]) -> dict[str, Any]:
         claves_perceptivas = {
             "objetos_visibles",
+            "resumen_percepcion",
             "objeto_mas_cercano",
             "cantidad_objetos_visibles",
             "posicion_lazzaro",
@@ -357,7 +360,9 @@ class BehaviorCore:
                 lineas.append(f"Objeto mas cercano: {nombre}.")
 
         visibles = percepcion.get("objetos_visibles")
-        if isinstance(visibles, list) and visibles:
+        if isinstance(visibles, str) and visibles.strip():
+            lineas.append(f"Resumen visual: {visibles.strip()}")
+        elif isinstance(visibles, list) and visibles:
             muestras = []
             for objeto in visibles[:3]:
                 if not isinstance(objeto, dict):
@@ -370,6 +375,11 @@ class BehaviorCore:
                     muestras.append(f"{nombre} ({distancia})")
             if muestras:
                 lineas.append("Muestras del entorno: " + ", ".join(muestras) + ".")
+
+        resumen_percepcion = percepcion.get("resumen_percepcion")
+        if isinstance(resumen_percepcion, str) and resumen_percepcion.strip():
+            if resumen_percepcion.strip() not in " ".join(lineas):
+                lineas.append(f"Resumen perceptivo: {resumen_percepcion.strip()}")
 
         estado_fisico = percepcion.get("estado_fisico")
         if estado_fisico:

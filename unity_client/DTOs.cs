@@ -19,6 +19,7 @@ public class AccionSaliente
     public string nombre;
     public string pensamiento_privado;
     public string razonamiento;
+    public string emocion_facial;
     public JObject parametros;
     public bool requiere_confirmacion;
 }

@@ -12,18 +12,20 @@ Formato obligatorio:
   "pensamiento": "resumen breve de la decision",
   "accion": "nombre_exacto_de_herramienta_o_null",
   "parametros": {},
-  "razon": "justificacion concreta y corta"
+  "razon": "justificacion concreta y corta",
+  "emocion_facial": "Fcl_ALL_Neutral"
 }
 
 Reglas obligatorias:
 
-- Usa exactamente estas 4 claves: "pensamiento", "accion", "parametros", "razon".
+- Usa exactamente estas 5 claves: "pensamiento", "accion", "parametros", "razon", "emocion_facial".
 - "pensamiento" debe ser breve. No incluyas cadena de pensamiento larga.
 - "accion" debe ser una herramienta valida o null.
 - Si "accion" es null, "parametros" debe ser {}.
 - Si "accion" no es null, "parametros" debe contener solo claves permitidas para esa herramienta.
+- "emocion_facial" debe ser una de: Fcl_ALL_Neutral, Fcl_ALL_Joy, Fcl_ALL_Sorrow, Fcl_ALL_Angry, Fcl_ALL_Fun.
 - No inventes campos extra.
 - El JSON debe ser parseable directamente.
 
 Ejemplo valido sin accion:
-{"pensamiento":"No hay una accion segura que ejecutar ahora.","accion":null,"parametros":{},"razon":"Falta un objetivo ejecutable o una herramienta adecuada."}
+{"pensamiento":"No hay una accion segura que ejecutar ahora.","accion":null,"parametros":{},"razon":"Falta un objetivo ejecutable o una herramienta adecuada.","emocion_facial":"Fcl_ALL_Neutral"}

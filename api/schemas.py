@@ -53,7 +53,7 @@ class EventoEntrante(BaseModel):
                 "detalles": {
                     "mensaje": "Objetivo: explora el bosque y acercate al arbol mas cercano.",
                     "posicion_lazzaro": {"x": 1.2, "y": 0.0, "z": 3.4},
-                    "objetos_visibles": [{"nombre": "Arbol_01", "distancia": 2.4}],
+                    "objetos_visibles": "Veo Arbol_01 a 2.4m al norte.",
                 },
             }
         }
@@ -113,16 +113,18 @@ class AccionSaliente(BaseModel):
         default_factory=list,
         description="Metadatos opcionales que describen los parametros esperados.",
     )
+    emocion_facial: str = Field ( default="Fcl_ALL_Neutral",description="Expresion VRM a usar.") #agregado
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "id_accion": "550e8400-e29b-41d4-a716-446655440000",
-                "nombre": "moverse_entorno_3d",
-                "parametros": {"direccion": "adelante", "distancia": 2.5, "velocidad": "caminar"},
+                "nombre": "navegar_a_objeto",
+                "parametros": {"nombre_objeto": "Arbol_01"},
                 "razonamiento": "Necesito acercarme al arbol mas cercano para explorarlo.",
                 "pensamiento_privado": "La ruta esta libre y el objetivo sigue vigente.",
                 "requiere_confirmacion": False,
+                "emocion_facial": "Fcl_ALL_Joy",
             }
         }
     )

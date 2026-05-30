@@ -168,6 +168,12 @@ class MemoryManager:
         """Devuelve un resumen textual de las ultimas acciones."""
         return self.working_memory.resumen()
 
+    def close(self) -> None:
+        """Cierra recursos persistentes de memoria."""
+        close = getattr(self.client, "close", None)
+        if callable(close):
+            close()
+
     def _programar_consolidacion_si_aplica(
         self,
         tipo_evento: str,

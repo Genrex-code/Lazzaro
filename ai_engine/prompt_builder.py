@@ -27,6 +27,7 @@ class PromptBuilder:
         archivos = [
             "system_prompt.txt",
             "personality_prompt.txt",
+            "local_system_prompt.txt",
             "estado_prompt.txt",
             "memoria_prompt.txt",
             "tool_prompt.txt",
@@ -44,7 +45,7 @@ class PromptBuilder:
 
     def build(self, context: AgentContext) -> str:
         secciones = PromptSections()
-        secciones.system = self.templates.get("system_prompt.txt", "")
+        secciones.system = self._construir_system(context)
         secciones.personalidad = self._construir_personalidad(context.personalidad)
         secciones.estado_emocional = self._construir_estado_emocional(context.estado_narrativo)
         secciones.entorno = self._construir_entorno(
@@ -63,6 +64,14 @@ class PromptBuilder:
         prompt = secciones.ensamblar()
         logger.debug("Prompt construido con %d caracteres.", len(prompt))
         return prompt
+
+    def _construir_system(self, context: AgentContext) -> str:
+        base = self.templates.get("system_prompt.txt", "")
+        local = self.templates.get("local_system_prompt.txt", "")
+        if context.proveedor.lower() != "ollama" or not local:
+            return base
+        local = local.replace("{nombre}", "Lazzaro")
+        return "\n\n".join(parte for parte in [base, local] if parte)
 
     def _construir_personalidad(self, rasgos: dict[str, float]) -> str:
         plantilla = self.templates.get("personality_prompt.txt", "")

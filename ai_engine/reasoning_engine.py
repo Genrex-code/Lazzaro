@@ -57,6 +57,11 @@ class ReasoningEngine:
                 if nombre in herramientas_filtradas
             }
 
+            proveedor = getattr(
+                self.ai_client,
+                "provider_name",
+                self.ai_client.__class__.__name__.lower(),
+            )
             agent_context = self.context_builder.build(
                 contexto_llm=contexto_llm,
                 memoria_texto=memoria_texto,
@@ -64,13 +69,9 @@ class ReasoningEngine:
                 herramientas_detalle=herramientas_detalle_filtradas,
                 politica=politica,
                 tarea=tarea,
+                proveedor=proveedor,
             )
 
-            proveedor = getattr(
-                self.ai_client,
-                "provider_name",
-                self.ai_client.__class__.__name__.lower(),
-            )
             policy_config = self.policy_manager.ajustar_parametros(
                 politica,
                 herramientas=herramientas_filtradas,
