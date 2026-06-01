@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import List, Optional
 import uuid
 
+from ai_engine.motor_engine import MotorEngine
 from ai_engine.schemas import ActionResponse
 from ai_engine.triage_router import TriageRouter
 from api.schemas import AccionSaliente, EstadoAgente, EventoEntrante, NotificacionSaliente
@@ -57,6 +58,7 @@ class Orchestrator:
         self.reasoning = reasoning_engine
         self.tool_registry = tool_registry
         self.triage_router = TriageRouter()
+        self.motor_engine = MotorEngine()
         self._transacciones_procesadas: OrderedDict[str, AccionSaliente] = OrderedDict()
         self._notificaciones: deque[NotificacionSaliente] = deque(maxlen=50)
         logger.info("Orchestrator inicializado.")
@@ -136,6 +138,16 @@ class Orchestrator:
             action_response = self._accion_pasiva()
         elif not solicita_decision:
             action_response = self._accion_pasiva()
+        elif self._triage_es_motor(triage_decision):
+            action_response = self._resolver_ruta_motor(
+                evento=evento,
+                contexto_llm=contexto_llm,
+                memoria_texto=memoria_texto,
+                herramientas=herramientas,
+                herramientas_detalle=herramientas_detalle,
+                politica=politica,
+                tarea=tarea,
+            )
         else:
             try:
                 action_response = self.reasoning.process(
@@ -212,6 +224,117 @@ class Orchestrator:
     def _triage_debe_cortar_flujo(decision: dict) -> bool:
         route = str(decision.get("route", "")).strip().lower()
         return route in {"noop", "internal"}
+
+    @staticmethod
+    def _triage_es_motor(decision: dict) -> bool:
+        return str(decision.get("route", "")).strip().lower() == "motor"
+
+    def _resolver_ruta_motor(
+        self,
+        evento: EventoEntrante,
+        contexto_llm: dict,
+        memoria_texto: str,
+        herramientas: list[str],
+        herramientas_detalle: dict[str, str],
+        politica: str,
+        tarea: dict | None,
+    ) -> ActionResponse:
+        """Usa Capa 1 para resolver/validar acciones fisicas."""
+        percepcion = self._extraer_percepcion_motor(evento, contexto_llm)
+        mensaje = str(evento.detalles.get("mensaje", ""))
+
+        accion_motora = self.motor_engine.resolver_comando_usuario(
+            mensaje,
+            percepcion=percepcion,
+            herramientas_disponibles=herramientas,
+        )
+        if accion_motora is not None:
+            return self._action_response_desde_motor(
+                accion_motora,
+                pensamiento="",
+                emocion_facial="Fcl_ALL_Neutral",
+            )
+
+        try:
+            action_response = self.reasoning.process(
+                contexto_llm=contexto_llm,
+                memoria_texto=memoria_texto,
+                herramientas=herramientas,
+                herramientas_detalle=herramientas_detalle,
+                politica=politica,
+                tarea=tarea,
+            )
+        except Exception as e:
+            logger.error("Error en ReasoningEngine para ruta motor: %s", e, exc_info=True)
+            return ActionResponse(
+                pensamiento="Error al razonar accion motora.",
+                accion="none",
+                parametros={},
+                razon="",
+                valido=False,
+                error=str(e),
+            )
+
+        if action_response.accion in self.motor_engine.ACCIONES_MOTORAS:
+            accion_validada = self.motor_engine.procesar_comando_motor(
+                action_response.accion,
+                action_response.parametros,
+                percepcion=percepcion,
+            )
+            return self._action_response_desde_motor(
+                accion_validada,
+                pensamiento=action_response.pensamiento,
+                emocion_facial=action_response.emocion_facial,
+            )
+
+        return action_response
+
+    @staticmethod
+    def _extraer_percepcion_motor(evento: EventoEntrante, contexto_llm: dict) -> dict:
+        percepcion: dict = {}
+        percepcion_contexto = contexto_llm.get("percepcion") if isinstance(contexto_llm, dict) else None
+        if isinstance(percepcion_contexto, dict):
+            percepcion.update(percepcion_contexto)
+
+        claves_percepcion = {
+            "objetos_visibles",
+            "resumen_percepcion",
+            "objeto_mas_cercano",
+            "cantidad_objetos_visibles",
+            "posicion_lazzaro",
+            "estado_fisico",
+            "salud_avatar",
+            "mensaje_critico",
+        }
+        for clave in claves_percepcion:
+            if clave in evento.detalles:
+                percepcion[clave] = evento.detalles[clave]
+        return percepcion
+
+    @staticmethod
+    def _action_response_desde_motor(
+        motor_action: dict,
+        pensamiento: str,
+        emocion_facial: str,
+    ) -> ActionResponse:
+        if not isinstance(motor_action, dict):
+            motor_action = {
+                "accion": "none",
+                "parametros": {},
+                "razon": "Capa 1 devolvio una respuesta invalida.",
+            }
+
+        accion = str(motor_action.get("accion", "none"))
+        valido = accion != "none"
+        return ActionResponse(
+            pensamiento=pensamiento,
+            accion=accion,
+            parametros=motor_action.get("parametros", {}) if isinstance(motor_action, dict) else {},
+            razon=str(motor_action.get("razon", "")),
+            valido=valido,
+            error=None if valido else str(motor_action.get("razon", "Accion bloqueada por Capa 1.")),
+            emocion_facial=emocion_facial or "Fcl_ALL_Neutral",
+        )
 
     def obtener_estado_publico(self) -> EstadoAgente:
         """Devuelve un snapshot del estado interno para el frontend."""

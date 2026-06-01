@@ -1,5 +1,65 @@
 # Registro De Pruebas Unity-Python
 
+## 2026-06-01 - Percepcion Con Campo Visual Frontal
+
+### Objetivo
+
+- Hacer que Lazzaro perciba solo objetos dentro de un cono de vision frontal.
+- Evitar que el `Plane` aparezca como objeto relevante en la percepcion.
+- Mantener compatible el resumen textual con el motor local de Fase 2.
+
+### Cambios Aplicados
+
+- `PerceptionSystem` agrega `anguloVision` configurable desde Inspector.
+- `ObtenerObjetosInteractuables()` filtra objetos fuera del cono frontal.
+- `BuscarObjeto()` ahora respeta el campo visual filtrado.
+- El resumen perceptivo usa `Frente a mi veo: ...`.
+- `SpatialReasoner` reconoce el nuevo prefijo para seguir extrayendo nombres de objetos.
+
+### Pruebas Ejecutadas
+
+- Compilacion Python de los modulos afectados.
+- Prueba del parser espacial con `Frente a mi veo: Capsule..., Sphere..., Cube...`.
+- Prueba de `MotorEngine`: `camina hacia el cubo` sigue resolviendo `Cube`.
+- Prueba de `MotorEngine`: `inspecciona lo que tengas enfrente` sigue usando el objeto mas cercano.
+
+### Riesgos Pendientes
+
+- Validar en Unity Play Mode que el cono use el frente correcto del avatar.
+- Ajustar `anguloVision` desde Inspector si Lazzaro queda demasiado ciega o demasiado amplia.
+
+## 2026-06-01 - Fase 2: Cerebro Motor Local
+
+### Objetivo
+
+- Separar la validacion de acciones fisicas en una Capa 1 sin personalidad ni conversacion.
+- Resolver comandos motores simples sin llamar al LLM cuando el objetivo sea claro.
+- Validar las acciones motoras propuestas por el LLM antes de enviarlas a Unity.
+
+### Cambios Aplicados
+
+- Se agregaron `motor_engine.py`, `motor_schemas.py` y `spatial_reasoner.py`.
+- `Orchestrator` instancia `MotorEngine` y lo usa solo cuando el Triage devuelve ruta `motor`.
+- Comandos como `camina hacia el cubo`, `moverte hacia la sphere`, `inspecciona lo que tengas enfrente` y `alejate de la esfera` pueden resolverse por reglas locales.
+- Si la ruta motor aun necesita LLM, la accion resultante pasa por validacion estricta de Capa 1.
+- Se evito que nombres de objetos por si solos (`cubo`, `esfera`, `capsule`) disparen ruta motora.
+
+### Pruebas Ejecutadas
+
+- Prueba directa de `MotorEngine` con percepcion textual comprimida de Unity.
+- Prueba de `Orchestrator` con fakes: motor determinista no llama al LLM.
+- Prueba de `Orchestrator` con fakes: motor ambiguo llama al LLM y luego valida la accion.
+- Prueba de regresion: `reconoces el cubo?` queda en ruta persona, no motor.
+- Prueba de regresion: `actualizacion_estado` sigue devolviendo `none` sin LLM.
+- Compilacion Python con `compileall` en `ai_engine`, `core`, `api` y `tools`.
+- Revision `git diff --check` sin errores; solo warnings CRLF esperados en Windows.
+
+### Riesgos Pendientes
+
+- Unity debe validar en Play Mode que parametros extra opcionales no afecten handlers C#.
+- Los comandos motores multi-paso siguen ejecutando solo el primer objetivo claro; la cola de tareas queda para una fase posterior.
+- El motor local usa reglas heuristicas; conviene ampliar con ejemplos reales cuando haya mas logs.
+
 ## 2026-05-30 - Estabilizacion De Bucle Cognitivo
 
 ### Sintomas Observados

@@ -6,6 +6,8 @@ using UnityEngine;
 public class PerceptionSystem : MonoBehaviour
 {
     public float radioVision = 15f;
+    [Tooltip("Angulo de vision frontal en grados. 120 equivale a 60 grados por lado.")]
+    public float anguloVision = 120f;
     public int maxObjetosVisibles = 8;
 
     public Dictionary<string, object> EscanearEntorno()
@@ -45,6 +47,7 @@ public class PerceptionSystem : MonoBehaviour
 
     public List<Collider> ObtenerObjetosInteractuables()
     {
+        // OverlapSphere es la fase amplia barata; despues filtramos por campo visual.
         Collider[] hitColliders = Physics.OverlapSphere(
             transform.position,
             radioVision,
@@ -60,9 +63,18 @@ public class PerceptionSystem : MonoBehaviour
                 continue;
             }
 
+            if (col.name.Equals("Plane", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             if (col.CompareTag("Interactuable"))
             {
-                interactuables.Add(col);
+                Vector3 direccionAlObjeto = col.transform.position - transform.position;
+                if (direccionAlObjeto.sqrMagnitude <= 0.0001f || EstaEnCampoVisual(direccionAlObjeto))
+                {
+                    interactuables.Add(col);
+                }
             }
         }
 
@@ -80,7 +92,7 @@ public class PerceptionSystem : MonoBehaviour
     {
         if (objetos == null || objetos.Count == 0)
         {
-            return "No veo objetos interactuables cercanos.";
+            return "No veo objetos interactuables en mi campo visual directo.";
         }
 
         List<string> fragmentos = new List<string>();
@@ -103,10 +115,10 @@ public class PerceptionSystem : MonoBehaviour
 
         if (fragmentos.Count == 0)
         {
-            return "No veo objetos interactuables cercanos.";
+            return "No veo objetos interactuables en mi campo visual directo.";
         }
 
-        return "Veo " + string.Join(", ", fragmentos) + ".";
+        return "Frente a mi veo: " + string.Join(", ", fragmentos) + ".";
     }
 
     public bool CambioSignificativo(List<Collider> nuevos, List<Collider> viejos)
@@ -186,13 +198,35 @@ public class PerceptionSystem : MonoBehaviour
         return mejorCoincidencia;
     }
 
+    private bool EstaEnCampoVisual(Vector3 direccionAlObjeto)
+    {
+        Vector3 direccionPlana = direccionAlObjeto;
+        direccionPlana.y = 0f;
+
+        if (direccionPlana.sqrMagnitude <= 0.0001f)
+        {
+            return true;
+        }
+
+        Vector3 frentePlano = transform.forward;
+        frentePlano.y = 0f;
+
+        if (frentePlano.sqrMagnitude <= 0.0001f)
+        {
+            frentePlano = Vector3.forward;
+        }
+
+        float anguloAlObjeto = Vector3.Angle(frentePlano.normalized, direccionPlana.normalized);
+        return anguloAlObjeto <= Mathf.Clamp(anguloVision, 1f, 360f) / 2f;
+    }
+
     private static string DescribirDireccion(Vector3 delta)
     {
         if (Mathf.Abs(delta.x) > Mathf.Abs(delta.z))
         {
-            return delta.x >= 0f ? "este" : "oeste";
+            return delta.x >= 0f ? "este (derecha)" : "oeste (izquierda)";
         }
 
-        return delta.z >= 0f ? "norte" : "sur";
+        return delta.z >= 0f ? "norte (al frente)" : "sur (detras)";
     }
 }
