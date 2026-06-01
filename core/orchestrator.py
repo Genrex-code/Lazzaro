@@ -9,6 +9,7 @@ from typing import List, Optional
 import uuid
 
 from ai_engine.schemas import ActionResponse
+from ai_engine.triage_router import TriageRouter
 from api.schemas import AccionSaliente, EstadoAgente, EventoEntrante, NotificacionSaliente
 from core.logger import get_logger
 from tools.executor import ActionExecutor
@@ -55,6 +56,7 @@ class Orchestrator:
         self.memory = memory_manager
         self.reasoning = reasoning_engine
         self.tool_registry = tool_registry
+        self.triage_router = TriageRouter()
         self._transacciones_procesadas: OrderedDict[str, AccionSaliente] = OrderedDict()
         self._notificaciones: deque[NotificacionSaliente] = deque(maxlen=50)
         logger.info("Orchestrator inicializado.")
@@ -112,6 +114,7 @@ class Orchestrator:
         except Exception as e:
             logger.error("Error en MemoryManager: %s", e, exc_info=True)
 
+        triage_decision = self._evaluar_triage(evento, estado_actual)
         solicita_decision = self._evento_solicita_decision(evento, es_interrupcion_critica)
         herramientas = self._filtrar_herramientas_por_intencion(
             evento,
@@ -123,6 +126,12 @@ class Orchestrator:
 
         if es_interrupcion_critica:
             action_response = self._resolver_interrupcion_critica(evento)
+        elif self._triage_debe_cortar_flujo(triage_decision):
+            razon_triage = str(
+                triage_decision.get("reason")
+                or "Evento filtrado por Triage Router."
+            )
+            action_response = self._accion_pasiva(razon_triage)
         elif self._es_resultado_hablar(evento):
             action_response = self._accion_pasiva()
         elif not solicita_decision:
@@ -165,15 +174,44 @@ class Orchestrator:
         return accion_saliente
 
     @staticmethod
-    def _accion_pasiva() -> ActionResponse:
+    def _accion_pasiva(razon: str | None = None) -> ActionResponse:
         return ActionResponse(
             pensamiento="",
             accion="none",
             parametros={},
-            razon="Evento tratado como telemetria pasiva.",
+            razon=razon or "Evento tratado como telemetria pasiva.",
             valido=True,
             emocion_facial="Fcl_ALL_Neutral",
         )
+
+    def _evaluar_triage(self, evento: EventoEntrante, estado_actual: dict) -> dict:
+        """Consulta Capa 0 para decidir si el evento debe llegar al LLM."""
+        try:
+            decision = self.triage_router.route_event(
+                evento.model_dump(mode="python"),
+                estado_agente=estado_actual if isinstance(estado_actual, dict) else {},
+            )
+        except Exception as e:
+            logger.error("Error en TriageRouter; se conserva flujo anterior: %s", e, exc_info=True)
+            return {}
+
+        if not isinstance(decision, dict):
+            logger.warning("TriageRouter devolvio una decision invalida: %r", decision)
+            return {}
+
+        logger.info(
+            "Triage: intent=%s route=%s confidence=%s reason=%s",
+            decision.get("intent"),
+            decision.get("route"),
+            decision.get("confidence"),
+            decision.get("reason"),
+        )
+        return decision
+
+    @staticmethod
+    def _triage_debe_cortar_flujo(decision: dict) -> bool:
+        route = str(decision.get("route", "")).strip().lower()
+        return route in {"noop", "internal"}
 
     def obtener_estado_publico(self) -> EstadoAgente:
         """Devuelve un snapshot del estado interno para el frontend."""
