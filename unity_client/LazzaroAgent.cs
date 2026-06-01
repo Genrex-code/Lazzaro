@@ -4,7 +4,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
-using VRM;
+using UniVRM10; // Corregido para VRM 1.0
+using TMPro;    // Corregido para UI
 
 [RequireComponent(typeof(ApiClient))]
 [RequireComponent(typeof(PerceptionSystem))]
@@ -14,7 +15,7 @@ public class LazzaroAgent : MonoBehaviour
     private ApiClient api;
     private PerceptionSystem percepcion;
     private MovementController movimiento;
-    private VRMBlendShapeProxy blendShapeProxy;
+    private Vrm10Instance vrmInstance; // Corregido para VRM 1.0
     private readonly LinkedList<EventoEntrante> colaEventos = new LinkedList<EventoEntrante>();
     private bool procesandoCola = false;
     private List<Collider> ultimosObjetosPercibidos = new List<Collider>();
@@ -27,12 +28,22 @@ public class LazzaroAgent : MonoBehaviour
     private const float DistanciaMaximaInteraccion = 2.0f;
     private const float DistanciaMaximaAgarrar = 1.5f;
 
+    [Header("Interfaz Visual (Nubes)")]
+    public TextMeshProUGUI textoPensamientoUI;
+    public TextMeshProUGUI textoVozUI;
+
+    [Header("Consola de Dios")]
+    public TMP_InputField inputComandoDios;
+
+    [Header("Debug y Consola")]
+    public bool mostrarLogsCognitivos = false;
+
     void Awake()
     {
         api = GetComponent<ApiClient>();
         percepcion = GetComponent<PerceptionSystem>();
         movimiento = GetComponent<MovementController>();
-        blendShapeProxy = GetComponentInChildren<VRMBlendShapeProxy>();
+        vrmInstance = GetComponentInChildren<Vrm10Instance>(); // Corregido para VRM 1.0
         movimiento.OnMovimientoCompletado += ManejarMovimientoCompletado;
     }
 
@@ -61,12 +72,13 @@ public class LazzaroAgent : MonoBehaviour
 
             if (movimiento.IsMoving)
             {
+                if (mostrarLogsCognitivos) Debug.Log("Lazzaro esta concentrado moviendose. Se omite escaneo pasivo.");
                 continue;
             }
 
             if (procesandoCola && colaEventos.Count >= 3)
             {
-                Debug.Log("Backpressure activo. Se omite un escaneo pasivo para no saturar la cola.");
+                if (mostrarLogsCognitivos) Debug.Log("Backpressure activo. Se omite un escaneo pasivo para no saturar la cola.");
                 continue;
             }
 
@@ -92,9 +104,30 @@ public class LazzaroAgent : MonoBehaviour
                 movimientoTerminadoPendiente = false;
             }
 
+            // Según el plan de estabilización, esto es telemetría pasiva.
             EnviarEvento("actualizacion_estado", detallesVision);
             ultimosObjetosPercibidos = objetosActuales;
         }
+    }
+
+    public void EnviarComandoUsuario()
+    {
+        if (inputComandoDios == null || string.IsNullOrWhiteSpace(inputComandoDios.text))
+        {
+            return;
+        }
+
+        string comandoTexto = inputComandoDios.text;
+        inputComandoDios.text = "";
+
+        Debug.Log($"[DIOS]: {comandoTexto}");
+
+        var detalles = new Dictionary<string, object>
+        {
+            { "mensaje", comandoTexto }
+        };
+
+        EnviarEvento("comando_usuario", detalles, "usuario");
     }
 
     public void EnviarEvento(
@@ -194,10 +227,30 @@ public class LazzaroAgent : MonoBehaviour
     {
         if (respuesta == null || respuesta.accion == null)
         {
-            return;
+            return; // Validacion de seguridad
         }
 
         AplicarExpresionFacial(respuesta.accion.emocion_facial);
+
+        // 1. Mostrar Pensamiento Privado en la UI
+        if (textoPensamientoUI != null && !string.IsNullOrEmpty(respuesta.accion.pensamiento_privado))
+        {
+            textoPensamientoUI.text = $"[Pensando...]\n{respuesta.accion.pensamiento_privado}";
+        }
+
+        // 2. Mostrar la Voz en la UI
+        if (respuesta.accion.nombre == "hablar")
+        {
+            string textoVoz = respuesta.accion.parametros?["texto_a_comunicar"]?.ToString() ?? "";
+            if (textoVozUI != null)
+            {
+                textoVozUI.text = $"[Dice:]\n{textoVoz}";
+            }
+        }
+        else if (textoVozUI != null)
+        {
+            textoVozUI.text = ""; // Limpia la burbuja de voz si hace otra cosa
+        }
 
         if (string.IsNullOrEmpty(respuesta.accion.nombre) || respuesta.accion.nombre == "none")
         {
@@ -215,7 +268,7 @@ public class LazzaroAgent : MonoBehaviour
             return;
         }
 
-        Debug.Log($"Pensamiento de Lazzaro: {respuesta.accion.pensamiento_privado}");
+        if (mostrarLogsCognitivos) Debug.Log($"Pensamiento de Lazzaro: {respuesta.accion.pensamiento_privado}");
 
         switch (respuesta.accion.nombre)
         {
@@ -256,7 +309,7 @@ public class LazzaroAgent : MonoBehaviour
 
     private static string ConstruirManualEspacial()
     {
-        return "Objetivo: Explora el bosque y golpea el arbol mas cercano. "
+        return "Objetivo: Acabas de despertar quedate quieta y espera instrucciones. "
             + "REGLA DE NAVEGACION: Para desplazarte hacia un objeto visible usa navegar_a_objeto "
             + "con el parametro nombre_objeto exacto o aproximado. "
             + "REGLA INTERACCION: Si ya estas cerca del objeto objetivo, usa interactuar_objeto_3d.";
@@ -336,7 +389,7 @@ public class LazzaroAgent : MonoBehaviour
             { "distancia", Math.Round(distancia, 2) },
         };
 
-        movimiento.AlejarseDeObjeto(objeto, distancia);
+        movimiento.AlejarseDeObjeto(objeto, distancia); 
     }
 
     private void ManejarMovimientoCompletado(bool exito, string mensaje)
@@ -381,29 +434,29 @@ public class LazzaroAgent : MonoBehaviour
 
     private void AplicarExpresionFacial(string emocionFacial)
     {
-        if (blendShapeProxy == null || string.IsNullOrWhiteSpace(emocionFacial))
+        if (vrmInstance == null || vrmInstance.Runtime == null || string.IsNullOrWhiteSpace(emocionFacial))
         {
             return;
         }
 
-        BlendShapePreset preset = ResolverPresetFacial(emocionFacial);
-        BlendShapePreset[] presetsFaciales =
+        ExpressionPreset preset = ResolverPresetFacial(emocionFacial);
+        ExpressionPreset[] presetsFaciales =
         {
-            BlendShapePreset.Neutral,
-            BlendShapePreset.Joy,
-            BlendShapePreset.Sorrow,
-            BlendShapePreset.Angry,
-            BlendShapePreset.Fun,
+            ExpressionPreset.neutral,
+            ExpressionPreset.happy,
+            ExpressionPreset.sad,
+            ExpressionPreset.angry,
+            ExpressionPreset.relaxed
         };
 
-        foreach (BlendShapePreset facial in presetsFaciales)
+        foreach (ExpressionPreset facial in presetsFaciales)
         {
-            float peso = facial == preset ? 1.0f : 0.0f;
-            blendShapeProxy.ImmediatelySetValue(BlendShapeKey.CreateFromPreset(facial), peso);
+            float peso = (facial == preset) ? 1.0f : 0.0f;
+            vrmInstance.Runtime.Expression.SetWeight(ExpressionKey.CreateFromPreset(facial), peso);
         }
     }
 
-    private static BlendShapePreset ResolverPresetFacial(string emocionFacial)
+    private static ExpressionPreset ResolverPresetFacial(string emocionFacial)
     {
         string valor = emocionFacial.Trim().ToLowerInvariant();
         valor = valor.Replace("fcl_all_", "");
@@ -411,16 +464,19 @@ public class LazzaroAgent : MonoBehaviour
         switch (valor)
         {
             case "joy":
-                return BlendShapePreset.Joy;
+            case "happy":
+                return ExpressionPreset.happy;
             case "sorrow":
-                return BlendShapePreset.Sorrow;
+            case "sad":
+                return ExpressionPreset.sad;
             case "angry":
-                return BlendShapePreset.Angry;
+                return ExpressionPreset.angry;
             case "fun":
-                return BlendShapePreset.Fun;
+            case "relaxed":
+                return ExpressionPreset.relaxed;
             case "neutral":
             default:
-                return BlendShapePreset.Neutral;
+                return ExpressionPreset.neutral;
         }
     }
 
@@ -497,6 +553,7 @@ public class LazzaroAgent : MonoBehaviour
     {
         string texto = parametros?["texto_a_comunicar"]?.ToString() ?? "...";
         Debug.Log($"[VOZ LAZZARO]: {texto}");
+        // ¡Magia de la Estabilización! Aquí NO llamamos a ReportarResultadoAccion para evitar el bucle.
     }
 
     private bool TryBuscarObjetoCercano(
