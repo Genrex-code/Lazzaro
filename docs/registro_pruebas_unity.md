@@ -1,5 +1,35 @@
 # Registro De Pruebas Unity-Python
 
+## 2026-06-02 - Fase 3: Capa Social / Identidad
+
+### Objetivo
+
+- Separar conversacion social de razonamiento general y herramientas fisicas.
+- Inyectar estado biologico/emocional en respuestas sociales.
+- Registrar gasto de energia/enfoque segun la ruta cognitiva usada.
+
+### Cambios Aplicados
+
+- `Orchestrator` instancia `IdentityState` y `PersonaEngine`.
+- Ruta `persona` usa `PersonaEngine.preparar_interaccion(...)`.
+- El LLM activo se llama con el prompt social y la respuesta pasa por `PersonaEngine.parsear_respuesta(...)`.
+- La accion social final se fuerza a `hablar`.
+- `IdentityState.registrar_evento(...)` se ejecuta al cierre del procesamiento no cacheado.
+- Se evito forzar el schema global `LLMResponse` en Capa Social para no chocar con `pensamiento_privado`.
+
+### Pruebas Ejecutadas
+
+- Compilacion Python de `identity_state.py`, `persona_engine.py`, `persona_prompt_buider.py` y `orchestrator.py`.
+- Prueba con fakes: ruta `persona` llama al cliente LLM y no a `ReasoningEngine.process`.
+- Prueba con fakes: ruta `motor` sigue usando Capa 1 sin LLM cuando puede resolver localmente.
+- Prueba con fakes: `actualizacion_estado` sigue devolviendo `none` sin LLM.
+- Prueba con fakes: `IdentityState` reduce energia en ruta social y motor.
+
+### Riesgos Pendientes
+
+- El archivo `persona_prompt_buider.py` conserva el nombre escrito como `buider`; funciona porque `persona_engine.py` lo importa asi, pero conviene renombrarlo en una limpieza futura.
+- Validar con DeepSeek real que el JSON social sea estable sin schema forzado.
+
 ## 2026-06-01 - Fila De Tareas En Unity
 
 ### Objetivo

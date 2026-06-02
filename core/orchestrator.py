@@ -8,7 +8,9 @@ from datetime import datetime
 from typing import List, Optional
 import uuid
 
+from ai_engine.identity_state import IdentityState
 from ai_engine.motor_engine import MotorEngine
+from ai_engine.persona_engine import PersonaEngine
 from ai_engine.schemas import ActionResponse
 from ai_engine.triage_router import TriageRouter
 from api.schemas import AccionSaliente, EstadoAgente, EventoEntrante, NotificacionSaliente
@@ -59,6 +61,8 @@ class Orchestrator:
         self.tool_registry = tool_registry
         self.triage_router = TriageRouter()
         self.motor_engine = MotorEngine()
+        self.identity_state = IdentityState()
+        self.persona_engine = PersonaEngine()
         self._transacciones_procesadas: OrderedDict[str, AccionSaliente] = OrderedDict()
         self._notificaciones: deque[NotificacionSaliente] = deque(maxlen=50)
         logger.info("Orchestrator inicializado.")
@@ -148,6 +152,13 @@ class Orchestrator:
                 politica=politica,
                 tarea=tarea,
             )
+        elif self._triage_es_persona(triage_decision):
+            action_response = self._resolver_ruta_persona(
+                evento=evento,
+                contexto_llm=contexto_llm,
+                memoria_texto=memoria_texto,
+                politica=politica,
+            )
         else:
             try:
                 action_response = self.reasoning.process(
@@ -181,6 +192,7 @@ class Orchestrator:
 
         self._cachear_transaccion(evento.id_transaccion, accion_saliente)
         self._agregar_notificacion_si_corresponde(action_response)
+        self._registrar_estado_identidad(evento, triage_decision, action_response)
 
         logger.info("Evento %s procesado. Accion: %s", evento.id_transaccion, accion_saliente.nombre)
         return accion_saliente
@@ -228,6 +240,100 @@ class Orchestrator:
     @staticmethod
     def _triage_es_motor(decision: dict) -> bool:
         return str(decision.get("route", "")).strip().lower() == "motor"
+
+    @staticmethod
+    def _triage_es_persona(decision: dict) -> bool:
+        return str(decision.get("route", "")).strip().lower() == "persona"
+
+    def _resolver_ruta_persona(
+        self,
+        evento: EventoEntrante,
+        contexto_llm: dict,
+        memoria_texto: str,
+        politica: str,
+    ) -> ActionResponse:
+        """Usa Capa 2 para conversacion social, sin herramientas fisicas."""
+        mensaje_usuario = str(evento.detalles.get("mensaje", "")).strip()
+        percepcion = self._extraer_percepcion_motor(evento, contexto_llm)
+
+        try:
+            mensajes = self.persona_engine.preparar_interaccion(
+                mensaje_usuario=mensaje_usuario,
+                estado_biologico=self.identity_state,
+                percepcion=percepcion,
+                recuerdos=memoria_texto,
+            )
+            prompt = self._mensajes_chat_a_prompt(mensajes)
+            raw_response = self._generar_persona_llm(prompt, politica)
+            datos = self.persona_engine.parsear_respuesta(raw_response)
+            return self._action_response_desde_persona(datos)
+        except Exception as e:
+            logger.error("Error en PersonaEngine: %s", e, exc_info=True)
+            return ActionResponse(
+                pensamiento="Fallback social por error interno.",
+                accion="hablar",
+                parametros={"texto_a_comunicar": "Me perdi un momento, pero sigo aqui."},
+                razon="Error interno en Capa Social.",
+                valido=True,
+                emocion_facial="Fcl_ALL_Neutral",
+                error=str(e),
+            )
+
+    def _generar_persona_llm(self, prompt: str, politica: str) -> str:
+        """Llama al cliente LLM activo usando parametros conservadores para social."""
+        ai_client = getattr(self.reasoning, "ai_client", None)
+        if ai_client is None:
+            raise RuntimeError("ReasoningEngine no expone ai_client para Capa Social.")
+
+        proveedor = getattr(ai_client, "provider_name", ai_client.__class__.__name__.lower())
+        generation = self.reasoning.policy_manager.ajustar_parametros(
+            politica,
+            herramientas=["hablar"],
+            herramientas_riesgosas=[],
+            proveedor=proveedor,
+        )["generation"]
+        generation["temperature"] = min(float(generation.get("temperature", 0.7)), 0.45)
+        generation["max_output_tokens"] = min(int(generation.get("max_output_tokens", 512)), 768)
+        # No forzamos application/json aqui: Ollama usaria el schema global LLMResponse,
+        # mientras PersonaEngine espera pensamiento_privado. El prompt social ya exige JSON.
+        generation["response_mime_type"] = "text/plain"
+        return ai_client.generate(prompt, **generation)
+
+    @staticmethod
+    def _mensajes_chat_a_prompt(mensajes: list[dict[str, str]]) -> str:
+        """Adapta mensajes tipo chat al prompt plano que usan los clientes actuales."""
+        partes: list[str] = []
+        for mensaje in mensajes:
+            if not isinstance(mensaje, dict):
+                continue
+            rol = str(mensaje.get("role", "user")).upper()
+            contenido = str(mensaje.get("content", "")).strip()
+            if contenido:
+                partes.append(f"[{rol}]\n{contenido}")
+        return "\n\n".join(partes)
+
+    @staticmethod
+    def _action_response_desde_persona(datos: dict) -> ActionResponse:
+        if not isinstance(datos, dict):
+            datos = {}
+
+        parametros = datos.get("parametros", {})
+        if not isinstance(parametros, dict):
+            parametros = {}
+
+        texto = str(parametros.get("texto_a_comunicar", "")).strip()
+        if not texto:
+            texto = "No se que decir, mi mente se fue por una rendija."
+            parametros = {"texto_a_comunicar": texto}
+
+        return ActionResponse(
+            pensamiento=str(datos.get("pensamiento_privado", "")),
+            accion="hablar",
+            parametros=parametros,
+            razon=str(datos.get("razon", "Respuesta social de Capa 2.")),
+            valido=True,
+            emocion_facial=str(datos.get("emocion_facial", "Fcl_ALL_Neutral")),
+        )
 
     def _resolver_ruta_motor(
         self,
@@ -335,6 +441,57 @@ class Orchestrator:
             error=None if valido else str(motor_action.get("razon", "Accion bloqueada por Capa 1.")),
             emocion_facial=emocion_facial or "Fcl_ALL_Neutral",
         )
+
+    def _registrar_estado_identidad(
+        self,
+        evento: EventoEntrante,
+        triage_decision: dict,
+        action_response: ActionResponse,
+    ) -> None:
+        """Actualiza energia, estres y enfoque despues de procesar el evento."""
+        try:
+            route = str(triage_decision.get("route", "")).strip().lower()
+            intent = str(triage_decision.get("intent", "")).strip()
+
+            if evento.tipo_evento == "alerta_dolor_fisico":
+                route = "motor"
+                intent = intent or "INTERRUPCION_CRITICA"
+
+            es_descanso = self._evento_es_descanso(evento, action_response)
+            success = bool(action_response.valido and not action_response.error)
+            self.identity_state.registrar_evento(
+                intent=intent,
+                route=route,
+                success=success,
+                es_descanso=es_descanso,
+                intensidad=self._intensidad_identidad(evento, route),
+            )
+        except Exception as e:
+            logger.error("Error actualizando IdentityState: %s", e, exc_info=True)
+
+    @staticmethod
+    def _evento_es_descanso(evento: EventoEntrante, action_response: ActionResponse) -> bool:
+        texto = " ".join(
+            str(parte or "")
+            for parte in (
+                evento.detalles.get("mensaje"),
+                evento.detalles.get("mensaje_resultado"),
+                action_response.parametros.get("texto_a_comunicar")
+                if isinstance(action_response.parametros, dict)
+                else "",
+            )
+        ).lower()
+        return any(token in texto for token in ("descansa", "dormir", "duerme", "reposar"))
+
+    @staticmethod
+    def _intensidad_identidad(evento: EventoEntrante, route: str) -> float:
+        if evento.tipo_evento in {"actualizacion_estado", "resultado_accion"}:
+            return 0.2
+        if evento.tipo_evento == "alerta_dolor_fisico":
+            return 1.4
+        if route == "oracle":
+            return 1.2
+        return 1.0
 
     def obtener_estado_publico(self) -> EstadoAgente:
         """Devuelve un snapshot del estado interno para el frontend."""
