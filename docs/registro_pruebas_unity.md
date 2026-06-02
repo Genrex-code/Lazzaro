@@ -1,5 +1,27 @@
 # Registro De Pruebas Unity-Python
 
+## 2026-06-01 - Fila De Tareas En Unity
+
+### Objetivo
+
+- Encadenar comandos del usuario con conectores como `luego`, `despues`, `después`, `y luego` y `finalmente`.
+- Ejecutar una subtarea a la vez y esperar a que termine antes de enviar la siguiente al backend.
+- Cancelar la secuencia si una subtarea falla o si ocurre dolor fisico.
+
+### Cambios Aplicados
+
+- `LazzaroAgent` agrega `colaTareasUsuario` separada de `colaEventos`.
+- `EnviarComandoUsuario()` divide comandos largos en subtareas.
+- Subtareas sin verbo fisico heredan el contexto anterior, por ejemplo `camina hacia la esfera luego hacia el cubo`.
+- `ReportarResultadoAccion()` completa subtareas fisicas.
+- `hablar` completa subtareas conversacionales sin reportar resultado al backend.
+- `alerta_dolor_fisico` cancela cualquier fila pendiente.
+
+### Riesgos Pendientes
+
+- Validar en Unity Play Mode que el orden de eventos quede como `resultado_accion` antes del siguiente `comando_usuario`.
+- Si el usuario quiere interrumpir un movimiento ya iniciado, todavia falta una accion explicita de cancelar movimiento.
+
 ## 2026-06-01 - Percepcion Con Campo Visual Frontal
 
 ### Objetivo

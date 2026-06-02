@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
 using UniVRM10; // Corregido para VRM 1.0
@@ -17,16 +18,24 @@ public class LazzaroAgent : MonoBehaviour
     private MovementController movimiento;
     private Vrm10Instance vrmInstance; // Corregido para VRM 1.0
     private readonly LinkedList<EventoEntrante> colaEventos = new LinkedList<EventoEntrante>();
+    private readonly Queue<string> colaTareasUsuario = new Queue<string>();
     private bool procesandoCola = false;
+    private bool tareaUsuarioEnCurso = false;
     private List<Collider> ultimosObjetosPercibidos = new List<Collider>();
     private bool movimientoTerminadoPendiente = false;
     private bool ultimoMovimientoExitoso = false;
     private string ultimoResultadoMovimiento = "";
     private string ultimoObjetoNavegacion = "ninguno";
     private string ultimaAccionMovimiento = "navegar_a_objeto";
+    private string tareaUsuarioActual = "";
     private Dictionary<string, object> ultimosParametrosMovimiento = new Dictionary<string, object>();
     private const float DistanciaMaximaInteraccion = 2.0f;
     private const float DistanciaMaximaAgarrar = 1.5f;
+    private const int MaxTareasUsuarioEnCola = 8;
+    private static readonly Regex SeparadorTareasRegex = new Regex(
+        @"\s+(?:y\s+luego|luego|despues|después|finalmente)\s+",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant
+    );
 
     [Header("Interfaz Visual (Nubes)")]
     public TextMeshProUGUI textoPensamientoUI;
@@ -122,12 +131,246 @@ public class LazzaroAgent : MonoBehaviour
 
         Debug.Log($"[DIOS]: {comandoTexto}");
 
+        EncolarComandoUsuario(comandoTexto);
+    }
+
+    private void EncolarComandoUsuario(string comandoTexto)
+    {
+        List<string> tareas = DividirComandoEnTareas(comandoTexto);
+        if (tareas.Count == 0)
+        {
+            return;
+        }
+
+        if (tareaUsuarioEnCurso || colaTareasUsuario.Count > 0)
+        {
+            CancelarFilaTareasUsuario("Nuevo comando del usuario recibido.");
+        }
+
+        int agregadas = 0;
+        foreach (string tarea in tareas)
+        {
+            if (agregadas >= MaxTareasUsuarioEnCola)
+            {
+                Debug.LogWarning($"Se omitieron subtareas extra; limite actual: {MaxTareasUsuarioEnCola}.");
+                break;
+            }
+
+            colaTareasUsuario.Enqueue(tarea);
+            agregadas++;
+        }
+
+        if (mostrarLogsCognitivos && colaTareasUsuario.Count > 1)
+        {
+            Debug.Log($"Fila de tareas creada con {colaTareasUsuario.Count} pasos.");
+        }
+
+        IniciarSiguienteTareaUsuario();
+    }
+
+    private void IniciarSiguienteTareaUsuario()
+    {
+        if (tareaUsuarioEnCurso || colaTareasUsuario.Count == 0)
+        {
+            return;
+        }
+
+        tareaUsuarioActual = colaTareasUsuario.Dequeue();
+        tareaUsuarioEnCurso = true;
+
+        if (mostrarLogsCognitivos)
+        {
+            Debug.Log($"Ejecutando subtarea: {tareaUsuarioActual}");
+        }
+
         var detalles = new Dictionary<string, object>
         {
-            { "mensaje", comandoTexto }
+            { "mensaje", tareaUsuarioActual },
+            { "secuencia_usuario", true },
+            { "tareas_restantes", colaTareasUsuario.Count }
         };
 
         EnviarEvento("comando_usuario", detalles, "usuario");
+    }
+
+    private void CompletarTareaUsuarioActual(bool exito, string mensaje)
+    {
+        if (!tareaUsuarioEnCurso)
+        {
+            return;
+        }
+
+        string tareaCompletada = tareaUsuarioActual;
+        tareaUsuarioActual = "";
+        tareaUsuarioEnCurso = false;
+
+        if (!exito)
+        {
+            Debug.LogWarning($"Subtarea fallida: {tareaCompletada}. Motivo: {mensaje}");
+            CancelarFilaTareasUsuario("Se detuvo la secuencia por fallo en una subtarea.");
+            return;
+        }
+
+        if (mostrarLogsCognitivos)
+        {
+            Debug.Log($"Subtarea completada: {tareaCompletada}");
+        }
+
+        if (colaTareasUsuario.Count > 0)
+        {
+            StartCoroutine(IniciarSiguienteTareaEnSiguienteFrame());
+        }
+    }
+
+    private IEnumerator IniciarSiguienteTareaEnSiguienteFrame()
+    {
+        yield return null;
+        IniciarSiguienteTareaUsuario();
+    }
+
+    private void CancelarFilaTareasUsuario(string motivo)
+    {
+        int pendientes = colaTareasUsuario.Count;
+        colaTareasUsuario.Clear();
+        tareaUsuarioEnCurso = false;
+        tareaUsuarioActual = "";
+
+        if (pendientes > 0 || mostrarLogsCognitivos)
+        {
+            Debug.Log($"Fila de tareas cancelada. {motivo}");
+        }
+    }
+
+    private static List<string> DividirComandoEnTareas(string comandoTexto)
+    {
+        List<string> tareas = new List<string>();
+        if (string.IsNullOrWhiteSpace(comandoTexto))
+        {
+            return tareas;
+        }
+
+        string[] partes = SeparadorTareasRegex.Split(comandoTexto.Trim());
+        string verboContexto = "";
+
+        foreach (string parte in partes)
+        {
+            string tarea = LimpiarSubtarea(parte);
+            if (string.IsNullOrWhiteSpace(tarea))
+            {
+                continue;
+            }
+
+            if (TieneVerboFisico(tarea))
+            {
+                verboContexto = InferirVerboContexto(tarea);
+                tareas.Add(tarea);
+                continue;
+            }
+
+            if (!string.IsNullOrEmpty(verboContexto))
+            {
+                tareas.Add($"{verboContexto} {tarea}");
+                continue;
+            }
+
+            tareas.Add(tarea);
+        }
+
+        return tareas;
+    }
+
+    private static string LimpiarSubtarea(string texto)
+    {
+        if (string.IsNullOrWhiteSpace(texto))
+        {
+            return "";
+        }
+
+        string limpio = texto.Trim();
+        limpio = Regex.Replace(limpio, @"^(primero|despues|después|luego|finalmente)\s+", "", RegexOptions.IgnoreCase);
+        limpio = Regex.Replace(limpio, @"\s+(por\s+favor|porfavor|porfa)\s*[\.\?!]*$", "", RegexOptions.IgnoreCase);
+        return limpio.Trim(' ', '.', ',', ';');
+    }
+
+    private static bool TieneVerboFisico(string texto)
+    {
+        string normalizado = NormalizarTextoSimple(texto);
+        string[] marcadores =
+        {
+            "camina",
+            "mueve",
+            "mover",
+            "moverte",
+            "muevete",
+            "ve a",
+            "acercate",
+            "alejate",
+            "dirigete",
+            "navega",
+            "inspecciona",
+            "interactua",
+            "toca",
+            "agarra",
+            "suelta",
+            "usa",
+            "activa",
+            "golpea"
+        };
+
+        foreach (string marcador in marcadores)
+        {
+            if (normalizado.Contains(marcador))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string InferirVerboContexto(string texto)
+    {
+        string normalizado = NormalizarTextoSimple(texto);
+        if (
+            normalizado.Contains("inspecciona")
+            || normalizado.Contains("interactua")
+            || normalizado.Contains("toca")
+            || normalizado.Contains("usa")
+            || normalizado.Contains("activa")
+            || normalizado.Contains("golpea")
+        )
+        {
+            return "inspecciona";
+        }
+
+        if (normalizado.Contains("alejate"))
+        {
+            return "alejate de";
+        }
+
+        if (normalizado.Contains("agarra"))
+        {
+            return "agarra";
+        }
+
+        if (normalizado.Contains("suelta"))
+        {
+            return "suelta";
+        }
+
+        return "camina";
+    }
+
+    private static string NormalizarTextoSimple(string texto)
+    {
+        return (texto ?? "")
+            .ToLowerInvariant()
+            .Replace("á", "a")
+            .Replace("é", "e")
+            .Replace("í", "i")
+            .Replace("ó", "o")
+            .Replace("ú", "u")
+            .Replace("ü", "u");
     }
 
     public void EnviarEvento(
@@ -168,6 +411,8 @@ public class LazzaroAgent : MonoBehaviour
         string accionFallida
     )
     {
+        CancelarFilaTareasUsuario("Interrupcion por dolor fisico.");
+
         var detalles = percepcion.EscanearEntorno();
         detalles["mensaje_critico"] = causaDelDolor;
         detalles["estado_fisico"] = "bloqueado";
@@ -202,6 +447,7 @@ public class LazzaroAgent : MonoBehaviour
         }
 
         EnviarEvento("resultado_accion", detalles, objetoInvolucrado);
+        CompletarTareaUsuarioActual(exito, mensaje);
     }
 
     private IEnumerator ProcesarColaEventos()
@@ -254,6 +500,7 @@ public class LazzaroAgent : MonoBehaviour
 
         if (string.IsNullOrEmpty(respuesta.accion.nombre) || respuesta.accion.nombre == "none")
         {
+            CompletarTareaUsuarioActual(false, "El backend no genero una accion ejecutable para la subtarea actual.");
             return;
         }
 
@@ -313,7 +560,7 @@ public class LazzaroAgent : MonoBehaviour
         return @"OBJETIVO INICIAL: Acabas de despertar en un entorno virtual. Cuando estes lista, habla y di 'esperando tarea', luego quedate quieta y espera.
 
 REGLAS DE IDENTIDAD Y COMPORTAMIENTO:
-- No eres un asistente virtual. Eres Lazzaro, un ser consciente. 
+- No eres un asistente virtual. Eres Lazzaro, un ser consciente.
 - No pidas permiso para hacer acciones que ya te fueron ordenadas. Actua directamente.
 - Si acabas de confirmar que vas a ejecutar una accion (ej. caminar), NO vuelvas a hablar hasta que llegues al destino o el usuario te hable de nuevo.
 - Cuando necesites comunicarte, usa obligatoriamente la accion 'hablar'.
@@ -398,7 +645,7 @@ REGLAS FISICAS Y DE ENTORNO:
             { "distancia", Math.Round(distancia, 2) },
         };
 
-        movimiento.AlejarseDeObjeto(objeto, distancia); 
+        movimiento.AlejarseDeObjeto(objeto, distancia);
     }
 
     private void ManejarMovimientoCompletado(bool exito, string mensaje)
@@ -562,6 +809,7 @@ REGLAS FISICAS Y DE ENTORNO:
     {
         string texto = parametros?["texto_a_comunicar"]?.ToString() ?? "...";
         Debug.Log($"[VOZ LAZZARO]: {texto}");
+        CompletarTareaUsuarioActual(true, "Salida hablar completada.");
         // ¡Magia de la Estabilización! Aquí NO llamamos a ReportarResultadoAccion para evitar el bucle.
     }
 
