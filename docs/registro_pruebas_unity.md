@@ -1,5 +1,42 @@
 # Registro De Pruebas Unity-Python
 
+## 2026-06-03 - Fase 4: Capa Oraculo
+
+### Objetivo
+
+- Separar consultas tecnicas, logicas y filosoficas del razonamiento general.
+- Reutilizar respuestas complejas mediante cache semantico.
+- Usar API externa cuando este disponible y Ollama local como fallback.
+
+### Cambios Aplicados
+
+- `Orchestrator` instancia `OracleEngine`, `OracleMemory` y `OracleClient`.
+- La ruta `oracle` consulta primero `OracleMemory` y evita llamadas LLM en cache HIT.
+- En cache MISS, la consulta intenta el cliente externo y usa el cliente Ollama activo si no hay respuesta.
+- La salida cruda siempre pasa por `OracleEngine.keep_y_save(...)` antes de convertirse en una accion `hablar`.
+- Los errores finales de Capa 3 quedan registrados en `ActionResponse` para que `IdentityState` aumente el estres.
+- Se corrigio la inicializacion del logger de `OracleMemory`.
+- `OracleEngine` ahora rechaza JSON con forma invalida, parametros incorrectos o texto vacio.
+- `Settings` declara `ORACLE_API_URL`, `ORACLE_API_KEY`, `ORACLE_MODEL` y `ORACLE_TIMEOUT` para cargar la API externa desde `.env`.
+
+### Pruebas Ejecutadas
+
+- Compilacion completa de `ai_engine`, `core`, `api` y `tools`.
+- Prueba de ruta `oracle` con cache HIT: no llama al cliente externo ni a Ollama.
+- Prueba de ruta `oracle` con API externa exitosa: no llama a Ollama y guarda conocimiento.
+- Prueba de ruta `oracle` sin API key: usa Ollama local con los mismos mensajes.
+- Prueba de fallo final: conserva una respuesta `hablar` segura y aumenta el estres de `IdentityState`.
+- Prueba de API externa fallida con Ollama exitoso: responde localmente y aun registra el estres del fallo.
+- Prueba real de ChromaDB: memoria episodica y `oracle_cache` pueden compartir la misma ruta.
+- Prueba de respuestas invalidas: JSON no-objeto, parametros incorrectos y texto vacio activan fallback.
+- Prueba de configuracion: `Settings` entrega `ORACLE_API_KEY`, modelo y timeout al cliente externo.
+
+### Riesgos Pendientes
+
+- El fallback local requiere que el cliente LLM activo sea Ollama.
+- Validar con el proveedor externo real que soporte `response_format={"type": "json_object"}`.
+- Ajustar el umbral de similitud del cache con preguntas reales para evitar respuestas demasiado generales.
+
 ## 2026-06-02 - Fase 3: Capa Social / Identidad
 
 ### Objetivo

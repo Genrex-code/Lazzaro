@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     OLLAMA_MODEL_NAME: str | None = None
     OLLAMA_TIMEOUT_SECONDS: float = 120.0
 
+    ORACLE_API_URL: str = "https://api.groq.com/openai/v1/chat/completions"
+    ORACLE_API_KEY: str | None = None
+    ORACLE_MODEL: str = "llama3-70b-8192"
+    ORACLE_TIMEOUT: float = 15.0
+
     CHROMA_DB_PATH: str = "./lazzaro_data"
     DEEPSEEK_MODEL: str = "deepseek-r1:8b"
 
@@ -38,9 +43,9 @@ class Settings(BaseSettings):
             raise ValueError("AI_PROVIDER debe ser 'ollama' o 'gemini'.")
         return proveedor
 
-    @field_validator("GEMINI_API_KEY")
+    @field_validator("GEMINI_API_KEY", "ORACLE_API_KEY")
     @classmethod
-    def normalizar_gemini_api_key(cls, value: str | None) -> str | None:
+    def normalizar_api_key(cls, value: str | None) -> str | None:
         if value is None:
             return None
         valor = value.strip()
@@ -54,11 +59,11 @@ class Settings(BaseSettings):
         valor = value.strip().rstrip("/")
         return valor or None
 
-    @field_validator("OLLAMA_TIMEOUT_SECONDS")
+    @field_validator("OLLAMA_TIMEOUT_SECONDS", "ORACLE_TIMEOUT")
     @classmethod
     def timeout_positivo(cls, value: float) -> float:
         if value <= 0:
-            raise ValueError("OLLAMA_TIMEOUT_SECONDS debe ser mayor que cero.")
+            raise ValueError("Los timeouts deben ser mayores que cero.")
         return value
 
     @model_validator(mode="after")

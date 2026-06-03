@@ -10,6 +10,9 @@ import uuid
 
 from ai_engine.identity_state import IdentityState
 from ai_engine.motor_engine import MotorEngine
+from ai_engine.oracle_client import OracleClient
+from ai_engine.oracle_engine import OracleEngine
+from ai_engine.oracle_memory import OracleMemory
 from ai_engine.persona_engine import PersonaEngine
 from ai_engine.schemas import ActionResponse
 from ai_engine.triage_router import TriageRouter
@@ -63,6 +66,11 @@ class Orchestrator:
         self.motor_engine = MotorEngine()
         self.identity_state = IdentityState()
         self.persona_engine = PersonaEngine()
+        self.oracle_engine = OracleEngine()
+        oracle_db_path = getattr(getattr(memory_manager, "client", None), "db_path", "./lazzaro_data")
+        self.oracle_memory = OracleMemory(db_path=str(oracle_db_path or "./lazzaro_data"))
+        oracle_settings = getattr(getattr(reasoning_engine, "ai_client", None), "settings", None)
+        self.oracle_client = OracleClient(settings=oracle_settings)
         self._transacciones_procesadas: OrderedDict[str, AccionSaliente] = OrderedDict()
         self._notificaciones: deque[NotificacionSaliente] = deque(maxlen=50)
         logger.info("Orchestrator inicializado.")
@@ -159,6 +167,11 @@ class Orchestrator:
                 memoria_texto=memoria_texto,
                 politica=politica,
             )
+        elif self._triage_es_oracle(triage_decision):
+            action_response = self._resolver_ruta_oracle(
+                evento=evento,
+                politica=politica,
+            )
         else:
             try:
                 action_response = self.reasoning.process(
@@ -244,6 +257,10 @@ class Orchestrator:
     @staticmethod
     def _triage_es_persona(decision: dict) -> bool:
         return str(decision.get("route", "")).strip().lower() == "persona"
+
+    @staticmethod
+    def _triage_es_oracle(decision: dict) -> bool:
+        return str(decision.get("route", "")).strip().lower() == "oracle"
 
     def _resolver_ruta_persona(
         self,
@@ -333,6 +350,121 @@ class Orchestrator:
             razon=str(datos.get("razon", "Respuesta social de Capa 2.")),
             valido=True,
             emocion_facial=str(datos.get("emocion_facial", "Fcl_ALL_Neutral")),
+        )
+
+    def _resolver_ruta_oracle(
+        self,
+        evento: EventoEntrante,
+        politica: str,
+    ) -> ActionResponse:
+        """Usa Capa 3 para conocimiento complejo con cache y fallback local."""
+        mensaje_usuario = str(evento.detalles.get("mensaje", "")).strip()
+        if not mensaje_usuario:
+            return self._action_response_desde_oracle(
+                {},
+                error="La consulta al Oraculo no contiene mensaje de usuario.",
+            )
+
+        errores: list[str] = []
+        try:
+            respuesta_cacheada = self.oracle_engine.evaluar_cache(
+                mensaje_usuario,
+                self.oracle_memory,
+            )
+        except Exception as e:
+            logger.error("Error consultando OracleMemory: %s", e, exc_info=True)
+            errores.append("OracleMemory no pudo consultar el cache semantico.")
+            respuesta_cacheada = None
+
+        if respuesta_cacheada is not None:
+            return self._action_response_desde_oracle(respuesta_cacheada)
+
+        try:
+            mensajes = self.oracle_engine.preparar_consulta(mensaje_usuario)
+            fallo_externo_registrado = False
+            try:
+                respuesta_cruda = self.oracle_client.consultar_oraculo(mensajes)
+            except Exception as e:
+                logger.error("Error inesperado en OracleClient: %s", e, exc_info=True)
+                errores.append("El Oraculo externo fallo; se utilizo fallback local.")
+                fallo_externo_registrado = True
+                respuesta_cruda = None
+
+            if not respuesta_cruda or not respuesta_cruda.strip():
+                if self.oracle_client.configurado and not fallo_externo_registrado:
+                    errores.append("El Oraculo externo no respondio; se utilizo fallback local.")
+                respuesta_cruda = self._generar_oracle_local(mensajes, politica)
+
+            datos = self.oracle_engine.keep_y_save(
+                respuesta_cruda or "",
+                mensaje_usuario,
+                self.oracle_memory,
+            )
+            error_engine = str(datos.get("error", "")).strip() if isinstance(datos, dict) else ""
+            if error_engine:
+                errores.append(error_engine)
+
+            return self._action_response_desde_oracle(
+                datos,
+                error=" ".join(errores) or None,
+            )
+        except Exception as e:
+            logger.error("Error en OracleEngine: %s", e, exc_info=True)
+            return self._action_response_desde_oracle(
+                {},
+                error=f"Error interno en Capa Oraculo: {e}",
+            )
+
+    def _generar_oracle_local(self, mensajes: list[dict[str, str]], politica: str) -> str:
+        """Consulta Ollama local conservando el contenido de los mensajes del Oraculo."""
+        ai_client = getattr(self.reasoning, "ai_client", None)
+        if ai_client is None:
+            raise RuntimeError("ReasoningEngine no expone ai_client para fallback del Oraculo.")
+
+        proveedor = getattr(ai_client, "provider_name", ai_client.__class__.__name__.lower())
+        if str(proveedor).strip().lower() != "ollama":
+            raise RuntimeError("El cliente LLM activo no es Ollama; fallback local no disponible.")
+
+        generation = self.reasoning.policy_manager.ajustar_parametros(
+            politica,
+            herramientas=["hablar"],
+            herramientas_riesgosas=[],
+            proveedor=proveedor,
+        )["generation"]
+        generation["temperature"] = min(float(generation.get("temperature", 0.7)), 0.1)
+        generation["max_output_tokens"] = max(int(generation.get("max_output_tokens", 1024)), 2048)
+        # OllamaClient recibe prompts planos; este adaptador conserva roles y contenido.
+        # No se fuerza el schema global LLMResponse porque Oraculo usa pensamiento_privado.
+        generation["response_mime_type"] = "text/plain"
+        prompt = self._mensajes_chat_a_prompt(mensajes)
+        return ai_client.generate(prompt, **generation)
+
+    @staticmethod
+    def _action_response_desde_oracle(
+        datos: dict,
+        error: str | None = None,
+    ) -> ActionResponse:
+        """Convierte cualquier salida de Capa 3 en una respuesta hablada segura."""
+        if not isinstance(datos, dict):
+            datos = {}
+
+        parametros = datos.get("parametros", {})
+        if not isinstance(parametros, dict):
+            parametros = {}
+
+        texto = str(parametros.get("texto_a_comunicar", "")).strip()
+        if not texto:
+            texto = "No pude completar esa consulta compleja en este momento."
+            error = error or "Capa Oraculo no produjo texto para comunicar."
+
+        return ActionResponse(
+            pensamiento=str(datos.get("pensamiento_privado", "")),
+            accion="hablar",
+            parametros={"texto_a_comunicar": texto},
+            razon=str(datos.get("razon", "Respuesta analitica de Capa 3.")),
+            valido=True,
+            error=error,
+            emocion_facial="Fcl_ALL_Neutral",
         )
 
     def _resolver_ruta_motor(
