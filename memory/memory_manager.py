@@ -190,9 +190,9 @@ class MemoryManager:
             return
 
         self._observaciones_desde_revision = 0
-        self._consolidar_memorias_si_hace_falta()
+        self.consolidar_memorias_si_hace_falta()
 
-    def _consolidar_memorias_si_hace_falta(self) -> None:
+    def consolidar_memorias_si_hace_falta(self) -> None:
         """
         Resume recuerdos observacionales antiguos y los reemplaza por una regla semantica.
         Evita llenar el contexto con ruido de percepcion repetitiva.

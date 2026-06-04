@@ -104,12 +104,18 @@ class Orchestrator:
         percepcion_resumida = str(respuesta_core.get("percepcion_resumida", ""))
 
         memoria_texto = ""
+        memoria_texto_completa = ""
         try:
             query_memoria = self._construir_query_memoria(evento, narrativa, percepcion_resumida, tarea)
             memoria_texto = self.memory.obtener_contexto_memoria(
                 query=query_memoria,
                 limite=5,
                 max_caracteres=600,
+            )
+            memoria_corto_plazo = self.memory.obtener_ultimas_acciones()
+            memoria_texto_completa = (
+                f"{memoria_corto_plazo}\n\n"
+                f"RECUERDOS A LARGO PLAZO:\n{memoria_texto}"
             )
             self.memory.guardar_experiencia(
                 tipo_evento=tipo_memoria,
@@ -154,7 +160,7 @@ class Orchestrator:
             action_response = self._resolver_ruta_motor(
                 evento=evento,
                 contexto_llm=contexto_llm,
-                memoria_texto=memoria_texto,
+                memoria_texto=memoria_texto_completa,
                 herramientas=herramientas,
                 herramientas_detalle=herramientas_detalle,
                 politica=politica,
@@ -164,7 +170,7 @@ class Orchestrator:
             action_response = self._resolver_ruta_persona(
                 evento=evento,
                 contexto_llm=contexto_llm,
-                memoria_texto=memoria_texto,
+                memoria_texto=memoria_texto_completa,
                 politica=politica,
             )
         elif self._triage_es_oracle(triage_decision):
@@ -176,7 +182,7 @@ class Orchestrator:
             try:
                 action_response = self.reasoning.process(
                     contexto_llm=contexto_llm,
-                    memoria_texto=memoria_texto,
+                    memoria_texto=memoria_texto_completa,
                     herramientas=herramientas,
                     herramientas_detalle=herramientas_detalle,
                     politica=politica,
@@ -590,6 +596,12 @@ class Orchestrator:
                 intent = intent or "INTERRUPCION_CRITICA"
 
             es_descanso = self._evento_es_descanso(evento, action_response)
+            if es_descanso:
+                try:
+                    self.memory.consolidar_memorias_si_hace_falta()
+                except Exception as e:
+                    logger.error("Error consolidando memorias durante descanso: %s", e, exc_info=True)
+
             success = bool(action_response.valido and not action_response.error)
             self.identity_state.registrar_evento(
                 intent=intent,
