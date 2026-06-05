@@ -9,6 +9,7 @@ from typing import List, Optional
 import uuid
 
 from ai_engine.identity_state import IdentityState
+from ai_engine.llm_generation_adapter import LLMGenerationAdapter
 from ai_engine.motor_engine import MotorEngine
 from ai_engine.oracle_client import OracleClient
 from ai_engine.oracle_engine import OracleEngine
@@ -18,6 +19,7 @@ from ai_engine.schemas import ActionResponse
 from ai_engine.triage_router import TriageRouter
 from api.schemas import AccionSaliente, EstadoAgente, EventoEntrante, NotificacionSaliente
 from core.logger import get_logger
+from core.tool_policy import ToolPolicy
 from tools.executor import ActionExecutor
 
 logger = get_logger(__name__)
@@ -29,32 +31,6 @@ class Orchestrator:
     Expone metodos para procesar eventos y obtener el estado del agente.
     """
 
-    HERRAMIENTAS_POR_ORIGEN = {
-        "unity": {
-            "navegar_a_objeto", #agregado
-            "navegar_a_posicion", # agregado
-            "alejarse_de_objeto",
-            "moverse_entorno_3d",
-            "interactuar_objeto_3d",
-            "agarrar_objeto",
-            "soltar_objeto",
-            "aplicar_fuerza",
-            "hablar",
-        },
-        "roblox": {
-            "navegar_a_objeto",#agregado
-            "navegar_a_posicion",#agregado
-            "alejarse_de_objeto",
-            "moverse_entorno_3d",
-            "interactuar_objeto_3d",
-            "agarrar_objeto",
-            "soltar_objeto",
-            "aplicar_fuerza",
-            "hablar",
-        },
-    }
-    HERRAMIENTAS_CONVERSACION = {"hablar"}
-    HERRAMIENTAS_INTERACCION = {"interactuar_objeto_3d", "agarrar_objeto", "soltar_objeto", "aplicar_fuerza"}
     MAX_TRANSACCIONES_CACHE = 2000
 
     def __init__(self, behavior_core, memory_manager, reasoning_engine, tool_registry):
@@ -63,9 +39,14 @@ class Orchestrator:
         self.reasoning = reasoning_engine
         self.tool_registry = tool_registry
         self.triage_router = TriageRouter()
+        self.tool_policy = ToolPolicy()
         self.motor_engine = MotorEngine()
         self.identity_state = IdentityState()
         self.persona_engine = PersonaEngine()
+        self.llm_adapter = LLMGenerationAdapter(
+            getattr(reasoning_engine, "ai_client", None),
+            getattr(reasoning_engine, "policy_manager", None),
+        )
         self.oracle_engine = OracleEngine()
         oracle_db_path = getattr(getattr(memory_manager, "client", None), "db_path", "./lazzaro_data")
         self.oracle_memory = OracleMemory(db_path=str(oracle_db_path or "./lazzaro_data"))
@@ -103,46 +84,38 @@ class Orchestrator:
         tipo_memoria = str(respuesta_core.get("tipo_memoria", evento.tipo_evento))
         percepcion_resumida = str(respuesta_core.get("percepcion_resumida", ""))
 
-        memoria_texto = ""
-        memoria_texto_completa = ""
-        try:
-            query_memoria = self._construir_query_memoria(evento, narrativa, percepcion_resumida, tarea)
-            memoria_texto = self.memory.obtener_contexto_memoria(
-                query=query_memoria,
-                limite=5,
-                max_caracteres=600,
-            )
-            memoria_corto_plazo = self.memory.obtener_ultimas_acciones()
-            memoria_texto_completa = (
-                f"{memoria_corto_plazo}\n\n"
-                f"RECUERDOS A LARGO PLAZO:\n{memoria_texto}"
-            )
-            self.memory.guardar_experiencia(
-                tipo_evento=tipo_memoria,
-                narrativa=self._construir_narrativa_memoria(narrativa, percepcion_resumida, evento),
-                estado_emocional=estado_actual,
-                valencia=0.0,
-                impacto_emocional=self._calcular_impacto_memoria(evento, es_interrupcion_critica),
-                extra={
-                    "origen": evento.origen,
-                    "objeto": evento.objeto_involucrado,
-                    "estado_fisico": evento.detalles.get("estado_fisico"),
-                    "accion": evento.detalles.get("accion"),
-                    "exito": evento.detalles.get("exito"),
-                },
-            )
-        except Exception as e:
-            logger.error("Error en MemoryManager: %s", e, exc_info=True)
-
         triage_decision = self._evaluar_triage(evento, estado_actual)
         solicita_decision = self._evento_solicita_decision(evento, es_interrupcion_critica)
-        herramientas = self._filtrar_herramientas_por_intencion(
-            evento,
-            self._herramientas_para_origen(evento.origen),
+
+        memoria_texto_completa = ""
+        if self._evento_requiere_contexto_memoria(
+            triage_decision,
+            solicita_decision,
+            es_interrupcion_critica,
+        ):
+            memoria_texto_completa = self._obtener_contexto_memoria_completa(
+                evento,
+                narrativa,
+                percepcion_resumida,
+                tarea,
+            )
+
+        self._guardar_evento_en_memoria(
+            evento=evento,
+            tipo_memoria=tipo_memoria,
+            narrativa=narrativa,
+            percepcion_resumida=percepcion_resumida,
+            estado_actual=estado_actual,
+            es_interrupcion_critica=es_interrupcion_critica,
         )
-        herramientas_detalle = (
-            self.tool_registry.describir_herramientas(herramientas) if self.tool_registry else {}
-        )
+
+        herramientas: list[str] = []
+        herramientas_detalle: dict[str, str] = {}
+        if solicita_decision and not self._triage_debe_cortar_flujo(triage_decision):
+            herramientas = self._herramientas_para_evento(evento, triage_decision)
+            herramientas_detalle = (
+                self.tool_registry.describir_herramientas(herramientas) if self.tool_registry else {}
+            )
 
         if es_interrupcion_critica:
             action_response = self._resolver_interrupcion_critica(evento)
@@ -216,6 +189,59 @@ class Orchestrator:
         logger.info("Evento %s procesado. Accion: %s", evento.id_transaccion, accion_saliente.nombre)
         return accion_saliente
 
+    def _obtener_contexto_memoria_completa(
+        self,
+        evento: EventoEntrante,
+        narrativa: str,
+        percepcion_resumida: str,
+        tarea: dict | None,
+    ) -> str:
+        """Lee memoria solo para eventos que realmente llegaran a una capa cognitiva."""
+        try:
+            query_memoria = self._construir_query_memoria(evento, narrativa, percepcion_resumida, tarea)
+            memoria_texto = self.memory.obtener_contexto_memoria(
+                query=query_memoria,
+                limite=5,
+                max_caracteres=600,
+            )
+            memoria_corto_plazo = self.memory.obtener_ultimas_acciones()
+            memoria_texto_completa = (
+                f"{memoria_corto_plazo}\n\n"
+                f"RECUERDOS A LARGO PLAZO:\n{memoria_texto}"
+            )
+            return memoria_texto_completa
+        except Exception as e:
+            logger.error("Error leyendo contexto de memoria: %s", e, exc_info=True)
+            return ""
+
+    def _guardar_evento_en_memoria(
+        self,
+        evento: EventoEntrante,
+        tipo_memoria: str,
+        narrativa: str,
+        percepcion_resumida: str,
+        estado_actual: dict,
+        es_interrupcion_critica: bool,
+    ) -> None:
+        """Escribe todos los eventos para no romper consolidacion/sueno."""
+        try:
+            self.memory.guardar_experiencia(
+                tipo_evento=tipo_memoria,
+                narrativa=self._construir_narrativa_memoria(narrativa, percepcion_resumida, evento),
+                estado_emocional=estado_actual,
+                valencia=0.0,
+                impacto_emocional=self._calcular_impacto_memoria(evento, es_interrupcion_critica),
+                extra={
+                    "origen": evento.origen,
+                    "objeto": evento.objeto_involucrado,
+                    "estado_fisico": evento.detalles.get("estado_fisico"),
+                    "accion": evento.detalles.get("accion"),
+                    "exito": evento.detalles.get("exito"),
+                },
+            )
+        except Exception as e:
+            logger.error("Error guardando evento en MemoryManager: %s", e, exc_info=True)
+
     @staticmethod
     def _accion_pasiva(razon: str | None = None) -> ActionResponse:
         return ActionResponse(
@@ -268,6 +294,18 @@ class Orchestrator:
     def _triage_es_oracle(decision: dict) -> bool:
         return str(decision.get("route", "")).strip().lower() == "oracle"
 
+    def _evento_requiere_contexto_memoria(
+        self,
+        triage_decision: dict,
+        solicita_decision: bool,
+        es_interrupcion_critica: bool,
+    ) -> bool:
+        if es_interrupcion_critica:
+            return False
+        if not solicita_decision:
+            return False
+        return not self._triage_debe_cortar_flujo(triage_decision)
+
     def _resolver_ruta_persona(
         self,
         evento: EventoEntrante,
@@ -286,8 +324,14 @@ class Orchestrator:
                 percepcion=percepcion,
                 recuerdos=memoria_texto,
             )
-            prompt = self._mensajes_chat_a_prompt(mensajes)
-            raw_response = self._generar_persona_llm(prompt, politica)
+            raw_response = self.llm_adapter.ejecutar_texto(
+                mensajes,
+                politica=politica,
+                temperature=0.45,
+                max_output_tokens=768,
+                token_strategy="cap",
+                error_context="Capa Social",
+            )
             datos = self.persona_engine.parsear_respuesta(raw_response)
             return self._action_response_desde_persona(datos)
         except Exception as e:
@@ -301,39 +345,6 @@ class Orchestrator:
                 emocion_facial="Fcl_ALL_Neutral",
                 error=str(e),
             )
-
-    def _generar_persona_llm(self, prompt: str, politica: str) -> str:
-        """Llama al cliente LLM activo usando parametros conservadores para social."""
-        ai_client = getattr(self.reasoning, "ai_client", None)
-        if ai_client is None:
-            raise RuntimeError("ReasoningEngine no expone ai_client para Capa Social.")
-
-        proveedor = getattr(ai_client, "provider_name", ai_client.__class__.__name__.lower())
-        generation = self.reasoning.policy_manager.ajustar_parametros(
-            politica,
-            herramientas=["hablar"],
-            herramientas_riesgosas=[],
-            proveedor=proveedor,
-        )["generation"]
-        generation["temperature"] = min(float(generation.get("temperature", 0.7)), 0.45)
-        generation["max_output_tokens"] = min(int(generation.get("max_output_tokens", 512)), 768)
-        # No forzamos application/json aqui: Ollama usaria el schema global LLMResponse,
-        # mientras PersonaEngine espera pensamiento_privado. El prompt social ya exige JSON.
-        generation["response_mime_type"] = "text/plain"
-        return ai_client.generate(prompt, **generation)
-
-    @staticmethod
-    def _mensajes_chat_a_prompt(mensajes: list[dict[str, str]]) -> str:
-        """Adapta mensajes tipo chat al prompt plano que usan los clientes actuales."""
-        partes: list[str] = []
-        for mensaje in mensajes:
-            if not isinstance(mensaje, dict):
-                continue
-            rol = str(mensaje.get("role", "user")).upper()
-            contenido = str(mensaje.get("content", "")).strip()
-            if contenido:
-                partes.append(f"[{rol}]\n{contenido}")
-        return "\n\n".join(partes)
 
     @staticmethod
     def _action_response_desde_persona(datos: dict) -> ActionResponse:
@@ -399,7 +410,15 @@ class Orchestrator:
             if not respuesta_cruda or not respuesta_cruda.strip():
                 if self.oracle_client.configurado and not fallo_externo_registrado:
                     errores.append("El Oraculo externo no respondio; se utilizo fallback local.")
-                respuesta_cruda = self._generar_oracle_local(mensajes, politica)
+                respuesta_cruda = self.llm_adapter.ejecutar_texto(
+                    mensajes,
+                    politica=politica,
+                    temperature=0.1,
+                    max_output_tokens=2048,
+                    token_strategy="floor",
+                    required_provider="ollama",
+                    error_context="fallback del Oraculo",
+                )
 
             datos = self.oracle_engine.keep_y_save(
                 respuesta_cruda or "",
@@ -420,30 +439,6 @@ class Orchestrator:
                 {},
                 error=f"Error interno en Capa Oraculo: {e}",
             )
-
-    def _generar_oracle_local(self, mensajes: list[dict[str, str]], politica: str) -> str:
-        """Consulta Ollama local conservando el contenido de los mensajes del Oraculo."""
-        ai_client = getattr(self.reasoning, "ai_client", None)
-        if ai_client is None:
-            raise RuntimeError("ReasoningEngine no expone ai_client para fallback del Oraculo.")
-
-        proveedor = getattr(ai_client, "provider_name", ai_client.__class__.__name__.lower())
-        if str(proveedor).strip().lower() != "ollama":
-            raise RuntimeError("El cliente LLM activo no es Ollama; fallback local no disponible.")
-
-        generation = self.reasoning.policy_manager.ajustar_parametros(
-            politica,
-            herramientas=["hablar"],
-            herramientas_riesgosas=[],
-            proveedor=proveedor,
-        )["generation"]
-        generation["temperature"] = min(float(generation.get("temperature", 0.7)), 0.1)
-        generation["max_output_tokens"] = max(int(generation.get("max_output_tokens", 1024)), 2048)
-        # OllamaClient recibe prompts planos; este adaptador conserva roles y contenido.
-        # No se fuerza el schema global LLMResponse porque Oraculo usa pensamiento_privado.
-        generation["response_mime_type"] = "text/plain"
-        prompt = self._mensajes_chat_a_prompt(mensajes)
-        return ai_client.generate(prompt, **generation)
 
     @staticmethod
     def _action_response_desde_oracle(
@@ -838,12 +833,13 @@ class Orchestrator:
                 )
             )
 
-    def _herramientas_para_origen(self, origen: str) -> list[str]:
+    def _herramientas_para_evento(self, evento: EventoEntrante, triage_decision: dict) -> list[str]:
         herramientas = self.tool_registry.listar_nombres() if self.tool_registry else []
-        permitidas = self.HERRAMIENTAS_POR_ORIGEN.get(origen)
-        if not permitidas:
-            return herramientas
-        return [herramienta for herramienta in herramientas if herramienta in permitidas]
+        return self.tool_policy.seleccionar(
+            herramientas,
+            origen=evento.origen,
+            route=str(triage_decision.get("route", "")),
+        )
 
     @staticmethod
     def _evento_solicita_decision(evento: EventoEntrante, es_interrupcion_critica: bool) -> bool:
@@ -856,84 +852,6 @@ class Orchestrator:
     @staticmethod
     def _es_resultado_hablar(evento: EventoEntrante) -> bool:
         return evento.tipo_evento == "resultado_accion" and evento.detalles.get("accion") == "hablar"
-
-    def _filtrar_herramientas_por_intencion(
-        self,
-        evento: EventoEntrante,
-        herramientas: list[str],
-    ) -> list[str]:
-        if evento.tipo_evento != "comando_usuario":
-            return herramientas
-
-        mensaje = str(evento.detalles.get("mensaje", "")).lower()
-        if not self._es_intencion_fisica(mensaje):
-            return [herramienta for herramienta in herramientas if herramienta in self.HERRAMIENTAS_CONVERSACION]
-
-        if "sin interactuar" in mensaje or "no interact" in mensaje:
-            return [
-                herramienta
-                for herramienta in herramientas
-                if herramienta not in self.HERRAMIENTAS_INTERACCION
-            ]
-        return herramientas
-
-    @staticmethod
-    def _es_intencion_fisica(mensaje: str) -> bool:
-        marcadores_conversacion = (
-            "te gusta",
-            "como te llamas",
-            "cómo te llamas",
-            "quien eres",
-            "quién eres",
-            "por que",
-            "por qué",
-            "fuiste",
-            "eras",
-            "historia",
-            "hablemos",
-            "charlemos",
-        )
-        marcadores_comando = (
-            "podrias",
-            "podrías",
-            "intenta",
-            "intentar",
-            "deja de",
-            "ve a",
-            "vete",
-            "dirigete",
-            "dirígete",
-        )
-        verbos_fisicos = (
-            "mov",
-            "muev",
-            "muév",
-            "camina",
-            "acerc",
-            "alej",
-            "aléj",
-            "navega",
-            "retrocede",
-            "atras",
-            "atrás",
-            "paso",
-            "seguir",
-            "sigue",
-            "interact",
-            "agarr",
-            "suelta",
-            "golpea",
-            "empuja",
-            "fuerza",
-        )
-
-        es_conversacion = any(marcador in mensaje for marcador in marcadores_conversacion)
-        es_comando_explicito = any(marcador in mensaje for marcador in marcadores_comando)
-        tiene_verbo_fisico = any(verbo in mensaje for verbo in verbos_fisicos)
-
-        if es_conversacion and not es_comando_explicito:
-            return False
-        return tiene_verbo_fisico
 
     def _gestionar_ejecucion(
         self,
