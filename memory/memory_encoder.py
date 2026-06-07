@@ -25,6 +25,15 @@ class MemoryEncoder:
     """
 
     @staticmethod
+    def _extra_plano(extra: dict[str, Any]) -> dict[str, str | int | float | bool]:
+        """Conserva solo metadata compatible con ChromaDB."""
+        return {
+            k: v
+            for k, v in extra.items()
+            if isinstance(v, (str, int, float, bool))
+        }
+
+    @staticmethod
     def codificar_episodio(
         tipo_evento: str,
         narrativa: str,
@@ -130,10 +139,7 @@ class MemoryEncoder:
                 "timestamp": recuerdo.metadata.timestamp.isoformat(),
             }
             if recuerdo.metadata.extra:
-                # Incluir algunas claves seguras (solo valores simples)
-                for k, v in recuerdo.metadata.extra.items():
-                    if isinstance(v, (str, int, float, bool)):
-                        metadata_plana[k] = v
+                metadata_plana.update(MemoryEncoder._extra_plano(recuerdo.metadata.extra))
             return MemoryDocument(
                 id=recuerdo.id,
                 contenido=contenido,
@@ -149,6 +155,8 @@ class MemoryEncoder:
                 "origen": recuerdo.origen,
                 "timestamp": recuerdo.metadata.timestamp.isoformat(),
             }
+            if recuerdo.metadata.extra:
+                metadata_plana.update(MemoryEncoder._extra_plano(recuerdo.metadata.extra))
             return MemoryDocument(
                 id=recuerdo.id,
                 contenido=contenido,

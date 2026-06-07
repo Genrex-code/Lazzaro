@@ -26,10 +26,9 @@ class BehaviorCore:
     EVENTOS_CON_RESULTADO = {"resultado_accion", "alerta_dolor_fisico"}
     EVENTOS_PERCEPTIVOS = {"inicio_simulacion", "actualizacion_estado", "percepcion_entorno"}
     ACCIONES_EXPLORATORIAS = {
-        "navegar_a_objeto", #agregado
-        "navegar_a_posicion",# agregado
+        "navegar_a_objeto",
+        "navegar_a_posicion",
         "alejarse_de_objeto",
-        "moverse_entorno_3d",
         "interactuar_objeto_3d",
         "agarrar_objeto",
         "soltar_objeto",

@@ -660,6 +660,12 @@ class Orchestrator:
         self._notificaciones.clear()
         return notificaciones
 
+    def close(self) -> None:
+        """Cierra recursos auxiliares persistentes del orquestador."""
+        close_oracle_memory = getattr(self.oracle_memory, "close", None)
+        if callable(close_oracle_memory):
+            close_oracle_memory()
+
     def obtener_constelacion_publica(self) -> dict:
         """Expone la constelacion cognitiva actual para depuracion o visualizacion."""
         return {
@@ -674,7 +680,6 @@ class Orchestrator:
             direccion_escape = "atras"
 
         distancia = evento.detalles.get("distancia_escape", 1.5)
-        velocidad = evento.detalles.get("velocidad_escape", "caminar")
         pensamiento = (
             "Se detecto dolor fisico o colision. Debo interrumpir la tarea actual, "
             "detener el avance y corregir la trayectoria de inmediato."
@@ -702,14 +707,14 @@ class Orchestrator:
                 emocion_facial="Fcl_ALL_Sorrow",
             )
 
-        if self.tool_registry and self.tool_registry.get_tool("moverse_entorno_3d"):
+        objeto_escape = self._leer_objeto_escape(evento)
+        if self.tool_registry and self.tool_registry.get_tool("alejarse_de_objeto") and objeto_escape:
             return ActionResponse(
                 pensamiento=pensamiento,
-                accion="moverse_entorno_3d",
+                accion="alejarse_de_objeto",
                 parametros={
-                    "direccion": direccion_escape,
-                    "distancia": distancia,
-                    "velocidad": velocidad,
+                    "nombre_objeto": objeto_escape,
+                    "distancia": self._leer_distancia_escape(distancia),
                 },
                 razon=razon,
                 valido=True,
@@ -802,6 +807,20 @@ class Orchestrator:
         except (TypeError, ValueError):
             distancia = 1.5
         return max(0.5, min(5.0, distancia))
+
+    @staticmethod
+    def _leer_objeto_escape(evento: EventoEntrante) -> str | None:
+        candidatos = (
+            evento.objeto_involucrado,
+            evento.detalles.get("objeto"),
+            evento.detalles.get("nombre_objeto"),
+            evento.detalles.get("objeto_colisionado"),
+        )
+        for candidato in candidatos:
+            nombre = str(candidato or "").strip()
+            if nombre and nombre.lower() not in {"ninguno", "none", "null", "desconocido"}:
+                return nombre
+        return None
 
     @staticmethod
     def _vector_escape(direccion_escape: str) -> tuple[float, float]:

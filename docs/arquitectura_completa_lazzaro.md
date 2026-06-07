@@ -168,7 +168,7 @@ Acciones principales actuales:
 | `config/` | Configuracion por `.env`/Pydantic. | Variables de entorno. | Objeto `Settings`. |
 | `core/` | Orquestador central, estado emocional, tarea, personalidad, psicologia. | `EventoEntrante` y detalles. | Estado interno, contexto LLM, `AccionSaliente`. |
 | `memory/` | Memoria episodica, semantica, trabajo y ChromaDB. | Narrativas, reglas, consultas. | Recuerdos recuperados, resumen de memoria, registros persistidos. |
-| `telescopio/` | Modelo de constelacion cognitiva para visualizar estado y relaciones. | Estado bruto, rasgos, banderas, contexto. | Grafo serializable de nodos/enlaces. |
+| `telescopio/` | Modelo y visualizador de constelaciones cognitivas. | Estado bruto, rasgos, banderas, contexto o ChromaDB. | Grafo serializable de nodos/enlaces y HTML visual. |
 | `tools/` | Registro y ejecucion de herramientas. | Acciones y parametros. | `ToolResult` o strings de confirmacion. |
 | `unity_client/` | Scripts C# del cuerpo de Lazzaro en Unity. | Respuestas API y eventos de usuario/fisica. | Eventos HTTP, movimiento, UI, expresiones, reportes. |
 | `docs/` | Bitacoras y documentacion tecnica. | Cambios del proyecto. | Markdown compartible. |
@@ -419,6 +419,7 @@ solo en sandbox controlado.
 |---|---|---|---|
 | `telescopio/__init__.py` | Marca paquete. | Imports. | Paquete `telescopio`. |
 | `telescopio/constelacion_cognitiva.py` | Modelo de grafo cognitivo con nodos/enlaces/contexto. | Estado, rasgos, banderas, contexto. | Dict/JSON/resumen de constelacion. |
+| `telescopio/visualizar_constelacion.py` | Exportador standalone de constelaciones y memorias ChromaDB a HTML interactivo. | `lazzaro_data`, coleccion, limite, vecinos y similitud minima. | `constelacion.html` u otro archivo HTML. |
 
 ### `unity_client/`
 

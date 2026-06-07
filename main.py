@@ -99,6 +99,11 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("=== Apagando Lazzaro ===")
+    orchestrator = getattr(app.state, "orchestrator", None)
+    if orchestrator is not None:
+        close = getattr(orchestrator, "close", None)
+        if callable(close):
+            close()
     if memory_manager is not None:
         memory_manager.close()
     if ai_client is not None:

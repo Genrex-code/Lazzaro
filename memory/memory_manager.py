@@ -162,6 +162,9 @@ class MemoryManager:
 
     def agregar_accion(self, accion: str, resultado: str = "pendiente", detalles: Optional[dict] = None):
         """Registra una accion reciente en la memoria de trabajo."""
+        if accion == "none" and resultado == "sin_accion":
+            logger.debug("Memoria de trabajo ignora no-op pasivo.")
+            return
         self.working_memory.agregar(accion, resultado, detalles)
 
     def obtener_ultimas_acciones(self, n: int = 5) -> str:
@@ -313,6 +316,8 @@ class MemoryManager:
         """Decide si una memoria es ruido perceptivo y conviene compactarla."""
         if tipo_evento in self.TIPOS_OBSERVACIONALES:
             return True
+        if tipo_evento in self.TIPOS_CRITICOS or tipo_evento in {"resultado_accion", "comando_usuario"}:
+            return False
 
         fuente = str(metadata.get("fuente", "")).lower()
         canal = str(metadata.get("canal", "")).lower()

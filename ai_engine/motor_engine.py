@@ -117,9 +117,23 @@ class MotorEngine:
             return "soltar_objeto"
         if any(token in texto for token in ("agarra", "coge", "recoge", "sosten")):
             return "agarrar_objeto"
-        if any(token in texto for token in ("alejate", "apartate", "retrocede de", "deja de seguir")):
+        if any(
+            token in texto
+            for token in (
+                "alejate",
+                "alejarme",
+                "alejarte",
+                "alejarse",
+                "aleja",
+                "apartate",
+                "retirate",
+                "separate",
+                "retrocede de",
+                "deja de seguir",
+            )
+        ):
             return "alejarse_de_objeto"
-        if any(token in texto for token in ("inspecciona", "interactua", "toca", "mira", "golpea", "usa", "activa")):
+        if any(token in texto for token in ("inspecciona", "interactua", "toca", "mira", "observa", "golpea", "usa", "activa")):
             return "interactuar_objeto_3d"
         if self._parsear_coordenadas(texto) is not None:
             return "navegar_a_posicion"
@@ -251,7 +265,7 @@ class MotorEngine:
             return "usar"
         if "activa" in texto:
             return "activar"
-        if "mira" in texto:
+        if "mira" in texto or "observa" in texto:
             return "mirar"
         return "inspeccionar"
 

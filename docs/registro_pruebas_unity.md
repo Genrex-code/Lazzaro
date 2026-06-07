@@ -198,3 +198,62 @@
 
 - El compilado C# debe validarse dentro de Unity.
 - La clasificacion de intencion usa heuristicas simples; puede necesitar ajuste con mas logs reales.
+
+## 2026-06-07 - Bug Detectado Durante Bugfix Memoria
+
+### Bug Registrado
+
+- `unity_client/ApiClient.cs` mantenia `request.timeout = 10`.
+- El backend local con Ollama/DeepSeek puede tardar mas de 10 segundos en Persona u Oraculo.
+- Si Unity corta antes que Python termine, pueden aparecer respuestas tardias, tareas desincronizadas o falsos fallos.
+
+### Decision
+
+- No se corrigio en la tanda de memoria para mantener ese bugfix enfocado.
+- Se atendio en la ronda de estabilidad Unity/API registrada abajo.
+
+## 2026-06-07 - Bugfix Unity Timeout Y Triage Motor
+
+### Cambios Aplicados
+
+- `unity_client/ApiClient.cs` reemplazo el timeout fijo de 10 segundos por `TimeoutSegundos = 90`, configurable en Inspector.
+- El timeout queda limitado entre 15 y 180 segundos para evitar esperas infinitas o cortes demasiado agresivos.
+- `ai_engine/routing_rules.py` normaliza acentos antes de comparar keywords.
+- El Triage reconoce variantes motoras como `alejate`, `alejarme`, `interactua`, `mirar la capsula` y `observa la capsule`.
+- `ai_engine/motor_engine.py` resuelve `alejarme de la capsula` y `observa la capsule` sin depender del LLM.
+- `ai_engine/triage_router.py` elimino una doble evaluacion redundante de intencion.
+
+### Pruebas Ejecutadas
+
+- `alejate de la capsula`, `alejarme de la capsula`, `interactua con la capsula`, `puedes mirar la capsula` y `observa la capsule` enrutan a `motor`.
+- `mira creo que esto esta mejor`, `hola` y `reconoces el cubo?` no se convierten en motor accidentalmente.
+- La compuerta `is_moving` sigue devolviendo `noop` para comandos motores mientras Lazzaro se mueve.
+- `MotorEngine` genera acciones deterministas para alejarse, interactuar y mirar objetos visibles.
+
+## 2026-06-07 - Retiro De `moverse_entorno_3d` E Higiene
+
+### Cambios Aplicados
+
+- `moverse_entorno_3d` se retiro de las listas internas de acciones de movimiento/exploracion.
+- El fallback de dolor fisico ya no intenta usar una herramienta no registrada.
+- Si hay posicion de Lazzaro, la interrupcion critica sigue usando `navegar_a_posicion`.
+- Si no hay posicion pero hay objeto involucrado, la interrupcion critica usa `alejarse_de_objeto`.
+- `.gitignore` se amplio para caches Python, caches de pruebas y datos runtime futuros.
+- `telescopio/visualizar_constelacion.py` queda documentado como exportador standalone de `constelacion.html`.
+
+### Pruebas Esperadas
+
+- El registro de herramientas no debe contener `moverse_entorno_3d`.
+- Una alerta de dolor con posicion debe devolver `navegar_a_posicion`.
+- Una alerta de dolor sin posicion pero con objeto debe devolver `alejarse_de_objeto`.
+- `ToolPolicy` para Unity no debe exponer herramientas obsoletas.
+- `telescopio/visualizar_constelacion.py` debe compilar/importar sin depender de integracion extra.
+
+### Pruebas Ejecutadas
+
+- Escaneo `rg`: no quedan referencias runtime a `moverse_entorno_3d`; solo esta bitacora lo menciona historicamente.
+- `ToolRegistry.listar_nombres()` no contiene `moverse_entorno_3d`.
+- `ToolPolicy` para `unity/motor` filtra cualquier `moverse_entorno_3d` accidental.
+- `_resolver_interrupcion_critica` devuelve `navegar_a_posicion` cuando hay posicion.
+- `_resolver_interrupcion_critica` devuelve `alejarse_de_objeto` cuando no hay posicion pero si objeto involucrado.
+- `python -m py_compile` paso para `telescopio`, `core/orchestrator.py`, `core/behavior_core.py`, `core/task_context.py` y `core/tool_policy.py`.

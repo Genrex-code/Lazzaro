@@ -5,6 +5,7 @@ routing_rules.py - Reglas heurísticas ampliadas para clasificar intenciones del
 from dataclasses import dataclass, field
 from typing import List, Optional
 import re
+import unicodedata
 from .intent_types import IntentType
 
 
@@ -20,12 +21,19 @@ class RoutingRule:
     intent: IntentType
     priority: int = 10
 
+    @staticmethod
+    def _normalizar(text: str) -> str:
+        """Normaliza acentos y mayusculas para comparar comandos robustamente."""
+        text = unicodedata.normalize("NFD", str(text or "").lower())
+        return "".join(char for char in text if unicodedata.category(char) != "Mn")
+
     def matches(self, text: str) -> bool:
         """Devuelve True si alguna keyword está presente en el texto."""
-        text_lower = text.lower()
+        text_lower = self._normalizar(text)
         for kw in self.keywords:
             # Buscar como palabra completa o subcadena simple
-            if re.search(rf"\b{re.escape(kw.lower())}\b", text_lower):
+            kw_normalizada = self._normalizar(kw)
+            if re.search(rf"\b{re.escape(kw_normalizada)}\b", text_lower):
                 return True
         return False
 
@@ -69,17 +77,20 @@ REGLAS_BASE: List[RoutingRule] = [
         keywords=[
             # Movimiento básico
             "camina", "mueve", "mover", "moverte", "muévete", "ve a", "acércate", "aléjate",
-            "retrocede", "avanza", "retrocede", "desplázate", "dirígete",
+            "alejarme", "alejarte", "alejarse", "alejar", "aleja", "apártate",
+            "retrocede", "retírate", "sepárate", "separate", "avanza", "retrocede", "desplázate", "dirígete",
             "corre", "salta", "gira", "girar", "rotar", "da la vuelta",
             "vuelta", "gira a la izquierda", "gira a la derecha",
             "gira 180", "media vuelta", "camina hacia", "corre hacia",
 
             # Interacción física
             "inspecciona", "toca", "agarra", "suelta", "interactúa",
-            "interactuar", "coge", "recoge", "deja", "sostén", "empuja",
+            "interactuar", "interactua", "coge", "recoge", "deja", "sostén", "empuja",
             "tira", "abre", "cierra", "presiona", "pulsa", "activa",
             "desactiva", "enciende", "apaga", "usa", "utiliza",
             "manipula", "golpea", "rompe", "lanza", "deja caer",
+            "mira la", "mira el", "mira al", "mira hacia",
+            "mirar la", "mirar el", "observa la", "observa el",
 
             # Navegación avanzada
             "sigue", "persigue", "evade", "esquiva", "rodea", "atraviesa",

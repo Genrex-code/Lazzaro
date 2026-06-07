@@ -3,13 +3,20 @@ chroma_client.py - Encapsula toda interaccion directa con ChromaDB.
 Proporciona una interfaz limpia y tolerante a fallos para el resto del sistema.
 """
 
-from typing import Any, cast
+from pathlib import Path
+from typing import Any, ClassVar, cast
+import gc
 import threading
 import chromadb
 from chromadb.api import ClientAPI
 from chromadb.api.models.Collection import Collection
 from chromadb.api.types import Metadata, QueryResult, Where
 from chromadb.config import Settings as ChromaSettings
+try:
+    from chromadb.api.client import SharedSystemClient
+except Exception:  # pragma: no cover - compatibilidad con versiones antiguas
+    SharedSystemClient = None  # type: ignore[assignment]
+
 from core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -22,6 +29,10 @@ class ChromaClient:
     y captura errores para que un fallo en la base de datos no derribe al agente.
     """
 
+    _locks_guard: ClassVar[threading.Lock] = threading.Lock()
+    _locks_by_db_path: ClassVar[dict[str, Any]] = {}
+    _refcounts_by_db_path: ClassVar[dict[str, int]] = {}
+
     def __init__(
         self,
         db_path: str = "./lazzaro_data",
@@ -32,13 +43,54 @@ class ChromaClient:
             db_path: Ruta del almacenamiento persistente de ChromaDB.
             collection_name: Nombre de la coleccion a utilizar o crear.
         """
-        self.db_path = db_path
+        self.db_path = str(Path(db_path).expanduser().resolve())
         self.collection_name = collection_name
         self._client: ClientAPI | None = None
         #esta es una forma de decir que esto puede ser cualquiercosa o puede ser nada vacia
         self._collection: Any | None = None
-        self._lock = threading.Lock()
+        self._lock = self._obtener_lock(self.db_path)
+        self._closed = False
+        self._registrar_cliente(self.db_path)
         self._inicializar()
+
+    @classmethod
+    def _obtener_lock(cls, db_path: str) -> Any:
+        """Devuelve una compuerta compartida por base Chroma dentro del proceso."""
+        with cls._locks_guard:
+            lock = cls._locks_by_db_path.get(db_path)
+            if lock is None:
+                lock = threading.RLock()
+                cls._locks_by_db_path[db_path] = lock
+            return lock
+
+    @classmethod
+    def _registrar_cliente(cls, db_path: str) -> None:
+        with cls._locks_guard:
+            cls._refcounts_by_db_path[db_path] = cls._refcounts_by_db_path.get(db_path, 0) + 1
+
+    @classmethod
+    def _liberar_cliente(cls, db_path: str) -> bool:
+        """Devuelve True si ya no quedan clientes vivos para esa base."""
+        with cls._locks_guard:
+            restantes = cls._refcounts_by_db_path.get(db_path, 0) - 1
+            if restantes <= 0:
+                cls._refcounts_by_db_path.pop(db_path, None)
+                return True
+            cls._refcounts_by_db_path[db_path] = restantes
+            return False
+
+    @staticmethod
+    def _limpiar_cache_sistema_chroma(client: ClientAPI | None) -> None:
+        """Libera referencias globales que Chroma mantiene en algunas versiones."""
+        try:
+            clear = getattr(client, "clear_system_cache", None) if client is not None else None
+            if callable(clear):
+                clear()
+                return
+            if SharedSystemClient is not None:
+                SharedSystemClient.clear_system_cache()
+        except Exception as e:
+            logger.debug("No se pudo limpiar cache global de ChromaDB: %s", e)
 
     # ------------------------------------------------------------------
     # Inicializacion y estado
@@ -46,25 +98,26 @@ class ChromaClient:
 
     def _inicializar(self) -> None:
         """Crea o conecta al cliente y a la coleccion, con manejo de errores."""
-        try:
-            self._client = chromadb.PersistentClient(
-                path=self.db_path,
-                settings=ChromaSettings(anonymized_telemetry=False),
-            )
-            self._collection = self._client.get_or_create_collection(
-                name=self.collection_name,
-                metadata={"hnsw:space": "cosine"},
-            )
-            logger.info(
-                "ChromaDB inicializado en '%s', coleccion '%s' lista.",
-                self.db_path,
-                self.collection_name,
-            )
-        except Exception as e:
-            logger.error("Error al inicializar ChromaDB: %s", e)
-            # El cliente queda a None; los metodos devolveran un valor seguro.
-            self._client = None
-            self._collection = None
+        with self._lock:
+            try:
+                self._client = chromadb.PersistentClient(
+                    path=self.db_path,
+                    settings=ChromaSettings(anonymized_telemetry=False),
+                )
+                self._collection = self._client.get_or_create_collection(
+                    name=self.collection_name,
+                    metadata={"hnsw:space": "cosine"},
+                )
+                logger.info(
+                    "ChromaDB inicializado en '%s', coleccion '%s' lista.",
+                    self.db_path,
+                    self.collection_name,
+                )
+            except Exception as e:
+                logger.error("Error al inicializar ChromaDB: %s", e)
+                # El cliente queda a None; los metodos devolveran un valor seguro.
+                self._client = None
+                self._collection = None
 
     @property
     def disponible(self) -> bool:
@@ -127,16 +180,17 @@ class ChromaClient:
         if collection is None:
             logger.warning("Busqueda en ChromaDB sin conexion.")
             return None
-        try:
-            return collection.query(
-                query_texts=[consulta],
-                n_results=n_resultados,
-                where=where,
-                include=["documents", "metadatas", "distances"],
-            )
-        except Exception as e:
-            logger.error("Error al buscar en ChromaDB: %s", e)
-            return None
+        with self._lock:
+            try:
+                return collection.query(
+                    query_texts=[consulta],
+                    n_results=n_resultados,
+                    where=where,
+                    include=["documents", "metadatas", "distances"],
+                )
+            except Exception as e:
+                logger.error("Error al buscar en ChromaDB: %s", e)
+                return None
 
     def listar(
         self,
@@ -151,17 +205,18 @@ class ChromaClient:
         if collection is None:
             logger.warning("Lectura en ChromaDB sin conexion.")
             return None
-        try:
-            kwargs: dict[str, Any] = {
-                "where": where,
-                "include": ["documents", "metadatas"],
-            }
-            if limite is not None:
-                kwargs["limit"] = limite
-            return cast(dict[str, list[Any]], collection.get(**kwargs))
-        except Exception as e:
-            logger.error("Error al listar documentos en ChromaDB: %s", e)
-            return None
+        with self._lock:
+            try:
+                kwargs: dict[str, Any] = {
+                    "where": where,
+                    "include": ["documents", "metadatas"],
+                }
+                if limite is not None:
+                    kwargs["limit"] = limite
+                return cast(dict[str, list[Any]], collection.get(**kwargs))
+            except Exception as e:
+                logger.error("Error al listar documentos en ChromaDB: %s", e)
+                return None
 
     def eliminar(self, ids: list[str]) -> bool:
         """Elimina documentos por sus IDs. Retorna True si fue exitoso."""
@@ -169,44 +224,53 @@ class ChromaClient:
         if collection is None:
             logger.warning("Intento de eliminar en ChromaDB sin conexion.")
             return False
-        try:
-            collection.delete(ids=ids)
-            logger.debug("Eliminados %d documentos de '%s'.", len(ids), self.collection_name)
-            return True
-        except Exception as e:
-            logger.error("Error al eliminar documentos: %s", e)
-            return False
+        with self._lock:
+            try:
+                collection.delete(ids=ids)
+                logger.debug("Eliminados %d documentos de '%s'.", len(ids), self.collection_name)
+                return True
+            except Exception as e:
+                logger.error("Error al eliminar documentos: %s", e)
+                return False
 
     def contar(self) -> int:
         """Devuelve el numero de documentos en la coleccion, o -1 si hay error."""
         collection = self._collection
         if collection is None:
             return -1
-        try:
-            return collection.count()
-        except Exception as e:
-            logger.error("Error al contar documentos: %s", e)
-            return -1
+        with self._lock:
+            try:
+                return collection.count()
+            except Exception as e:
+                logger.error("Error al contar documentos: %s", e)
+                return -1
 
     def close(self) -> None:
         """Libera recursos de ChromaDB para evitar locks de archivos en Windows."""
         with self._lock:
+            if self._closed:
+                return
+            self._closed = True
             client = self._client
+            collection = self._collection
             self._collection = None
             self._client = None
-
-            if client is None:
-                return
 
             try:
                 close = getattr(client, "close", None)
                 if callable(close):
                     close()
-                    return
-
-                system = getattr(client, "_system", None)
-                stop = getattr(system, "stop", None)
-                if callable(stop):
-                    stop()
+                else:
+                    system = getattr(client, "_system", None)
+                    stop = getattr(system, "stop", None)
+                    if callable(stop):
+                        stop()
             except Exception as e:
                 logger.warning("No se pudo cerrar ChromaDB limpiamente: %s", e)
+            finally:
+                es_ultimo_cliente = self._liberar_cliente(self.db_path)
+                if es_ultimo_cliente:
+                    self._limpiar_cache_sistema_chroma(client)
+                del collection
+                del client
+                gc.collect()

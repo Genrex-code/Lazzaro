@@ -1,5 +1,20 @@
-#sacar:
-*.log
-*.pyc
+# Runtime local
 .env
+*.log
+
+# Python cache/test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Datos runtime de Lazzaro. Si ya estan trackeados, Git los seguira viendo.
+lazzaro_data/
+
+# Temporales de pruebas locales
+tmp_chroma_introspect/
+*.tmp
+
+# Configuracion local accidental
 settings.py

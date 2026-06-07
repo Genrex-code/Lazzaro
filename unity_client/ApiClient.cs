@@ -7,6 +7,8 @@ using UnityEngine.Networking;
 public class ApiClient : MonoBehaviour
 {
     public string EventoUrl = "http://localhost:8000/api/v1/evento";
+    [Range(15, 180)]
+    public int TimeoutSegundos = 90;
 
     public IEnumerator EnviarEvento(
         EventoEntrante evento,
@@ -22,7 +24,7 @@ public class ApiClient : MonoBehaviour
             request.uploadHandler = new UploadHandlerRaw(bodyRaw);
             request.downloadHandler = new DownloadHandlerBuffer();
             request.SetRequestHeader("Content-Type", "application/json");
-            request.timeout = 10;
+            request.timeout = Mathf.Clamp(TimeoutSegundos, 15, 180);
 
             yield return request.SendWebRequest();
 

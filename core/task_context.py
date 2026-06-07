@@ -18,7 +18,6 @@ class TaskContext:
     """
 
     ACCIONES_MOVIMIENTO = {
-        "moverse_entorno_3d",
         "navegar_a_objeto",
         "navegar_a_posicion",
         "alejarse_de_objeto",

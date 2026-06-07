@@ -62,8 +62,6 @@ class TriageRouter:
                     "El agente está en movimiento. Comando motor ignorado hasta que termine."
                 )
 
-            intent = match_intent_by_keywords(texto_usuario)
-
             # Si es motor y el agente ya está en movimiento, ignorar
             # (ya cubierto por el chequeo anterior, pero reforzamos)
             if intent == IntentType.MOTOR_SIMPLE:
