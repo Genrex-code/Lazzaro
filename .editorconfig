@@ -1,0 +1,19 @@
+# Indica que este es el archivo de configuración principal
+root = true
+
+# Reglas generales para todos los archivos
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Reglas específicas para archivos de Python
+[*.py]
+indent_style = space
+indent_size = 4
+
+# Reglas específicas para archivos de configuración o datos
+[*.{json,yml,yaml}]
+indent_style = space
+indent_size = 2

@@ -99,7 +99,7 @@ class WorkingMemoryItem:
 # ------------------------------------------------------------------
 # Resultado de una búsqueda en la memoria (para el retriever)
 # ------------------------------------------------------------------
-# aca le quite el solo lectura para que se mantenga el erro fuera de memorua perro ( retriever como golden retriver jasjas  (por favor duerman a este tipo - codex))
+# aca le quite el solo lectura para que se mantenga el erro fuera de memorua perro ( retriever como golden retriver jasjas  (por favor duerman a este tipo - claude))
 @dataclass()
 class MemoryResult:
     """

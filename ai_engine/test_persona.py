@@ -11,6 +11,8 @@ if __package__ in (None, ""):
 
 from ai_engine.identity_state import IdentityState
 from ai_engine.persona_engine import PersonaEngine
+from api.schemas import EventoEntrante
+from core.orchestrator import Orchestrator
 
 
 def assert_true(condicion: bool, mensaje: str) -> None:
@@ -85,6 +87,77 @@ Claro, aqui tienes la respuesta en formato JSON como pediste:
     assert_true(
         respuesta_parseada["parametros"]["texto_a_comunicar"],
         "La respuesta debe conservar texto comunicable.",
+    )
+
+    # 6. Respuesta vacia: debe pedir un reintento barato antes del fallback final.
+    respuesta_vacia = motor_social.parsear_respuesta("")
+    assert_true(respuesta_vacia["accion"] == "hablar", "El fallback social debe hablar.")
+    assert_true(
+        respuesta_vacia.get("requiere_reintento") is True,
+        "Una respuesta vacia debe marcar requiere_reintento.",
+    )
+
+    # 7. JSON truncado como los logs reales: conservar texto si ya venia completo.
+    respuesta_truncada = """
+{
+  "accion": "hablar",
+  "parametros": {
+    "texto_a_comunicar": "Claro, puedo hablar de eso sin perder el hilo."
+  },
+  "pensamiento_privado": "El modelo se corto aqui
+"""
+    respuesta_rescatada = motor_social.parsear_respuesta(respuesta_truncada)
+    assert_true(
+        respuesta_rescatada["parametros"]["texto_a_comunicar"] == "Claro, puedo hablar de eso sin perder el hilo.",
+        "El parser debe rescatar texto_a_comunicar desde JSON parcial.",
+    )
+    assert_true(
+        respuesta_rescatada.get("requiere_reintento") is False,
+        "Un JSON parcial recuperable no debe gastar reintento.",
+    )
+
+    # 8. Reintento social: el orquestador debe intentar una reparacion corta una sola vez.
+    class FakeLLMAdapter:
+        def __init__(self):
+            self.calls = []
+
+        def ejecutar_texto(self, mensajes, **kwargs):
+            self.calls.append((mensajes, kwargs))
+            if len(self.calls) == 1:
+                return ""
+            return json.dumps(
+                {
+                    "accion": "hablar",
+                    "parametros": {"texto_a_comunicar": "Ya volvi, se me cruzo un cable."},
+                    "pensamiento_privado": "Reintento social exitoso.",
+                    "razon": "Reparacion de salida vacia.",
+                }
+            )
+
+    orquestador = object.__new__(Orchestrator)
+    orquestador.persona_engine = motor_social
+    orquestador.identity_state = estado
+    orquestador.llm_adapter = FakeLLMAdapter()
+
+    evento_social = EventoEntrante(
+        origen="unity",
+        tipo_evento="comando_usuario",
+        id_transaccion="test-persona-retry",
+        detalles={"mensaje": "hola, sigues ahi?"},
+    )
+    respuesta_orquestador = orquestador._resolver_ruta_persona(
+        evento=evento_social,
+        contexto_llm={},
+        memoria_texto="",
+        politica="exploradora",
+    )
+    assert_true(
+        len(orquestador.llm_adapter.calls) == 2,
+        "La Capa Social debe hacer exactamente un reintento.",
+    )
+    assert_true(
+        respuesta_orquestador.parametros["texto_a_comunicar"] == "Ya volvi, se me cruzo un cable.",
+        "El reintento social debe reemplazar el fallback inicial si produce JSON valido.",
     )
 
     print("\n[OK] test_persona paso: prompt dinamico + parser anti-alucinaciones funcionan.")

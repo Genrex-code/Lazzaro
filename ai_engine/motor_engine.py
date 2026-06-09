@@ -51,20 +51,45 @@ class MotorEngine:
         Intenta resolver comandos motores obvios sin LLM.
         Devuelve None si el comando requiere interpretacion ambigua.
         """
+        diagnostico = self.diagnosticar_comando_usuario(
+            mensaje,
+            percepcion=percepcion,
+            herramientas_disponibles=herramientas_disponibles,
+        )
+        if diagnostico["estado"] != "lista":
+            return None
+
+        return self.procesar_comando_motor(
+            str(diagnostico["accion"]),
+            diagnostico["parametros"],
+            percepcion,
+        )
+
+    def diagnosticar_comando_usuario(
+        self,
+        mensaje: str,
+        percepcion: Dict[str, Any],
+        herramientas_disponibles: Iterable[str] | None = None,
+    ) -> Dict[str, Any]:
+        """
+        Clasifica un comando motor sin llamar al LLM.
+        Permite distinguir entre "no es motor" y "es motor, pero falta objetivo".
+        """
         accion = self._inferir_accion(mensaje)
         if accion is None:
-            return None
+            return {"estado": "sin_intencion", "accion": None, "parametros": None}
 
         permitidas = set(herramientas_disponibles or self.ACCIONES_MOTORAS)
         if accion not in permitidas:
             logger.info("Motor determinista omitido: %s no esta permitida.", accion)
-            return None
+            return {"estado": "no_permitida", "accion": accion, "parametros": None}
 
         parametros = self._construir_parametros_desde_texto(accion, mensaje, percepcion)
         if parametros is None:
-            return None
+            estado = "falta_objetivo" if accion in self.ACCIONES_CON_OBJETO else "ambigua"
+            return {"estado": estado, "accion": accion, "parametros": None}
 
-        return self.procesar_comando_motor(accion, parametros, percepcion)
+        return {"estado": "lista", "accion": accion, "parametros": parametros}
 
     def procesar_comando_motor(
         self,

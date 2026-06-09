@@ -1,5 +1,36 @@
 # Registro De Pruebas Unity-Python
 
+## 2026-06-08 - Estabilizacion Persona/Motor
+
+### Objetivo
+
+- Reducir fallos de Persona cuando Ollama/DeepSeek devuelve texto vacio, JSON sucio o JSON truncado.
+- Evitar que comandos motores incompletos caigan al razonador viejo e inventen objetivos fisicos.
+- Mantener intacto el contrato Unity-Python y dejar el rediseño de Triage para una fase futura.
+
+### Cambios Aplicados
+
+- `PersonaEngine.parsear_respuesta(...)` ahora intenta rescatar `texto_a_comunicar` desde JSON parcial antes de activar fallback.
+- Las respuestas sociales invalidas pueden marcar `requiere_reintento` para activar un unico reintento corto.
+- `Orchestrator._resolver_ruta_persona(...)` ejecuta ese reintento con temperatura baja y limite de tokens reducido.
+- `MotorEngine` agrega diagnostico local para distinguir comandos listos, sin intencion, no permitidos o con objetivo faltante.
+- `Orchestrator._resolver_ruta_motor(...)` responde con `hablar` pidiendo aclaracion cuando falta el objeto objetivo.
+
+### Pruebas Ejecutadas
+
+- Prueba social con JSON envuelto en Markdown: conserva texto y fuerza `hablar`.
+- Prueba social con respuesta vacia: marca reintento.
+- Prueba social con JSON truncado: rescata `texto_a_comunicar` sin gastar reintento.
+- Prueba social con fake LLM: un fallo inicial dispara exactamente un reintento y usa la respuesta reparada.
+- Prueba motor: `camina al cubo` sigue resolviendo `navegar_a_objeto`.
+- Prueba motor: `camina` y `camina hacia el` piden aclaracion sin llamar al `ReasoningEngine`.
+
+### Riesgos Pendientes
+
+- Las variantes motoras amplias como `caminar` siguen fuera de esta tanda.
+- El rediseño futuro de Triage debe absorber frases mixtas social/motor sin depender de parches locales.
+- Validar en Unity Play Mode que la aclaracion `hablar` no se reporte como resultado de accion.
+
 ## 2026-06-03 - Fase 4: Capa Oraculo
 
 ### Objetivo

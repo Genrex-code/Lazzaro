@@ -333,6 +333,22 @@ class Orchestrator:
                 error_context="Capa Social",
             )
             datos = self.persona_engine.parsear_respuesta(raw_response)
+            if datos.get("requiere_reintento"):
+                logger.info("Capa Social solicita reintento breve por salida LLM irrecuperable.")
+                mensajes_reintento = self.persona_engine.preparar_reintento_json(
+                    mensaje_usuario=mensaje_usuario,
+                    respuesta_fallida=raw_response or "",
+                )
+                raw_response_reintento = self.llm_adapter.ejecutar_texto(
+                    mensajes_reintento,
+                    politica=politica,
+                    temperature=0.2,
+                    max_output_tokens=256,
+                    token_strategy="cap",
+                    error_context="Reintento Capa Social",
+                )
+                datos_reintento = self.persona_engine.parsear_respuesta(raw_response_reintento)
+                datos = datos_reintento
             return self._action_response_desde_persona(datos)
         except Exception as e:
             logger.error("Error en PersonaEngine: %s", e, exc_info=True)
@@ -482,17 +498,24 @@ class Orchestrator:
         percepcion = self._extraer_percepcion_motor(evento, contexto_llm)
         mensaje = str(evento.detalles.get("mensaje", ""))
 
-        accion_motora = self.motor_engine.resolver_comando_usuario(
+        diagnostico_motor = self.motor_engine.diagnosticar_comando_usuario(
             mensaje,
             percepcion=percepcion,
             herramientas_disponibles=herramientas,
         )
-        if accion_motora is not None:
+        if diagnostico_motor["estado"] == "lista":
+            accion_motora = self.motor_engine.procesar_comando_motor(
+                str(diagnostico_motor["accion"]),
+                diagnostico_motor["parametros"],
+                percepcion=percepcion,
+            )
             return self._action_response_desde_motor(
                 accion_motora,
                 pensamiento="",
                 emocion_facial="Fcl_ALL_Neutral",
             )
+        if diagnostico_motor["estado"] in {"falta_objetivo", "ambigua"}:
+            return self._respuesta_aclaracion_motor(diagnostico_motor)
 
         try:
             action_response = self.reasoning.process(
@@ -573,6 +596,26 @@ class Orchestrator:
             valido=valido,
             error=None if valido else str(motor_action.get("razon", "Accion bloqueada por Capa 1.")),
             emocion_facial=emocion_facial or "Fcl_ALL_Neutral",
+        )
+
+    @staticmethod
+    def _respuesta_aclaracion_motor(diagnostico_motor: dict) -> ActionResponse:
+        accion = str(diagnostico_motor.get("accion", "")).strip()
+        mensajes = {
+            "navegar_a_objeto": "Dime a que objeto quieres que vaya.",
+            "alejarse_de_objeto": "Dime de que objeto quieres que me aleje.",
+            "interactuar_objeto_3d": "Dime con que objeto quieres que interactue.",
+            "agarrar_objeto": "Dime que objeto quieres que agarre.",
+            "aplicar_fuerza": "Dime a que objeto quieres que le aplique fuerza.",
+        }
+        texto = mensajes.get(accion, "Dime que objeto quieres que use para esa accion.")
+        return ActionResponse(
+            pensamiento="Comando motor con objetivo incompleto; pido aclaracion antes de actuar.",
+            accion="hablar",
+            parametros={"texto_a_comunicar": texto},
+            razon="Capa 1 bloqueo un comando motor ambiguo para evitar alucinaciones fisicas.",
+            valido=True,
+            emocion_facial="Fcl_ALL_Neutral",
         )
 
     def _registrar_estado_identidad(
