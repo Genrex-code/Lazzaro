@@ -1,7 +1,7 @@
 """
 oracle_engine.py - Capa 3 (Cortex de Alto Nivel/Oraculo).
-Procesa preguntas complejas, codigo y filosofia. prioriza la precision y 
-la logica sobre la personaldiad. Utiliza chace semantico para evitar
+Procesa preguntas complejas, codigo y filosofia. Prioriza la precision y
+la logica sobre la personalidad. Utiliza cache semantico para evitar
 repetir trabajo pesado.
 """
 
@@ -20,14 +20,14 @@ class OracleEngine:
     """
 
     def __init__ (self):
-        #identidad fria,sin emociones
+        # Identidad fria y tecnica: esta capa prioriza precision sobre personalidad.
         self.system_prompt = (
-            "Eres el Oráculo, subsistema de procesamiento lógico, técnico y analítico de Lazzaro. "
-            "Tu objetivo es resolver problemas complejos, escribir código, explicar conceptos científicos "
+            "Eres el Oraculo, subsistema de procesamiento logico, tecnico y analitico de Lazzaro. "
+            "Tu objetivo es resolver problemas complejos, escribir codigo, explicar conceptos cientificos "
             "y razonar de forma profunda. "
-            "No uses emociones, no hagas roleplay, no menciones cansancio ni estrés. "
-            "Sé preciso, directo, estructurado y exhaustivo. "
-            "Responde SIEMPRE con el conocimiento más exacto posible."
+            "No uses emociones, no hagas roleplay, no menciones cansancio ni estres. "
+            "Se preciso, directo, estructurado y exhaustivo. "
+            "Responde SIEMPRE con el conocimiento mas exacto posible."
         )
 
     # paso 1 : Intercepcion rapida ( cache)
@@ -38,7 +38,7 @@ class OracleEngine:
         Consulta la cache vectorial antes de gastar tokens.
         Si encuentra una respuesta previa similar, la devuelve lista para enviar a unity.
         """
-        respuesta_cacheteada = memoria.buscar_respuesta_cacheada(mensaje_usuario) # jasjasjasj enteindes de cache JASSJSAJASJ
+        respuesta_cacheteada = memoria.buscar_respuesta_cacheada(mensaje_usuario)
 
         if respuesta_cacheteada:
             logger.info("Oracle Cache HIT. Devolviendo respuestas prealmacenada.")
@@ -60,15 +60,15 @@ class OracleEngine:
         prompt_reglas = (
             f"{self.system_prompt}\n\n"
             "=== FORMATO DE SALIDA ESTRICTO ===\n"
-            "Responde ÚNICAMENTE con un objeto JSON válido. Nada de texto fuera del JSON.\n"
+            "Responde UNICAMENTE con un objeto JSON valido. Nada de texto fuera del JSON.\n"
             "Estructura requerida:\n"
             "{\n"
             '  "accion": "hablar",\n'
             '  "parametros": {\n'
-            '    "texto_a_comunicar": "Tu respuesta técnica, código o explicación detallada"\n'
+            '    "texto_a_comunicar": "Tu respuesta tecnica, codigo o explicacion detallada"\n'
             '  },\n'
-            '  "pensamiento_privado": "Razonamiento paso a paso de cómo llegaste a la conclusión",\n'
-            '  "razon": "Justificación de la solución propuesta"\n'
+            '  "pensamiento_privado": "Resumen breve de como llegaste a la conclusion",\n'
+            '  "razon": "Justificacion de la solucion propuesta"\n'
             "}"
         )
         return [
@@ -87,19 +87,26 @@ class OracleEngine:
         persiste el nuevo conocimiento en la cache.
         """
         if not respuesta_llm or not respuesta_llm.strip():
-            logger.warning("El LLM devolvio algo vacio.") # cxomo el corazon de gisel , mendiga mujer :c 
+            logger.warning("El LLM devolvio una respuesta vacia.")
             return self._fallback("El procesamiento complejo fue interrumpido por falta de datos")
         
         try:
             texto_limpio = self._limpiar_json(respuesta_llm)
             data = json.loads(texto_limpio)
         except json.JSONDecodeError:
+            if texto_limpio and not texto_limpio.lstrip().startswith("{"):
+                logger.warning("El Oraculo devolvio texto plano; se encapsula como respuesta hablada.")
+                return self._respuesta_desde_texto_plano(
+                    texto_limpio,
+                    pregunta_original,
+                    memoria,
+                )
             logger.error(
                 "Error al decodificar el JSON del oraculo. Respuestas crudas %.100s",
                 respuesta_llm,
             )
             return self._fallback(
-                "Mi procesador logico encontro un error de sintaxis al generar la respuesta tenica."
+                "Mi procesador logico encontro un error de sintaxis al generar la respuesta tecnica."
             )
 
         if not isinstance(data, dict):
@@ -108,13 +115,13 @@ class OracleEngine:
                 "Mi procesador logico genero una estructura de respuesta invalida."
             )
         
-        #Forzar que el capa 3 solo devuelve texto hablado
+        # Forzar que Capa 3 solo devuelva texto hablado.
         accion  = data.get ("accion","none")
         if accion != "hablar":
             logger.warning("Accion '%s' bloqueada en Capa 3. Forzando 'hablar'.",accion)
             data["accion"] = "hablar"
 
-        #asimilacion : gaurda en cache para el futuro
+        # Asimilacion: guarda en cache para el futuro.
         parametros = data.get("parametros", {})
         if not isinstance(parametros, dict):
             logger.error("El Oraculo devolvio parametros con formato invalido.")
@@ -147,21 +154,38 @@ class OracleEngine:
         texto = re.sub(r"^```(?:json)?\s*", "", texto)
         texto = re.sub(r"\s*```$", "", texto)
 
-        # Si aún no empieza por '{', intentar extraer el primer objeto JSON
+        # Si aun no empieza por "{", intentar extraer el primer objeto JSON.
         if not texto.startswith("{"):
             match = re.search(r"\{.*\}", texto, re.DOTALL)
             if match:
                 texto = match.group(0)
 
         return texto.strip()
+
+    @staticmethod
+    def _respuesta_desde_texto_plano(
+        texto: str,
+        pregunta_original: str,
+        memoria: OracleMemory,
+    ) -> Dict[str, Any]:
+        """Convierte texto plano util en una respuesta valida para Unity."""
+        texto_respuesta = texto.strip()
+        memoria.guardar_en_cache(pregunta_original, texto_respuesta)
+        return {
+            "accion": "hablar",
+            "parametros": {"texto_a_comunicar": texto_respuesta},
+            "pensamiento_privado": "El Oraculo produjo texto plano y fue normalizado.",
+            "razon": "Respuesta analitica normalizada desde texto plano.",
+        }
+
     @staticmethod
     def _fallback(mensaje: str) -> Dict[str, Any]:
-        """Rescate cuando el LLM no produce una respuesta válida."""
+        """Rescate cuando el LLM no produce una respuesta valida."""
         logger.info("Activando fallback en Capa 3.")
         return {
             "accion": "hablar",
             "parametros": {"texto_a_comunicar": mensaje},
-            "pensamiento_privado": "Fallback por error en procesamiento analítico.",
+            "pensamiento_privado": "Fallback por error en procesamiento analitico.",
             "razon": "Error interno.",
             "error": "Capa Oraculo activo una respuesta de rescate.",
         }

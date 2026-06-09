@@ -313,3 +313,33 @@
 - `_resolver_interrupcion_critica` devuelve `navegar_a_posicion` cuando hay posicion.
 - `_resolver_interrupcion_critica` devuelve `alejarse_de_objeto` cuando no hay posicion pero si objeto involucrado.
 - `python -m py_compile` paso para `telescopio`, `core/orchestrator.py`, `core/behavior_core.py`, `core/task_context.py` y `core/tool_policy.py`.
+
+## 2026-06-09 - Bugfix Oraculo Con API Externa
+
+### Sintoma Observado
+
+- Con `AI_PROVIDER=gemini`, las consultas en ruta `oracle` fallaban si `ORACLE_API_KEY` no estaba configurada.
+- El fallback de Oraculo exigia explicitamente `ollama`, asi que una API externa activa no podia rescatar la consulta.
+- Ese fallo marcaba la accion como error y aumentaba el estres de Lazzaro aunque existiera un cliente LLM usable.
+
+### Cambios Aplicados
+
+- `core/orchestrator.py` ahora usa el cliente LLM activo como fallback de Oraculo, sin exigir `required_provider="ollama"`.
+- Si `OracleClient` no tiene API key, el flujo salta directamente al fallback activo sin registrar error critico.
+- Si el Oraculo externo esta configurado pero no responde, se registra warning y se intenta el cliente activo.
+- Si el proveedor responde texto plano util en vez de JSON estricto, Oraculo lo encapsula como `hablar`.
+- `ai_engine/oracle_engine.py` quedo con prompt ASCII limpio para evitar ruido de encoding en instrucciones al modelo.
+- Se agrego `ai_engine/test_oracle.py` para validar el fallback activo y la ruta con Oracle externo configurado.
+
+### Pruebas Ejecutadas
+
+- `python -m py_compile core\orchestrator.py ai_engine\oracle_engine.py ai_engine\oracle_client.py ai_engine\test_oracle.py ai_engine\llm_generation_adapter.py`
+- `python ai_engine\test_oracle.py`
+- `python ai_engine\test_persona.py`
+- `python ai_engine\test_motor_guardrails.py`
+- `python -m compileall -q ai_engine core memory api tools telescopio config main.py`
+
+### Riesgos Pendientes
+
+- Las preguntas de memoria interna pueden necesitar una ruta especializada entre Persona, Memoria y Oraculo.
+- La tanda de `girar/rotar` queda pendiente como capacidad motora separada.

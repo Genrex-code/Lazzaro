@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     # Cambio rapido de backend:
     # - "ollama" para DeepSeek local
     # - "gemini" para volver al proveedor remoto
-    AI_PROVIDER: str = Field("ollama", description="Proveedor LLM activo: ollama o gemini")
+    AI_PROVIDER: str = Field("gemini", description="Proveedor LLM activo: ollama o gemini")
 
     GEMINI_API_KEY: str | None = Field(default=None, description="API key de Gemini")
     GEMINI_MODEL_NAME: str = "gemini-3.1-flash-lite"

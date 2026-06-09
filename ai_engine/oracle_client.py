@@ -52,7 +52,7 @@ class OracleClient:
     def consultar_oraculo ( self,mensajes: List[Dict[str,str]]) -> Optional [str]:
         """
         Envia los mensajes al modelo en la nube y devuelve el texto de la respuesta.
-        Si algo falla, retorna None para que el sistema utilice un fallback local.
+        Si algo falla, retorna None para que el sistema utilice el fallback del LLM activo.
         ARGS:
             mensajes: lista de diccionarios con 'role' y 'content'.
             
@@ -61,7 +61,7 @@ class OracleClient:
             """
         
         if not self.configurado:
-            logger.warning("OracleClient no esta configurado (API KEY ausente).") #papa latioamericano prom reference yei 
+            logger.warning("OracleClient no esta configurado (API KEY ausente).")
             return None
         
         headers = {
@@ -89,8 +89,7 @@ class OracleClient:
 
                 contenido = data.get("choices", [{}])[0].get("message", {}).get("content", "")
                 if not contenido:
-                    logger.warning("El oraculo devolvio una respuesta vacia.") # como el corazon de mi ex JASJASJASJASASJASJASJ 
-                    # ya ultima referencia zad de la noche ya le pase a otras las de jose jose pegan resio ;v
+                    logger.warning("El oraculo devolvio una respuesta vacia.")
                     return None
                 
                 logger.info("Respuesta del Oraculo recibida (%d caracteres).", len(contenido))

@@ -390,7 +390,7 @@ class Orchestrator:
         evento: EventoEntrante,
         politica: str,
     ) -> ActionResponse:
-        """Usa Capa 3 para conocimiento complejo con cache y fallback local."""
+        """Usa Capa 3 para conocimiento complejo con cache y fallback del LLM activo."""
         mensaje_usuario = str(evento.detalles.get("mensaje", "")).strip()
         if not mensaje_usuario:
             return self._action_response_desde_oracle(
@@ -414,26 +414,31 @@ class Orchestrator:
 
         try:
             mensajes = self.oracle_engine.preparar_consulta(mensaje_usuario)
-            fallo_externo_registrado = False
-            try:
-                respuesta_cruda = self.oracle_client.consultar_oraculo(mensajes)
-            except Exception as e:
-                logger.error("Error inesperado en OracleClient: %s", e, exc_info=True)
-                errores.append("El Oraculo externo fallo; se utilizo fallback local.")
-                fallo_externo_registrado = True
-                respuesta_cruda = None
+            respuesta_cruda = None
+            if self.oracle_client.configurado:
+                try:
+                    respuesta_cruda = self.oracle_client.consultar_oraculo(mensajes)
+                except Exception as e:
+                    logger.error("Error inesperado en OracleClient: %s", e, exc_info=True)
+                    respuesta_cruda = None
+
+                if not respuesta_cruda or not respuesta_cruda.strip():
+                    logger.warning(
+                        "El Oraculo externo no respondio; se usara el cliente LLM activo como fallback."
+                    )
+            else:
+                logger.info(
+                    "OracleClient sin API key; se usara el cliente LLM activo como Oraculo."
+                )
 
             if not respuesta_cruda or not respuesta_cruda.strip():
-                if self.oracle_client.configurado and not fallo_externo_registrado:
-                    errores.append("El Oraculo externo no respondio; se utilizo fallback local.")
                 respuesta_cruda = self.llm_adapter.ejecutar_texto(
                     mensajes,
                     politica=politica,
                     temperature=0.1,
                     max_output_tokens=2048,
                     token_strategy="floor",
-                    required_provider="ollama",
-                    error_context="fallback del Oraculo",
+                    error_context="fallback activo del Oraculo",
                 )
 
             datos = self.oracle_engine.keep_y_save(
