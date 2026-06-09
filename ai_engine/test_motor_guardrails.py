@@ -36,7 +36,13 @@ def main() -> None:
     percepcion = {
         "resumen_percepcion": "Frente a mi veo: Cube a 2.5m al norte y Sphere a 4m al este."
     }
-    herramientas = ["navegar_a_objeto", "interactuar_objeto_3d", "alejarse_de_objeto", "hablar"]
+    herramientas = [
+        "navegar_a_objeto",
+        "interactuar_objeto_3d",
+        "alejarse_de_objeto",
+        "girar_avatar",
+        "hablar",
+    ]
     motor = MotorEngine()
 
     diagnostico_claro = motor.diagnosticar_comando_usuario(
@@ -58,6 +64,28 @@ def main() -> None:
     assert_true(
         diagnostico_incompleto["estado"] == "falta_objetivo",
         "Un comando motor sin objeto debe pedir aclaracion.",
+    )
+
+    diagnostico_giro = motor.diagnosticar_comando_usuario(
+        "gira 180 grados",
+        percepcion=percepcion,
+        herramientas_disponibles=herramientas,
+    )
+    assert_true(diagnostico_giro["estado"] == "lista", "Un giro con grados debe ser ejecutable.")
+    assert_true(diagnostico_giro["accion"] == "girar_avatar", "El giro debe usar girar_avatar.")
+    assert_true(
+        diagnostico_giro["parametros"]["grados"] == 180.0,
+        "El motor debe conservar los grados solicitados.",
+    )
+
+    diagnostico_derecha = motor.diagnosticar_comando_usuario(
+        "gira hacia la derecha",
+        percepcion=percepcion,
+        herramientas_disponibles=herramientas,
+    )
+    assert_true(
+        diagnostico_derecha["parametros"]["grados"] == 90.0,
+        "Girar a la derecha debe traducirse a 90 grados.",
     )
 
     orquestador = _orquestador_minimo()
@@ -101,6 +129,27 @@ def main() -> None:
     assert_true(
         respuesta_clara.parametros["nombre_objeto"] == "Cube",
         "La accion clara debe conservar el objeto resuelto.",
+    )
+
+    evento_giro = EventoEntrante(
+        origen="unity",
+        tipo_evento="comando_usuario",
+        id_transaccion="test-motor-giro",
+        detalles={"mensaje": "gira 180 grados", **percepcion},
+    )
+    respuesta_giro = orquestador._resolver_ruta_motor(
+        evento=evento_giro,
+        contexto_llm={},
+        memoria_texto="",
+        herramientas=herramientas,
+        herramientas_detalle={},
+        politica="exploradora",
+        tarea=None,
+    )
+    assert_true(respuesta_giro.accion == "girar_avatar", "Motor debe emitir accion de giro.")
+    assert_true(
+        respuesta_giro.parametros["grados"] == 180.0,
+        "La accion de giro debe conservar grados.",
     )
 
     print("[OK] test_motor_guardrails paso: comandos incompletos no llegan al LLM viejo.")

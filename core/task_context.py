@@ -21,6 +21,7 @@ class TaskContext:
         "navegar_a_objeto",
         "navegar_a_posicion",
         "alejarse_de_objeto",
+        "girar_avatar",
     }
 
     def __init__(self, objetivo_id: str = "", max_historial: int = 20):

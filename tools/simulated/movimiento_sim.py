@@ -34,6 +34,18 @@ class AlejarseDeObjetoParams(BaseModel):
     )
 
 
+class GirarAvatarParams(BaseModel):
+    grados: float = Field(
+        ...,
+        ge=-360.0,
+        le=360.0,
+        description=(
+            "Grados relativos de giro sobre el eje Y. "
+            "Usa positivo para girar a la derecha y negativo para girar a la izquierda."
+        ),
+    )
+
+
 @ToolRegistry.register(
     name="navegar_a_objeto",
     description=(
@@ -74,3 +86,17 @@ def alejarse_de_objeto(params: AlejarseDeObjetoParams) -> str:
         f"[Navegacion] Orden de alejarse {params.distancia}m de "
         f"'{params.nombre_objeto}' enviada a Unity."
     )
+
+
+@ToolRegistry.register(
+    name="girar_avatar",
+    description=(
+        "Ordena a Unity que rote a Lazzaro en su lugar sobre el eje Y. "
+        "Usa esta herramienta para comandos como girar, rotar, voltear, mirar alrededor "
+        "o reorientarse sin avanzar hacia ningun objeto."
+    ),
+    params_schema=GirarAvatarParams,
+    requires_confirmation=False,
+)
+def girar_avatar(params: GirarAvatarParams) -> str:
+    return f"[Movimiento] Orden de girar {params.grados} grados enviada a Unity."

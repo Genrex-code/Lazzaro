@@ -79,6 +79,8 @@ REGLAS_BASE: List[RoutingRule] = [
             "corre", "salta", "gira", "girar", "rotar", "da la vuelta",
             "vuelta", "gira a la izquierda", "gira a la derecha",
             "gira 180", "media vuelta", "camina hacia", "corre hacia",
+            "rota", "rotacion", "voltea", "mira alrededor", "mirar alrededor",
+            "observa alrededor", "reorienta", "reorientate", "reorientarte",
 
             # Interacción física
             "inspecciona", "toca", "agarra", "suelta", "interactúa",

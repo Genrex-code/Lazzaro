@@ -158,6 +158,8 @@ class MotorEngine:
             )
         ):
             return "alejarse_de_objeto"
+        if self._es_comando_giro(texto):
+            return "girar_avatar"
         if any(token in texto for token in ("inspecciona", "interactua", "toca", "mira", "observa", "golpea", "usa", "activa")):
             return "interactuar_objeto_3d"
         if self._parsear_coordenadas(texto) is not None:
@@ -178,6 +180,9 @@ class MotorEngine:
         if accion == "navegar_a_posicion":
             return self._parsear_coordenadas(mensaje)
 
+        if accion == "girar_avatar":
+            return self._parsear_giro(mensaje)
+
         if accion == "soltar_objeto":
             return {"fuerza_lanzamiento": 0.0}
 
@@ -195,6 +200,62 @@ class MotorEngine:
             return parametros
 
         return None
+
+    @staticmethod
+    def _es_comando_giro(texto: str) -> bool:
+        return any(
+            token in texto
+            for token in (
+                "gira",
+                "girar",
+                "rota",
+                "rotar",
+                "rotacion",
+                "voltea",
+                "da la vuelta",
+                "media vuelta",
+                "mira alrededor",
+                "mirar alrededor",
+                "observa alrededor",
+                "reorienta",
+                "reorientate",
+                "reorientarte",
+            )
+        )
+
+    @staticmethod
+    def _parsear_giro(mensaje: str) -> Dict[str, float]:
+        texto_original = str(mensaje or "")
+        texto = SpatialReasoner.normalizar_texto(texto_original)
+
+        grados: float | None = None
+        match = re.search(
+            "(-?\\d+(?:[\\.,]\\d+)?)\\s*(?:grados?|deg|\\u00b0|\\*)?",
+            texto_original,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            grados = float(match.group(1).replace(",", "."))
+
+        if grados is None:
+            if "media vuelta" in texto or "da la vuelta" in texto or "voltea" in texto:
+                grados = 180.0
+            elif "izquierda" in texto:
+                grados = -90.0
+            elif "derecha" in texto:
+                grados = 90.0
+            elif "alrededor" in texto or "reorient" in texto:
+                grados = 90.0
+            else:
+                grados = 90.0
+
+        if "izquierda" in texto and grados > 0:
+            grados = -grados
+        elif "derecha" in texto and grados < 0:
+            grados = abs(grados)
+
+        grados = max(-360.0, min(360.0, grados))
+        return {"grados": round(grados, 2)}
 
     def _enriquecer_parametros(
         self,

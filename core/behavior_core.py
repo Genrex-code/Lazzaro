@@ -29,6 +29,7 @@ class BehaviorCore:
         "navegar_a_objeto",
         "navegar_a_posicion",
         "alejarse_de_objeto",
+        "girar_avatar",
         "interactuar_objeto_3d",
         "agarrar_objeto",
         "soltar_objeto",

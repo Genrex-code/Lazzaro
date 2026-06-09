@@ -127,6 +127,32 @@ public class MovementController : MonoBehaviour
         NavegarAPosicion(destino, $"alejarme de {objetivo.name}");
     }
 
+    public void GirarAvatar(float grados)
+    {
+        if (IsMoving)
+        {
+            OnMovimientoCompletado?.Invoke(
+                false,
+                "Se recibio una nueva orden de rotacion mientras otra seguia en curso."
+            );
+            return;
+        }
+
+        float gradosClamped = Mathf.Clamp(grados, -360f, 360f);
+        if (Mathf.Abs(gradosClamped) < 1f)
+        {
+            OnMovimientoCompletado?.Invoke(false, "La rotacion solicitada es demasiado pequena.");
+            return;
+        }
+
+        if (rutinaMovimiento != null)
+        {
+            StopCoroutine(rutinaMovimiento);
+        }
+
+        rutinaMovimiento = StartCoroutine(GirarHastaAngulo(gradosClamped));
+    }
+
     private IEnumerator NavegarHastaDestino(string nombreObjeto, Vector3 destino)
     {
         IsMoving = true;
@@ -171,6 +197,39 @@ public class MovementController : MonoBehaviour
 
         FrenarMovimiento();
         OnMovimientoCompletado?.Invoke(true, $"Llegue cerca de '{nombreObjeto}'.");
+    }
+
+    private IEnumerator GirarHastaAngulo(float grados)
+    {
+        IsMoving = true;
+        animator.SetBool("isWalking", false);
+
+        if (navAgent != null && navAgent.isOnNavMesh)
+        {
+            navAgent.ResetPath();
+            navAgent.isStopped = true;
+        }
+
+        Quaternion rotacionInicial = transform.rotation;
+        Quaternion rotacionDestino = Quaternion.Euler(
+            0f,
+            transform.eulerAngles.y + grados,
+            0f
+        );
+        float duracion = Mathf.Clamp(Mathf.Abs(grados) / 180f, 0.2f, 1.2f);
+        float tiempo = 0f;
+
+        while (tiempo < duracion)
+        {
+            tiempo += Time.deltaTime;
+            float progreso = Mathf.Clamp01(tiempo / duracion);
+            transform.rotation = Quaternion.Slerp(rotacionInicial, rotacionDestino, progreso);
+            yield return null;
+        }
+
+        transform.rotation = rotacionDestino;
+        FrenarMovimiento();
+        OnMovimientoCompletado?.Invoke(true, $"Gire {grados:0.#} grados.");
     }
 
     private void FrenarMovimiento()

@@ -314,7 +314,15 @@ public class LazzaroAgent : MonoBehaviour
             "suelta",
             "usa",
             "activa",
-            "golpea"
+            "golpea",
+            "gira",
+            "girar",
+            "rota",
+            "rotar",
+            "voltea",
+            "reorienta",
+            "reorientarte",
+            "mira alrededor"
         };
 
         foreach (string marcador in marcadores)
@@ -331,6 +339,18 @@ public class LazzaroAgent : MonoBehaviour
     private static string InferirVerboContexto(string texto)
     {
         string normalizado = NormalizarTextoSimple(texto);
+        if (
+            normalizado.Contains("gira")
+            || normalizado.Contains("rotar")
+            || normalizado.Contains("rota")
+            || normalizado.Contains("voltea")
+            || normalizado.Contains("reorient")
+            || normalizado.Contains("mira alrededor")
+        )
+        {
+            return "gira";
+        }
+
         if (
             normalizado.Contains("inspecciona")
             || normalizado.Contains("interactua")
@@ -528,6 +548,9 @@ public class LazzaroAgent : MonoBehaviour
             case "alejarse_de_objeto":
                 EjecutarAlejarseDeObjeto(respuesta.accion.parametros);
                 break;
+            case "girar_avatar":
+                EjecutarGirarAvatar(respuesta.accion.parametros);
+                break;
             case "interactuar_objeto_3d":
                 EjecutarInteraccion(respuesta.accion.parametros);
                 break;
@@ -567,6 +590,7 @@ REGLAS DE IDENTIDAD Y COMPORTAMIENTO:
 
 REGLAS FISICAS Y DE ENTORNO:
 - NAVEGACION: Para desplazarte hacia un objeto visible usa 'navegar_a_objeto' con el parametro 'nombre_objeto' exacto o aproximado.
+- ROTACION: Para girar, voltear, reorientarte o mirar alrededor sin avanzar usa 'girar_avatar' con el parametro numerico 'grados'.
 - VERIFICACION: Antes de ejecutar una accion fisica (navegar/agarrar), revisa los objetos visibles en tu resumen de percepcion. Si no estas segura de que objeto es cual, pregunta una sola vez. Si estas segura, actua.
 - INTERACCION: Si ya estas cerca del objeto objetivo, usa 'interactuar_objeto_3d'.";
     }
@@ -646,6 +670,39 @@ REGLAS FISICAS Y DE ENTORNO:
         };
 
         movimiento.AlejarseDeObjeto(objeto, distancia);
+    }
+
+    private void EjecutarGirarAvatar(JObject parametros)
+    {
+        if (!TryLeerFloat(parametros, "grados", out float grados))
+        {
+            ReportarResultadoAccion(
+                "girar_avatar",
+                false,
+                "La accion girar_avatar requiere el parametro numerico grados."
+            );
+            return;
+        }
+
+        grados = Mathf.Clamp(grados, -360f, 360f);
+        if (Mathf.Abs(grados) < 1f)
+        {
+            ReportarResultadoAccion(
+                "girar_avatar",
+                false,
+                "La rotacion solicitada es demasiado pequena para ejecutarse."
+            );
+            return;
+        }
+
+        ultimoObjetoNavegacion = "rotacion";
+        ultimaAccionMovimiento = "girar_avatar";
+        ultimosParametrosMovimiento = new Dictionary<string, object>
+        {
+            { "grados", Math.Round(grados, 2) },
+        };
+
+        movimiento.GirarAvatar(grados);
     }
 
     private void ManejarMovimientoCompletado(bool exito, string mensaje)

@@ -55,6 +55,15 @@ class MoveAwayParams(StrictParams):
     distancia: float = Field(2.0, ge=0.5, le=5.0, description="Metros a retroceder.")
 
 
+class RotateAvatarParams(StrictParams):
+    grados: float = Field(
+        ...,
+        ge=-360.0,
+        le=360.0,
+        description="Grados relativos de giro en Y. Positivo=derecha, negativo=izquierda.",
+    )
+
+
 class ApplyForceParams(StrictParams):
     nombre_objeto: str = Field(..., description="Objeto al que se aplicara fuerza.")
     vector_x: float = Field(..., description="Componente X de la direccion.")
@@ -70,6 +79,7 @@ ACTION_SCHEMA_MAP = {
     "agarrar_objeto": GrabObjectParams,
     "soltar_objeto": ReleaseObjectParams,
     "alejarse_de_objeto": MoveAwayParams,
+    "girar_avatar": RotateAvatarParams,
     "aplicar_fuerza": ApplyForceParams,
 }
 
@@ -87,6 +97,7 @@ class MotorAction(BaseModel):
         "agarrar_objeto",
         "soltar_objeto",
         "alejarse_de_objeto",
+        "girar_avatar",
         "aplicar_fuerza",
     ] = Field(..., description="Accion fisica registrada o none.")
     parametros: dict = Field(

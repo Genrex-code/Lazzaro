@@ -343,3 +343,34 @@
 
 - Las preguntas de memoria interna pueden necesitar una ruta especializada entre Persona, Memoria y Oraculo.
 - La tanda de `girar/rotar` queda pendiente como capacidad motora separada.
+
+## 2026-06-09 - Tanda 2: Accion Girar/Rotar
+
+### Sintoma Observado
+
+- Comandos como `gira 180`, `gira hacia la derecha` o `mira alrededor` no tenian una accion motora propia.
+- El motor intentaba reinterpretarlos como navegacion o interaccion con objetos, causando respuestas indirectas o fallos de subtarea.
+
+### Cambios Aplicados
+
+- Se agrego la herramienta `girar_avatar(grados)` al contrato Python y al registro de herramientas.
+- `MotorEngine` resuelve giros simples de forma determinista sin pasar por el LLM viejo.
+- `ToolPolicy`, `BehaviorCore` y `TaskContext` reconocen `girar_avatar` como accion segura de Unity/movimiento.
+- `LazzaroAgent.cs` acepta la accion `girar_avatar`, valida `grados` y la reporta como movimiento normal.
+- `MovementController.cs` ejecuta la rotacion local con una corrutina suave y reutiliza `OnMovimientoCompletado`.
+- El manual espacial inicial informa al modelo que debe usar `girar_avatar` para girar, voltear o mirar alrededor sin avanzar.
+- El parser acepta `grados`, `deg`, simbolo de grados y `*` para cubrir entradas como `gira 180*`.
+
+### Pruebas Ejecutadas
+
+- `python -m py_compile` para los archivos Python tocados en la tanda.
+- `python ai_engine\test_motor_guardrails.py`
+- `python ai_engine\test_persona.py`
+- `python ai_engine\test_oracle.py`
+- `python -m compileall -q ai_engine core memory api tools telescopio config main.py`
+- Smoke test de `ToolRegistry.listar_nombres()` confirmando que `girar_avatar` queda registrado.
+
+### Riesgos Pendientes
+
+- La compilacion C# debe confirmarse dentro de Unity, porque no se ejecuto el compilador del Editor desde terminal.
+- Si el usuario pide giros absolutos hacia un rumbo especifico, todavia se tratan como giros relativos simples.
