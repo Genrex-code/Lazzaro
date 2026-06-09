@@ -1,5 +1,30 @@
 # Registro De Pruebas Unity-Python
 
+## 2026-06-09 - Verificacion Post-Limpieza De Mojibake
+
+### Objetivo
+
+- Confirmar que la limpieza manual de comentarios/simbolos no rompio el flujo Persona/Motor.
+- Corregir bloqueos de import detectados antes de nuevas pruebas Unity.
+
+### Cambios Aplicados
+
+- `memory/chroma_client.py` tenia una linea incompleta `from chromadb.api.shared_system_client`; se elimino porque el bloque `try` de compatibilidad ya importa `SharedSystemClient`.
+
+### Pruebas Ejecutadas
+
+- Compilacion dirigida de `memory/chroma_client.py`, Persona, Motor, Orchestrator y herramientas simuladas.
+- `python ai_engine/test_persona.py`.
+- `python ai_engine/test_motor_guardrails.py`.
+- `python -m compileall -q ai_engine core memory api tools telescopio config main.py`.
+- Prueba de import: `core.orchestrator` carga correctamente y `ToolRegistry` lista herramientas Unity activas.
+- `git diff --check` sin errores; solo warning CRLF esperado por Windows.
+
+### Riesgos Pendientes
+
+- Validar en Unity Play Mode que las respuestas de aclaracion motor se muestren como `hablar` sin disparar cascadas.
+- La limpieza de mojibake visual en comentarios/documentos puede continuar como higiene, pero no bloqueo las pruebas Python.
+
 ## 2026-06-08 - Estabilizacion Persona/Motor
 
 ### Objetivo

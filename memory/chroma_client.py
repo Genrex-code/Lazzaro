@@ -12,7 +12,6 @@ from chromadb.api import ClientAPI
 from chromadb.api.models.Collection import Collection
 from chromadb.api.types import Metadata, QueryResult, Where
 from chromadb.config import Settings as ChromaSettings
-from chromadb.api.shared_system_client
 try:
     from chromadb.api.client import SharedSystemClient
 except Exception:  # pragma: no cover - compatibilidad con versiones antiguas
