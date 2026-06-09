@@ -21,10 +21,7 @@ class IdentityState:
         self.estres: float = 0.0
         self.enfoque: float = 100.0
 
-    #------------------------------------------------------------------------------------
     #API principal
-    #------------------------------------------------------------------------------------
-
     def tick (self,segundos_transcurridos: float):
         """
         Decaimiento natural por el paso del tiempo.
@@ -89,9 +86,7 @@ class IdentityState:
         self._limitar()
         logger.info("[BOLOGIA] Lazzaro ha descansado.regeneracion aplicada.")
 
-    # ==============================================================================
     #Evaluacion cualitativa
-    # --------------------------------------------------------------------------------
 
     def obtener_estado_completo(self) -> Dict[str, Any]:
         """
@@ -126,9 +121,7 @@ class IdentityState:
             "si estás relajada y con energía, puedes ser más cálida y detallada."
         )
     
-    #----------------------------------------------------------------------------------
     #helpers privados 
-    # ---------------------------------------------------------------------------------
     
     def _limitar(self):
         """Asegura que los valores nunca salgan del rango de 0-100."""

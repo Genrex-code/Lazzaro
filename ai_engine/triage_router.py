@@ -29,9 +29,7 @@ class TriageRouter:
         detalles = evento.get ("detalles", {})
         texto_usuario = detalles.get ("mensaje","") if detalles else "" # el que invento estas formas de usar ifs que coma cola neta
 
-        #--------------------------------------------------------------------------------------
         #1. Eventos internos que NUNCA van al LLM
-        # -------------------------------------------------------------------------------------
 
         if tipo_evento == "actualizacion_estado":
             return self._build_response(
@@ -48,9 +46,7 @@ class TriageRouter:
                 "Resultado de accion procesado internamente."
             )
         
-        # -----------------------------------------------------------------------------------
         #comandos de usuario (el triaje real)
-        #------------------------------------------------------------------------------------
         if tipo_evento == "comando_usuario":
             intent = match_intent_by_keywords(texto_usuario)
             # Prevenir comandos motores si el agente ya está moviéndose
@@ -74,7 +70,7 @@ class TriageRouter:
                 confidence = 0.85
                 reason = "Interacción social o de identidad."
             else:
-                # UNKNOWN → fallback amistoso a Capa 2
+                # UNKNOWN  fallback amistoso a Capa 2
                 intent = IntentType.UNKNOWN
                 confidence = 0.5
                 reason = "Intención desconocida. Enviando a la Capa 2 para respuesta genérica."
@@ -83,17 +79,14 @@ class TriageRouter:
 
             return self._build_response(intent, route, confidence, reason)
 
-        # Cualquier otro tipo de evento no reconocido → ignorar
+        # Cualquier otro tipo de evento no reconocido  ignorar
         return self._build_response(
             IntentType.UNKNOWN,
             Route.NOOP,
             0.0,
             f"Tipo de evento '{tipo_evento}' no soportado por el Triage."
         )
-
-    # ------------------------------------------------------------------
     # Helper interno
-    # ------------------------------------------------------------------
     @staticmethod
     def _build_response(
         intent: IntentType,

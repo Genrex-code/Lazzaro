@@ -24,7 +24,7 @@ class AgentContext(BaseModel):
     politica: str = "exploradora"
     banderas: dict[str, bool] = Field(default_factory=dict)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    proveedor: str = "ollama" # agregado
+    proveedor: str = "ollama"
 
 class PromptSections(BaseModel):
     """Cada seccion del prompt final."""

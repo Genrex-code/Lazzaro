@@ -24,7 +24,7 @@ class ContextBuilder:
         herramientas_detalle: Optional[dict[str, str]] = None,
         politica: str = "exploradora",
         tarea: Optional[dict] = None,
-        proveedor: str = "ollama", #agregado
+        proveedor: str = "ollama", 
     ) -> AgentContext:
         estado_narrativo = contexto_llm.get("estado_narrativo", "")
         valores = contexto_llm.get("valores", {})
@@ -61,7 +61,7 @@ class ContextBuilder:
             herramientas_detalle=herramientas_detalle or {},
             politica=politica,
             banderas=umbrales,
-            proveedor=proveedor, # agregado
+            proveedor=proveedor,
         )
         logger.debug(
             "AgentContext construido con politica '%s' y %d herramientas.",

@@ -37,10 +37,7 @@ class RoutingRule:
                 return True
         return False
 
-
-# ----------------------------------------------------------------------
 # DEFINICIÓN AMPLIADA DE REGLAS
-# ----------------------------------------------------------------------
 REGLAS_BASE: List[RoutingRule] = [
     # Capa 3 - Oráculo (mayor prioridad)
     RoutingRule(

@@ -67,9 +67,8 @@ class MemoryFilters:
             return condiciones[0]
         return {"$and": condiciones}
 
-    # ------------------------------------------------------------------
+    
     # Filtros predefinidos (conveniencia)
-    # ------------------------------------------------------------------
 
     @staticmethod
     def solo_criticos() -> dict:

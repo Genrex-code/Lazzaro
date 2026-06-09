@@ -19,10 +19,7 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["lazzaro"])
 
-
-# ------------------------------------------------------------------
 # Dependencia para obtener el orquestador desde app.state
-# ------------------------------------------------------------------
 async def get_orchestrator(request: Request):
     """Obtiene el orquestador inyectado en el estado de la aplicación."""
     orch = request.app.state.orchestrator
@@ -33,10 +30,7 @@ async def get_orchestrator(request: Request):
         )
     return orch
 
-
-# ------------------------------------------------------------------
 # Endpoints principales
-# ------------------------------------------------------------------
 
 @router.post("/evento", response_model=RespuestaAPI)
 async def procesar_evento(

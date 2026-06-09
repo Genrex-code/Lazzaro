@@ -12,6 +12,7 @@ from chromadb.api import ClientAPI
 from chromadb.api.models.Collection import Collection
 from chromadb.api.types import Metadata, QueryResult, Where
 from chromadb.config import Settings as ChromaSettings
+from chromadb.api.shared_system_client
 try:
     from chromadb.api.client import SharedSystemClient
 except Exception:  # pragma: no cover - compatibilidad con versiones antiguas
@@ -92,9 +93,7 @@ class ChromaClient:
         except Exception as e:
             logger.debug("No se pudo limpiar cache global de ChromaDB: %s", e)
 
-    # ------------------------------------------------------------------
     # Inicializacion y estado
-    # ------------------------------------------------------------------
 
     def _inicializar(self) -> None:
         """Crea o conecta al cliente y a la coleccion, con manejo de errores."""
@@ -135,9 +134,7 @@ class ChromaClient:
             return {"$and": [*base["$and"], extra]}
         return {"$and": [base, extra]}
 
-    # ------------------------------------------------------------------
     # Operaciones CRUD
-    # ------------------------------------------------------------------
 
     def agregar(
         self,
@@ -153,7 +150,7 @@ class ChromaClient:
         if collection is None:
             logger.warning("Intento de agregar a ChromaDB sin conexion.")
             return False
-        with self._lock:  # <-- EL SEMÁFORO: Solo un hilo pasa a la vez
+        with self._lock:  
             try:
                 collection.add(
                     documents=documentos,

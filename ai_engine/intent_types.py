@@ -27,7 +27,7 @@ class Route(str,Enum):
     INTERNAL = "internal" # PROSESAMIENTO INTERNO SIN LLM (core/orquestador)
     NOOP = "noop" # SIN ACCION REQUERIDA
 
-#MAPEO POR DEFECTO DE INTENCION --- > RUTA
+#MAPEO POR DEFECTO DE INTENCION === RUTA
 INTENT_TO_ROUTE = {
     IntentType.SOCIAL: Route.PERSONA,
     IntentType.MOTOR_SIMPLE: Route.MOTOR,

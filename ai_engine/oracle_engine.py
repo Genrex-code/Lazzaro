@@ -30,9 +30,7 @@ class OracleEngine:
             "Responde SIEMPRE con el conocimiento más exacto posible."
         )
 
-    #----------------------------------------------------------------------------------------
     # paso 1 : Intercepcion rapida ( cache)
-    #----------------------------------------------------------------------------------------
     def evaluar_cache(
             self,mensaje_usuario: str,memoria:OracleMemory
     ) -> Optional[Dict[str,Any]]:
@@ -54,9 +52,7 @@ class OracleEngine:
                 "razon": "Recuperacion desde cache (HIT).",
             }
         return None
-    #-----------------------------------------------------------------------------------------
     #paso 2: Preparar la consulta pesada ( prompt para el LLM)
-    #-----------------------------------------------------------------------------------------
     def preparar_consulta(self,mensaje_usuario:str) -> List[Dict[str,str]]:
         """
         Construye el prompt frio y estricto para el modelo local o externo.
@@ -79,10 +75,7 @@ class OracleEngine:
             {"role": "system", "content": prompt_reglas},
             {"role": "user", "content": mensaje_usuario},
         ]
-    
-    #----------------------------------------------------------------------------------------
     #paso perdi la cuenta : parsear, validar y asimilar conocimiento 
-    #----------------------------------------------------------------------------------------
     def keep_y_save(
             self,
             respuesta_llm:str,
@@ -141,9 +134,7 @@ class OracleEngine:
         data.setdefault("pensamiento_privado","Resolucion analitica completada.")
         data.setdefault("razon","Calculo en Capa 3 finalizado.")
         return data
-# ------------------------------------------------------------------
     # Helpers
-    # ------------------------------------------------------------------
     @staticmethod
     def _limpiar_json(texto_crudo: str) -> str:
         """

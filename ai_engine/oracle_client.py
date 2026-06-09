@@ -48,9 +48,7 @@ class OracleClient:
         """Indica si el cleitne tiene credenciales para funcionar."""
         return bool(self.api_key and self.api_key.strip())
     
-    #---------------------------------------------------------------------------------------
     #Consulta principal
-    #---------------------------------------------------------------------------------------
     def consultar_oraculo ( self,mensajes: List[Dict[str,str]]) -> Optional [str]:
         """
         Envia los mensajes al modelo en la nube y devuelve el texto de la respuesta.
@@ -92,7 +90,7 @@ class OracleClient:
                 contenido = data.get("choices", [{}])[0].get("message", {}).get("content", "")
                 if not contenido:
                     logger.warning("El oraculo devolvio una respuesta vacia.") # como el corazon de mi ex JASJASJASJASASJASJASJ 
-                    # ya ultima referencia zad de la noche ya le pase a otras las de jose jose pegan resio :l
+                    # ya ultima referencia zad de la noche ya le pase a otras las de jose jose pegan resio ;v
                     return None
                 
                 logger.info("Respuesta del Oraculo recibida (%d caracteres).", len(contenido))

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from tools.registry import ToolRegistry
 
 
-# -------------------- Modelos de parámetros --------------------
+# Modelos de parámetros
 class AgarrarObjetoParams(BaseModel):
     nombre_objeto: str = Field(..., description="Nombre del objeto a agarrar")
 
@@ -32,7 +32,7 @@ class HablarParams(BaseModel):
     texto_a_comunicar: str = Field(..., description="Texto que Lazzaro dirá en voz alta")
 
 
-# -------------------- Funciones registradas --------------------
+#Funciones registradas 
 @ToolRegistry.register(
     name="interactuar_objeto_3d",
     description="Interactua de forma simple con un objeto cercano del entorno 3D.",

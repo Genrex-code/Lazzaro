@@ -8,10 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 from datetime import datetime
 
-
-# ------------------------------------------------------------------
 # Metadata común a todo recuerdo
-# ------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class MemoryMetadata:
@@ -26,11 +23,7 @@ class MemoryMetadata:
     # Metadatos adicionales opcionales (ej. estres, energia)
     extra: dict[str, Any] = field(default_factory=dict)
 
-
-# ------------------------------------------------------------------
 # Memoria episódica (recuerdos concretos)
-# ------------------------------------------------------------------
-
 @dataclass(frozen=True)
 class EpisodicMemory:
     """
@@ -45,10 +38,7 @@ class EpisodicMemory:
     estado_emocional: Optional[dict[str, float]] = None  # snapshot de state_engine (opcional)
     # Podría agregarse 'resultado', 'herramienta', etc. en el futuro
 
-
-# ------------------------------------------------------------------
 # Memoria semántica (abstracciones, reglas, patrones)
-# ------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class SemanticMemory:
@@ -62,11 +52,7 @@ class SemanticMemory:
     regla: str                     # ej. "La multitarea excesiva reduce precisión"
     origen: str = "consolidacion"  # "manual", "gemini", "determinista"
 
-
-# ------------------------------------------------------------------
 # Documento listo para embedding (desacoplado de la representación interna)
-# ------------------------------------------------------------------
-
 @dataclass(frozen=True)
 class MemoryDocument:
     """
@@ -79,11 +65,7 @@ class MemoryDocument:
     contenido: str
     metadata: dict[str, Any]       # dict compatible con ChromaDB (valores simples)
 
-
-# ------------------------------------------------------------------
 # Elemento de la memoria de trabajo (volátil, en RAM)
-# ------------------------------------------------------------------
-
 @dataclass(frozen=True)
 class WorkingMemoryItem:
     """
@@ -96,9 +78,7 @@ class WorkingMemoryItem:
     detalles: Optional[dict[str, Any]] = None
 
 
-# ------------------------------------------------------------------
 # Resultado de una búsqueda en la memoria (para el retriever)
-# ------------------------------------------------------------------
 # aca le quite el solo lectura para que se mantenga el erro fuera de memorua perro ( retriever como golden retriver jasjas  (por favor duerman a este tipo - claude))
 @dataclass()
 class MemoryResult:
