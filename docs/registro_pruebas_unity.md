@@ -374,3 +374,33 @@
 
 - La compilacion C# debe confirmarse dentro de Unity, porque no se ejecuto el compilador del Editor desde terminal.
 - Si el usuario pide giros absolutos hacia un rumbo especifico, todavia se tratan como giros relativos simples.
+
+## 2026-06-09 - Fallbacks Multi-Proveedor LLM
+
+### Sintoma Observado
+
+- El flujo principal dependia de un unico proveedor activo (`gemini` u `ollama`).
+- Si el proveedor activo quedaba sin presupuesto, devolvia vacio o fallaba por rate limit, Persona/Oraculo no tenian una cadena ordenada de respaldo.
+- En `.env` ya existen claves nuevas para Groq, xAI, Kimi y DeepSeek API, pero no estaban conectadas al factory del cliente LLM.
+
+### Cambios Aplicados
+
+- Se agrego `OpenAICompatibleClient` para proveedores externos con endpoint `chat/completions`.
+- Se agrego `FallbackAIClient` para intentar proveedores en orden hasta obtener texto util.
+- `Settings` ahora reconoce `AI_FALLBACK_ORDER`, `LLM_FALLBACKS_ENABLED`, `GROQ_*`, `XAI_*`, `KIMI_*` y `DEEPSEEK_API_*`.
+- Se acepta `DEEPSEEEK_API_KEY` como alias temporal para compatibilidad con el `.env` actual.
+- `client_factory.py` construye una cadena remota de fallback como `gemini -> groq -> xai -> kimi -> deepseek_api`, omitiendo proveedores sin credenciales.
+- `ollama` sigue soportado, pero no se usa como fallback automatico para evitar encender la GPU local; si se desea, debe agregarse explicitamente en `AI_FALLBACK_ORDER`.
+- `OracleClient` usa `GROQ_API_KEY` como respaldo si `ORACLE_API_KEY` no esta definido.
+
+### Pruebas Esperadas
+
+- Si Gemini falla o queda sin cuota, el sistema debe intentar Groq/xAI/Kimi/DeepSeek API antes de devolver respuesta vacia.
+- Si `ORACLE_API_KEY` no existe pero `GROQ_API_KEY` si existe, Oraculo externo debe considerarse configurado.
+- El flujo de `ReasoningEngine`, Persona y Oraculo no debe cambiar su contrato: todos siguen llamando `generate()`.
+
+### Riesgos Pendientes
+
+- Los modelos por defecto de cada proveedor pueden requerir ajuste en `.env` segun disponibilidad real de la cuenta.
+- No se hicieron llamadas reales a APIs externas durante la validacion automatica para evitar gastar presupuesto.
+- Los comandos compuestos separados por coma, como `gira 180 , camina hacia la capsule`, aun pueden necesitar una mejora de segmentacion en la cola de tareas.
