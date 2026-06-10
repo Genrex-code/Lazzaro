@@ -29,15 +29,19 @@ class OracleClient:
             self.api_url = getattr(
                 settings,
                 "ORACLE_API_URL",
-                "https://api.groq.com/openai/v1/chat/completions",
+                getattr(settings, "GROQ_API_URL", "https://api.groq.com/openai/v1/chat/completions"),
             )
-            self.api_key = getattr(settings, "ORACLE_API_KEY", "")
-            self.model_name = getattr(settings,"ORACLE_MODEL","llama3-70b-8192")
+            self.api_key = getattr(settings, "ORACLE_API_KEY", None) or getattr(settings, "GROQ_API_KEY", "")
+            self.model_name = getattr(settings, "ORACLE_MODEL", None) or getattr(
+                settings,
+                "GROQ_MODEL",
+                "llama-3.1-8b-instant",
+            )
             timeout = getattr(settings, "ORACLE_TIMEOUT", 15.0)
         else:
             self.api_url = os.getenv("ORACLE_API_URL", "https://api.groq.com/openai/v1/chat/completions")
-            self.api_key = os.getenv("ORACLE_API_KEY", "")
-            self.model_name = os.getenv("ORACLE_MODEL", "llama3-70b-8192")
+            self.api_key = os.getenv("ORACLE_API_KEY") or os.getenv("GROQ_API_KEY", "")
+            self.model_name = os.getenv("ORACLE_MODEL") or os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
             timeout = os.getenv("ORACLE_TIMEOUT", "15.0")
 
         self.timeout = float(timeout)
