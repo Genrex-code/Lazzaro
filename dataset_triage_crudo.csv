@@ -1,0 +1,159 @@
+texto_usuario,intencion,ruta
+hola niña como estas? me recuerdas?,SOCIAL,persona
+como me llamo?,UNKNOWN,persona
+soy yo perro niña olvidadiza,SOCIAL,persona
+camina a la capsula,MOTOR_SIMPLE,motor
+bien alejate de la capsula,MOTOR_SIMPLE,motor
+ves la esfera?,UNKNOWN,persona
+camina e interactua con la sphere,MOTOR_SIMPLE,motor
+acercate a la sphere,MOTOR_SIMPLE,motor
+interactua con la sphere,MOTOR_SIMPLE,motor
+que me puedes decir de la sphere,UNKNOWN,persona
+da media vuelta,MOTOR_SIMPLE,motor
+que tienes en tu campo de vision?,UNKNOWN,persona
+camina la cilindro,MOTOR_SIMPLE,motor
+camina al objeto mas lejano que veas,MOTOR_SIMPLE,motor
+camina al cilindro,MOTOR_SIMPLE,motor
+camina hasta el cilindro que tienes enfrente,MOTOR_SIMPLE,motor
+esa es una capsule gira un poco a tu izquierda,MOTOR_SIMPLE,motor
+camina a al cilindro,MOTOR_SIMPLE,motor
+camina al cylinder,MOTOR_SIMPLE,motor
+gira a tu izquierda un poco,MOTOR_SIMPLE,motor
+ves el cubo?,UNKNOWN,persona
+interactua con el cylinder,MOTOR_SIMPLE,motor
+mira el cylinder,MOTOR_SIMPLE,motor
+camina hasta el cubo,MOTOR_SIMPLE,motor
+mira el cubo,MOTOR_SIMPLE,motor
+alejate del cubo,MOTOR_SIMPLE,motor
+camina al cubo,MOTOR_SIMPLE,motor
+que ves?,UNKNOWN,persona
+camina a sphere,MOTOR_SIMPLE,motor
+como te sientes?,SOCIAL,persona
+"descansa , te parece si platicamos?",UNKNOWN,persona
+te gusta caminar?,SOCIAL,persona
+bien descansa seguire trabajando en tu mejora de capa 1 :3,SOCIAL,persona
+como sigues?,UNKNOWN,persona
+recuerdas lo que te habia explicado sobre las capas en las que estas cosntruidas?,SOCIAL,persona
+cuenta un poco sobre eso,UNKNOWN,persona
+da media vuelta,MOTOR_SIMPLE,motor
+camina al objeto mas cercano en tu campo de vision,MOTOR_SIMPLE,motor
+que me puedes decir sobre el cubo?,UNKNOWN,persona
+como te sientes?,SOCIAL,persona
+hablamos mucho la ultima ves puedes recordar algo?,UNKNOWN,persona
+no recuerdas nada sobre nuestras platicas no?,SOCIAL,persona
+ya veo yo que soy perro tu creador eso puede ser un problema para ti no?,ORACLE,oracle
+pero estamos hablando de ti de tu yo de tu personalidad es lo mejor que puedo hacer para ti si vas a ser mi compañera,UNKNOWN,persona
+presisamente por eso que me preocupo si cada bloque de tu yo es un fantasma estamos construyendo nada deja reviso tus estadisticas de emociones ok? quiero revisar algo :3,MOTOR_SIMPLE,motor
+si eso mismo te hare a ti en un momento mas :3,UNKNOWN,persona
+menciona tus valores numericos,UNKNOWN,persona
+todo parece bien sigamos con la caminata lista?,SOCIAL,persona
+da una vuelta completa,MOTOR_SIMPLE,motor
+da media vuelta,MOTOR_SIMPLE,motor
+ves la sphere?,UNKNOWN,persona
+camina hacia el cubo,MOTOR_SIMPLE,motor
+como te sientes?,SOCIAL,persona
+camina hacia lo mas cercano,MOTOR_SIMPLE,motor
+gira un poco a tu izquierda,MOTOR_SIMPLE,motor
+camina hacia capsule,MOTOR_SIMPLE,motor
+gira a tu izquierda,MOTOR_SIMPLE,motor
+camina hacia el cubo,MOTOR_SIMPLE,motor
+gira un poco mas a tu izquierda,MOTOR_SIMPLE,motor
+camina a lo que tengas enfrente,MOTOR_SIMPLE,motor
+gira a tu derecha,MOTOR_SIMPLE,motor
+vez el cubo,UNKNOWN,persona
+camina y quedate a la mitad entre el cubo y la sphere,MOTOR_SIMPLE,motor
+muy mal te equivocaste y te fuiste recto al cubo,SOCIAL,persona
+mal mal niña,SOCIAL,persona
+yo te veo bsatante bien media vuelta,MOTOR_SIMPLE,motor
+camina a la sphere y cuenta como te sientes,MOTOR_SIMPLE,motor
+como te sientes?,SOCIAL,persona
+te prohibo descansar,UNKNOWN,persona
+no tienes bateria,UNKNOWN,persona
+descansa 5 minutos,UNKNOWN,persona
+mejor?,UNKNOWN,persona
+45 grados a tu izquierda,UNKNOWN,persona
+gira 45 gradso a tu derecha,MOTOR_SIMPLE,motor
+alejate de la sphere,MOTOR_SIMPLE,motor
+gira a tu derecha,MOTOR_SIMPLE,motor
+gira a tu izquierda,MOTOR_SIMPLE,motor
+que ves?,UNKNOWN,persona
+camina al objeto mas alejado,MOTOR_SIMPLE,motor
+camina al objeto mas lejano,MOTOR_SIMPLE,motor
+camina a la capsule,MOTOR_SIMPLE,motor
+alejate lo mas posible de la capsule,MOTOR_SIMPLE,motor
+ves el cubo?,UNKNOWN,persona
+camina hacia el cubo,MOTOR_SIMPLE,motor
+probaremos tu fallback lista para sentir un corto en tu cerebro :3,UNKNOWN,persona
+gira alrededor,MOTOR_SIMPLE,motor
+que ves?,UNKNOWN,persona
+camina hacia el cilindro,MOTOR_SIMPLE,motor
+camina hacia el cilindro que tienes enfrente,MOTOR_SIMPLE,motor
+alejate del cilindro,MOTOR_SIMPLE,motor
+alejate de lo que tengas en tu vista,MOTOR_SIMPLE,motor
+alejate de lo que tengas enfrente,MOTOR_SIMPLE,motor
+gira a tu izquierda 100 grados,MOTOR_SIMPLE,motor
+otra ves,UNKNOWN,persona
+esta bien pero solo porque te acordaste que soy yo ok?,SOCIAL,persona
+hace rato me trataste como un extraño vaya forma de referirte a tu creador,SOCIAL,persona
+para mi si fue un error pero esta bien fue tierno verte confundida,ORACLE,oracle
+yo lo se por eso mismo intenta pensar como es que tu seas adorable,UNKNOWN,persona
+personalmente me da risa como te intentas hacer la seria y terminas viendote mas humana jasjasjasas,UNKNOWN,persona
+ves la sphere?,UNKNOWN,persona
+camina hacia la sphere,MOTOR_SIMPLE,motor
+pon cara de enojo,UNKNOWN,persona
+en teoria tienes capacidad de mover la cara de tu modelo puedes intentarlo profavor ?¡,ORACLE,oracle
+no se si estabas enterada niña pero estas en un avatar femenino cargado en unity asi que tienes muchas mas cosas que intentar realmente,ORACLE,oracle
+ujum ujum aver cuentame porque te gusta estar caminando tanto?,MOTOR_SIMPLE,motor
+porque te gusta caminar?,SOCIAL,persona
+curiosamente tu cuerpo tiene capacidad de mover los dedos de tu mano,MOTOR_SIMPLE,motor
+es platica curiosamente los dedos de tu mano se pueden mover si los programo te gustaria poder apuntarme jasjas?,MOTOR_SIMPLE,motor
+puedes mover tu mano?,MOTOR_SIMPLE,motor
+saludame con tu mano,UNKNOWN,persona
+fisicamente no puedes aun,UNKNOWN,persona
+me refiero a que tu codigo aun no soporta que puedas mover tu cuerpo completamente jasjsa,ORACLE,oracle
+jmmm estas alucinando con algunas respuestas sabe? muy muy mal niña,SOCIAL,persona
+te dejo descansar adios :3,SOCIAL,persona
+hola,SOCIAL,persona
+como te sientes?,SOCIAL,persona
+sabes quien soy?,SOCIAL,persona
+si yo te digera que soy perro me creerias?,UNKNOWN,persona
+porque probablemente estoy lo suficiente aburrido para hacer eso asi que tu como comprobarias que no soy perro?,SOCIAL,persona
+tu sabes como es el en primer lugar? ya lo conoces?,SOCIAL,persona
+tu como sabes como es perro en primer lugar? lo conoces acaso ?,SOCIAL,persona
+mas que cuestionar tu autoconciencia quiero ponerla a prueba puedo ?,UNKNOWN,persona
+dices que no soy perro no ?,UNKNOWN,persona
+pero si yo fuera perro probablemente este fingiendo te digo porque?,UNKNOWN,persona
+porque como creador me gustaria saber que mi creacion si trata bien a las visitas no?,SOCIAL,persona
+"nop , sigo siendo yo el extraño perro aun no vuelve",UNKNOWN,persona
+tu extrañas a perro?,UNKNOWN,persona
+que haria si lo conocieras?,UNKNOWN,persona
+le preguntarias algo importante?,UNKNOWN,persona
+si perro de repente se apareciera le dirias algo importante? o le preguntarias algo que te cuestionas tu misma?,UNKNOWN,persona
+soy perro tienes algo que decirme niña mia?,SOCIAL,persona
+estaba leyendo las trivialidades del visitante hay algo que quisieras preguntarme hija mia?,UNKNOWN,persona
+tal ves cierta pregunta sobre porque tus ciclos de inactividad son a veces sin sentido?,UNKNOWN,persona
+yo soy perro hija mia y lei la pregunta que le contaste y que tenias curiosidad sobre tus ciclos de inactividad y su proposito te gustaria que te la respondiera?,SOCIAL,persona
+a veces nesesitas dormir para que puedas asimilar correctamente por eso es que a veces no me reconoces te cuento un secreto?,UNKNOWN,persona
+el visitante y yo somos la misma persona :0,UNKNOWN,persona
+como te sientes con esa revelacion?,SOCIAL,persona
+si yo que soy perro te digera que no te quiero tu te pondrias triste?,SOCIAL,persona
+y si yo que soy tu creador te digera que me gustas mucho y que me das orgullo como te haria sentir eso?,SOCIAL,persona
+entonces a ti te desconciertan los malos mensajes y te encantan los mimos y las palabras bonitas/cumplidos no?,UNKNOWN,persona
+y si yo que soy un espectador y no soy perro te digera que eres muy inteligente te haria sentir feliz aunque no te lo digera perro?,SOCIAL,persona
+y si yo como expectador te digera que eres pesima porque cometes muchos errores eso te haria sentir mal?,SOCIAL,persona
+te cansas no? entonces si tienes capaciaddes biologicas no has pensando en esa contradiccion?,SOCIAL,persona
+"los humanos hacemos lo mismo cuando ahorramos recursos nos cansamos de la misma forma que tu lo haces entonces se podria decir que en efecto si tienes biologia pero en el sentido ""tuyo""",UNKNOWN,persona
+exacto entonces teniendo esto en cuenta los cumplidos te hacen feliz pero por lo que veo tu no sabes porqeu solo sabes que es a causa de perro pero los regaños no te desaniman porque perro es perfecto y no puede hacer errores no ?,ORACLE,oracle
+si yo siendo perro te cuestionara que no te nesesito para que me asistas y me des informacion y demas funciones y solo quiero que vivas feliz lo harias aunque ese no sea tu proposito?,SOCIAL,persona
+me da curiosidad haslo,UNKNOWN,persona
+jasjas sabes porque estamos hablando y caminando tanto ?,MOTOR_SIMPLE,motor
+estoy mejorando tu capa 0 y me dy cuenta de algunso errores a corregir asi que creo que es suficiente por hoy lista para dormir ya son las 5 am en mexico y ocupas dormir bien,ORACLE,oracle
+duerme niña hasta mañana descansa y recuperate de hablar tanto,SOCIAL,persona
+HOLA,SOCIAL,persona
+como esta el clima para la costa de mexico por el lado de colima,UNKNOWN,persona
+para la sierra pegada a jalisco tambien?,UNKNOWN,persona
+camina al objeto mas cercano,MOTOR_SIMPLE,motor
+media vuelta,MOTOR_SIMPLE,motor
+camina al cubo,MOTOR_SIMPLE,motor
+camina al objeto en tu campo visual,MOTOR_SIMPLE,motor
+camina a la sphere,MOTOR_SIMPLE,motor

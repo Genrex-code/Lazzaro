@@ -69,7 +69,7 @@ def extraer_comida_de_logs(log_path: str, output_csv: str):
         print("No se encontraron pares de texto/triage en el log. Revisa el Regex.")
 
 if __name__ == "__main__":
-    RUTA_LOGS = "lazzaro_3.log"
+    RUTA_LOGS = "lazzaro.log"
     RUTA_OUTPUT = "dataset_triage_crudo.csv"
     
     extraer_comida_de_logs(RUTA_LOGS, RUTA_OUTPUT)
