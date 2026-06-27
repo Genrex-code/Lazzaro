@@ -44,3 +44,36 @@ INTENT_TO_ROUTE = {
     IntentType.NOOP: Route.NOOP,
     IntentType.UNKNOWN: Route.PERSONA  # Fallback: La Capa 2 maneja lo desconocido
 }
+
+
+INTENT_ALIASES = {
+    "ORACLE": IntentType.ORACLE_QUERY,
+    "MOTOR": IntentType.MOTOR_SIMPLE,
+    "MEMORY": IntentType.MEMORY_QUERY,
+    "SYSTEM": IntentType.CORE_SYSTEM,
+}
+
+
+def normalize_intent(value: str | IntentType | None) -> IntentType:
+    """Convierte labels externos o antiguos al contrato formal de intenciones."""
+    if isinstance(value, IntentType):
+        return value
+
+    intent_value = str(value or "").strip().upper()
+    if not intent_value:
+        return IntentType.UNKNOWN
+
+    alias = INTENT_ALIASES.get(intent_value)
+    if alias is not None:
+        return alias
+
+    try:
+        return IntentType(intent_value)
+    except ValueError:
+        return IntentType.UNKNOWN
+
+
+def route_for_intent(value: str | IntentType | None) -> Route:
+    """Devuelve la ruta canonica para una intencion, con fallback seguro."""
+    intent = normalize_intent(value)
+    return INTENT_TO_ROUTE.get(intent, Route.PERSONA)

@@ -5,3 +5,6 @@ pydantic-settings
 google-genai
 chromadb
 httpx
+pandas
+scikit-learn
+joblib

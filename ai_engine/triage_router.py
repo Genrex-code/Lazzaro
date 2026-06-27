@@ -12,11 +12,16 @@ Responsabilidad:
 """
 
 import logging
-import os
-import joblib
-from typing import Any, Dict , Optional
-from .intent_types import IntentType, Route, INTENT_TO_ROUTE
-from .routing_rules import match_intent_by_keywords # <-- Faltaba este import
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+try:
+    import joblib
+except ImportError:  # El fallback heuristico debe seguir vivo sin dependencias ML.
+    joblib = None
+
+from .intent_types import INTENT_TO_ROUTE, IntentType, normalize_intent, route_for_intent
+from .routing_rules import match_intent_by_keywords
 
 # hoy perdio el america asi que que hoy pierde la niña 
 logger = logging.getLogger(__name__)
@@ -28,21 +33,7 @@ logger = logging.getLogger(__name__)
 # PERCEPTION va a "motor" solo si MotorEngine sabe responder consultas de
 # percepción con una acción "hablar", sin moverse físicamente.
 INTENT_TO_ROUTE_MAP = {
-    "MOTOR_SIMPLE": "motor",
-    "MOTOR_REFERENCE": "motor",
-    "PERCEPTION": "motor",
-
-    "SOCIAL": "persona",
-    "MEMORY_QUERY": "persona",
-    "MEMORY_UPDATE": "persona",
-    "CORE_SYSTEM": "persona",
-    "UNKNOWN": "persona",
-
-    "ORACLE_QUERY": "oracle",
-
-    # Eventos internos
-    "NOOP": "noop",
-    "INTERNAL": "internal",
+    intent.value: route.value for intent, route in INTENT_TO_ROUTE.items()
 }
 
 
@@ -55,18 +46,22 @@ MOTOR_BLOCKED_WHILE_MOVING = {
 
 class TriageRouter:
     def __init__(self):
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        intent_path = os.path.join(
-            base_dir,
-            "lazzaro_data",
-            "triage_model_intent.joblib"
+        self.model_intent = None
+        self.intent_path = (
+            Path(__file__).resolve().parents[1]
+            / "lazzaro_data"
+            / "triage_model_intent.joblib"
         )
 
-        self.model_intent = None
+        if joblib is None:
+            logger.warning(
+                "joblib no esta disponible; Capa 0 usara fallback heuristico."
+            )
+            return
 
         try:
-            if os.path.exists(intent_path):
-                self.model_intent = joblib.load(intent_path)
+            if self.intent_path.exists():
+                self.model_intent = joblib.load(self.intent_path)
                 logger.info("Cerebro de Intención Random Forest cargado y listo.")
             else:
                 logger.warning("No se encontró el modelo .joblib de intención.")
@@ -79,9 +74,15 @@ class TriageRouter:
         estado_agente: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         tipo_evento = evento.get("tipo_evento", "desconocido")
-        detalles = evento.get("detalles", {}) or {}
-        texto_usuario = detalles.get("mensaje", "") or ""
-        texto_usuario = texto_usuario.strip()
+        detalles_raw = evento.get("detalles", {}) or {}
+        detalles = detalles_raw if isinstance(detalles_raw, dict) else {}
+        texto_usuario = (
+            detalles.get("mensaje")
+            or detalles.get("texto_usuario")
+            or detalles.get("texto")
+            or ""
+        )
+        texto_usuario = str(texto_usuario).strip()
 
         # ==========================================================
         # 15% — REGLAS DURAS / SISTEMA INMUNE
@@ -144,19 +145,18 @@ class TriageRouter:
             if intent_str is None:
                 intent_str = self._predict_intent_with_rules(texto_usuario)
 
-            # Si el modelo o las reglas devuelven algo fuera del contrato, degradar seguro.
-            if intent_str not in INTENT_TO_ROUTE_MAP:
-                logger.warning(f"Intent desconocido fuera de contrato: {intent_str}")
-                intent_str = "UNKNOWN"
+            intent = normalize_intent(intent_str)
+            if intent is IntentType.UNKNOWN and str(intent_str or "").strip().upper() != "UNKNOWN":
+                logger.warning("Intent desconocido fuera de contrato: %s", intent_str)
 
-            route_str = INTENT_TO_ROUTE_MAP.get(intent_str, "persona")
+            intent_str = intent.value
+            route_str = route_for_intent(intent).value
 
             # Guardrail común.
             # Importante: se aplica tanto a ML como a fallback.
             if (
                 intent_str in MOTOR_BLOCKED_WHILE_MOVING
-                and estado_agente
-                and estado_agente.get("is_moving")
+                and self._agente_en_movimiento(estado_agente, detalles)
             ):
                 return self._build_response(
                     intent="NOOP",
@@ -179,6 +179,44 @@ class TriageRouter:
             confidence=0.0,
             reason=f"Evento '{tipo_evento}' no soportado por Triage."
         )
+
+    @staticmethod
+    def _agente_en_movimiento(
+        estado_agente: Optional[Dict[str, Any]],
+        detalles: Dict[str, Any],
+    ) -> bool:
+        """Detecta si el cliente reporta movimiento activo."""
+        claves_movimiento = (
+            "is_moving",
+            "esta_moviendo",
+            "en_movimiento",
+            "movimiento_activo",
+        )
+        valores_verdaderos = {
+            "1",
+            "true",
+            "si",
+            "sí",
+            "yes",
+            "moving",
+            "moviendo",
+            "en_movimiento",
+        }
+
+        for fuente in (estado_agente, detalles):
+            if not isinstance(fuente, dict):
+                continue
+            for clave in claves_movimiento:
+                valor = fuente.get(clave)
+                if isinstance(valor, bool):
+                    if valor:
+                        return True
+                    continue
+                if str(valor or "").strip().lower() in valores_verdaderos:
+                    return True
+
+        estado_fisico = str(detalles.get("estado_fisico", "")).strip().lower()
+        return estado_fisico in {"moving", "moviendo", "en movimiento"}
 
     # ==========================================================
     # PREDICCIÓN ML
@@ -230,7 +268,13 @@ class TriageRouter:
         """
         try:
             intent_enum = match_intent_by_keywords(texto_usuario)
-            intent_str = intent_enum.value
+            intent = normalize_intent(intent_enum)
+            intent_str = intent.value
+
+            if intent is IntentType.UNKNOWN:
+                self._last_confidence = min(self._last_confidence, 0.4)
+            else:
+                self._last_confidence = max(self._last_confidence, 0.55)
 
             self._last_reason = (
                 self._last_reason

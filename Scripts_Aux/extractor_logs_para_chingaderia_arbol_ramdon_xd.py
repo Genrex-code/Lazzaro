@@ -1,75 +1,99 @@
+import argparse
+import csv
 import re
-import csv 
 from pathlib import Path
 
-def extraer_comida_de_logs(log_path: str, output_csv: str):
-    print(f"Analizando la mente de Lazzaro en: {log_path}...")
 
-    # CORRECCIÓN AQUÍ: 
-    # 1. Sin espacios alrededor del '|'
-    # 2. Es "Nueva tarea iniciada", no "inicializada"
-    # 3. Le agregamos re.IGNORECASE para que las mayúsculas no importen si cambian a futuro.
-    regex_texto = re.compile(r"(?:Nueva tarea iniciada|Tarea reiniciada con nuevo objetivo):\s*'(.+?)'", re.IGNORECASE)
+BASE_DIR = Path(__file__).resolve().parents[1]
+DEFAULT_LOG_CANDIDATES = (
+    BASE_DIR / "logs" / "lazzaro.log",
+    BASE_DIR / "lazzaro.log",
+)
+DEFAULT_OUTPUT = BASE_DIR / "dataset_triage_crudo.csv"
 
-    # Expresión para atrapar la decisión que tomó el sistema (el label)
-    # duermanme son las 4 am xdxdxd aaaaa
-    regex_triage = re.compile(r"Triage:\s*intent=(\w+)\s+route=(\w+)")
-    
+REGEX_TEXTO = re.compile(
+    r"(?:Nueva tarea iniciada|Tarea reiniciada con nuevo objetivo):\s*'(.+?)'",
+    re.IGNORECASE,
+)
+REGEX_TRIAGE = re.compile(r"Triage:\s*intent=(\w+)\s+route=(\w+)")
+
+
+def _resolver_path(path_value: str | Path | None, default: Path | None = None) -> Path:
+    if path_value:
+        path = Path(path_value)
+        return path if path.is_absolute() else BASE_DIR / path
+    if default is not None:
+        return default
+    for candidate in DEFAULT_LOG_CANDIDATES:
+        if candidate.exists():
+            return candidate
+    return DEFAULT_LOG_CANDIDATES[0]
+
+
+def extraer_comida_de_logs(
+    log_path: str | Path | None = None,
+    output_csv: str | Path = DEFAULT_OUTPUT,
+) -> int:
+    log_path = _resolver_path(log_path)
+    output_csv = _resolver_path(output_csv, DEFAULT_OUTPUT)
+
+    print(f"Analizando logs de Lazzaro en: {log_path}")
+
     dataset = []
     texto_pendiente = None
 
-    try:                                               
-        with open(log_path, 'r', encoding='utf-8', errors='ignore') as archivo_log:
+    try:
+        with log_path.open("r", encoding="utf-8", errors="ignore") as archivo_log:
             for linea in archivo_log:
-                # ¿La chica escucha algo nuevo?
-                match_texto = regex_texto.search(linea)
+                match_texto = REGEX_TEXTO.search(linea)
                 if match_texto:
                     texto_pendiente = match_texto.group(1).strip()
                     continue
 
-                # 2. ¿El triage sí sirvió como el tonoto lo diseño :3?
-                match_triage = regex_triage.search(linea)
+                match_triage = REGEX_TRIAGE.search(linea)
                 if match_triage and texto_pendiente:
-                    intent = match_triage.group(1)
-                    route = match_triage.group(2)
-
-                    dataset.append({
-                        "texto_usuario": texto_pendiente,
-                        "intencion": intent,
-                        "ruta": route,
-                    })
-                    # limpiamos toda la pagina sin dejar cometer una sola mancha de rotura hasta que :
-                    """
-                            /\_/\ 
-                            ( o.o )
-                            > ^ <
-                            /  _  \
-                            /__|__\
-                              " "
-                              # el gato chueco es canon ahora
-                    """
+                    dataset.append(
+                        {
+                            "texto_usuario": texto_pendiente,
+                            "intencion": match_triage.group(1),
+                            "ruta": match_triage.group(2),
+                        }
+                    )
                     texto_pendiente = None
-
     except FileNotFoundError:
-        print(f"Error: No se encontró el archivo {log_path}")
-        return
-    
-    # guardar todo el csv
-    if dataset:
-        with open(output_csv, 'w', encoding='utf-8', newline='') as f:
-            # Definimos las columnas
-            columnas = ["texto_usuario", "intencion", "ruta"]
-            writer = csv.DictWriter(f, fieldnames=columnas)
-            
-            writer.writeheader()
-            writer.writerows(dataset)
-        print(f"¡Éxito! Se extrajeron {len(dataset)} interacciones.")
-        print(f"Dataset guardado en: {output_csv}")
-    else:
-        print("No se encontraron pares de texto/triage en el log. Revisa el Regex.")
+        print(f"Error: no se encontro el archivo {log_path}")
+        return 0
+
+    if not dataset:
+        print("No se encontraron pares de texto/triage en el log.")
+        return 0
+
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+    with output_csv.open("w", encoding="utf-8", newline="") as f:
+        columnas = ["texto_usuario", "intencion", "ruta"]
+        writer = csv.DictWriter(f, fieldnames=columnas)
+        writer.writeheader()
+        writer.writerows(dataset)
+
+    print(f"Se extrajeron {len(dataset)} interacciones.")
+    print(f"Dataset guardado en: {output_csv}")
+    return len(dataset)
+
 
 if __name__ == "__main__":
-    RUTA_LOGS = "lazzaro.log"
-    RUTA_OUTPUT = "dataset_triage_crudo.csv"
-    
-    extraer_comida_de_logs(RUTA_LOGS, RUTA_OUTPUT)
+    parser = argparse.ArgumentParser(
+        description="Convierte logs de Lazzaro en CSV para entrenar Capa 0."
+    )
+    parser.add_argument(
+        "--log",
+        default=None,
+        help="Ruta del log a leer. Default: logs/lazzaro.log y fallback lazzaro.log.",
+    )
+    parser.add_argument(
+        "--output",
+        default=str(DEFAULT_OUTPUT),
+        help="CSV de salida.",
+    )
+    args = parser.parse_args()
+
+    extraer_comida_de_logs(args.log, args.output)

@@ -2,8 +2,8 @@
 routing_rules.py - Reglas heurísticas ampliadas para clasificar intenciones del usuario.
 """
 
-from dataclasses import dataclass, field
-from typing import List, Optional
+from dataclasses import dataclass
+from typing import List
 import re
 import unicodedata
 from .intent_types import IntentType
@@ -65,8 +65,21 @@ REGLAS_BASE: List[RoutingRule] = [
             "análisis", "proyecto", "plan", "estrategia", "diseño",
             "arquitectura de software", "patrón de diseño",
         ],
-        intent=IntentType.ORACLE,
+        intent=IntentType.ORACLE_QUERY,
         priority=1
+    ),
+
+    # Capa 1 - Percepcion / vision. Va antes de motor para que preguntas
+    # como "que ves?" no se interpreten como orden fisica.
+    RoutingRule(
+        keywords=[
+            "que ves", "que puedes ver", "puedes ver", "ves algo",
+            "ves la", "ves el", "hay algo", "que hay", "que tienes delante",
+            "objetos visibles", "percibes", "detectas",
+            "reconoces", "identificas", "que observas",
+        ],
+        intent=IntentType.PERCEPTION,
+        priority=2,
     ),
 
     # Capa 1 - Motor
@@ -106,7 +119,18 @@ REGLAS_BASE: List[RoutingRule] = [
             # Ej. "reconoces el cubo" es conversacion/percepcion, no movimiento.
         ],
         intent=IntentType.MOTOR_SIMPLE,
-        priority=2
+        priority=3
+    ),
+
+    # Capa 2 - Memoria / escritura explicita
+    RoutingRule(
+        keywords=[
+            "recuerda que", "recuerdame que", "guarda que", "memoriza",
+            "no olvides", "aprende que", "ten presente", "acuerdate de",
+            "quiero que recuerdes",
+        ],
+        intent=IntentType.MEMORY_UPDATE,
+        priority=4,
     ),
 
     # Capa 2 - Persona
@@ -152,7 +176,7 @@ REGLAS_BASE: List[RoutingRule] = [
             "estás libre", "te interrumpo", "molesto",
         ],
         intent=IntentType.SOCIAL,
-        priority=3
+        priority=6
     ),
 
     # Capa 2 - Memoria / Autoconocimiento (prioridad más baja que social pura)
@@ -163,9 +187,11 @@ REGLAS_BASE: List[RoutingRule] = [
             "qué pasó", "qué hiciste", "dónde estabas",
             "has aprendido", "has visto", "has oído",
             "experiencia", "aprendiste", "sabes",
+            "la ultima vez", "que paso", "que hiciste", "donde estabas",
+            "has oido", "como me llamo", "quien soy", "que sabes de mi",
         ],
-        intent=IntentType.SOCIAL,  # Se envía a Persona con acceso a memoria
-        priority=4
+        intent=IntentType.MEMORY_QUERY,
+        priority=5
     ),
 ]
 
