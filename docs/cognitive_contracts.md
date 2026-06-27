@@ -386,6 +386,9 @@ Tambien llama `obtener_ultimas_acciones()` para memoria de trabajo.
 Formato inyectado al prompt:
 
 ```text
+<continuidad conversacional reciente en RAM, si existe>
+
+MEMORIA DE TRABAJO OPERATIVA:
 <acciones recientes de memoria de trabajo>
 
 RECUERDOS A LARGO PLAZO:
@@ -402,6 +405,19 @@ Contrato:
 - Debe registrar accion, parametros y resultado.
 - Debe ser compacta.
 - Debe poder imprimirse como texto breve para prompts.
+
+### Memoria conversacional RAM
+
+Responsabilidad: mantener continuidad inmediata de dialogo sin consultar ni
+escribir en ChromaDB.
+
+Contrato:
+
+- Debe registrar pares `Usuario` / `Lazzaro` solo cuando la salida final sea
+  `hablar`.
+- Debe vivir solo en RAM y usar una cola circular pequena.
+- Debe inyectarse antes de la memoria operativa y de los recuerdos largos.
+- No debe ejecutarse para eventos `NOOP` o `INTERNAL` filtrados por Capa 0.
 
 ### Consolidacion / Sueno
 

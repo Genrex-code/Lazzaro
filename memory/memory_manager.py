@@ -10,6 +10,7 @@ from typing import Any, Optional
 
 from core.logger import get_logger
 from memory.chroma_client import ChromaClient
+from memory.conversation_memory import ConversationMemory
 from memory.episodic_memory import EpisodicMemoryStore
 from memory.memory_encoder import MemoryEncoder
 from memory.memory_filters import MemoryFilters
@@ -48,6 +49,7 @@ class MemoryManager:
         self,
         chroma_client: ChromaClient,
         working_memory_size: int = 20,
+        conversation_memory_size: int = 12,
         consolidacion_umbral: int = 30,
         consolidacion_antiguedad_minutos: int = 5,
     ):
@@ -59,6 +61,7 @@ class MemoryManager:
         self.filters = MemoryFilters()
         self.summarizer = MemorySummarizer()
         self.working_memory = WorkingMemory(max_size=working_memory_size)
+        self.conversation_memory = ConversationMemory(max_turns=conversation_memory_size)
         self.consolidacion_umbral = consolidacion_umbral
         self.consolidacion_antiguedad_minutos = consolidacion_antiguedad_minutos
         self.revision_consolidacion_cada = max(5, min(10, consolidacion_umbral))
@@ -170,6 +173,31 @@ class MemoryManager:
     def obtener_ultimas_acciones(self, n: int = 5) -> str:
         """Devuelve un resumen textual de las ultimas acciones."""
         return self.working_memory.resumen()
+
+    def registrar_turno_conversacional(
+        self,
+        mensaje_usuario: str,
+        respuesta_lazzaro: str,
+        pensamiento: str = "",
+        emocion: str = "Fcl_ALL_Neutral",
+        route: str = "",
+        intent: str = "",
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """Registra un intercambio de dialogo reciente sin persistirlo en Chroma."""
+        self.conversation_memory.registrar_turno(
+            usuario=mensaje_usuario,
+            lazzaro=respuesta_lazzaro,
+            pensamiento=pensamiento,
+            emocion=emocion,
+            route=route,
+            intent=intent,
+            metadata=metadata,
+        )
+
+    def obtener_contexto_conversacional(self, n: int = 6) -> str:
+        """Devuelve los ultimos turnos conversacionales para continuidad inmediata."""
+        return self.conversation_memory.resumen(n=n)
 
     def close(self) -> None:
         """Cierra recursos persistentes de memoria."""

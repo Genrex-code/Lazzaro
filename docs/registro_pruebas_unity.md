@@ -404,3 +404,31 @@
 - Los modelos por defecto de cada proveedor pueden requerir ajuste en `.env` segun disponibilidad real de la cuenta.
 - No se hicieron llamadas reales a APIs externas durante la validacion automatica para evitar gastar presupuesto.
 - Los comandos compuestos separados por coma, como `gira 180 , camina hacia la capsule`, aun pueden necesitar una mejora de segmentacion en la cola de tareas.
+
+## 2026-06-27 - Fase 1: Memoria Conversacional RAM
+
+### Sintoma Observado
+
+- Lazzaro podia responder bien a un turno aislado, pero perdia continuidad entre mensajes cercanos.
+- La memoria de trabajo existente registraba acciones (`hablar -> despachada`), no pares de dialogo usuario/respuesta.
+
+### Cambios Aplicados
+
+- Se agrego `memory/conversation_memory.py` como cola circular volatil de turnos `Usuario` / `Lazzaro`.
+- `MemoryManager` expone `registrar_turno_conversacional()` y `obtener_contexto_conversacional()` sin escribir en ChromaDB.
+- `Orchestrator` inyecta continuidad conversacional solo cuando el evento ya sobrevivio a Capa 0 y se iba a leer memoria.
+- `Orchestrator` registra el turno conversacional solo si el evento fue `comando_usuario` y la accion final fue `hablar`.
+
+### Pruebas Ejecutadas
+
+- `python -m py_compile memory\conversation_memory.py memory\memory_manager.py core\orchestrator.py ai_engine\test_conversation_memory.py`
+- `python ai_engine\test_conversation_memory.py`
+- `python ai_engine\test_persona.py`
+- `python ai_engine\test_motor_guardrails.py`
+- `python ai_engine\test_oracle.py`
+
+### Riesgos Pendientes
+
+- La memoria conversacional aun es solo RAM; al reiniciar el proceso se pierde.
+- Falta una fase posterior para persistir selectivamente memorias relacionales importantes.
+- No se ha probado todavia en Unity Play Mode con dialogos largos de apodos, preferencias y referencias al turno anterior.

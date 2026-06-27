@@ -181,6 +181,12 @@ class Orchestrator:
             resultado=resultado_memoria,
             detalles=detalles_resultado,
         )
+        self._registrar_turno_conversacional_si_aplica(
+            evento=evento,
+            triage_decision=triage_decision,
+            action_response=action_response,
+            accion_saliente=accion_saliente,
+        )
 
         self._cachear_transaccion(evento.id_transaccion, accion_saliente)
         self._agregar_notificacion_si_corresponde(action_response)
@@ -204,14 +210,27 @@ class Orchestrator:
                 limite=5,
                 max_caracteres=600,
             )
+            memoria_conversacional = self._obtener_contexto_conversacional()
             memoria_corto_plazo = self.memory.obtener_ultimas_acciones()
-            memoria_texto_completa = (
-                f"{memoria_corto_plazo}\n\n"
-                f"RECUERDOS A LARGO PLAZO:\n{memoria_texto}"
-            )
-            return memoria_texto_completa
+            bloques_memoria = []
+            if memoria_conversacional:
+                bloques_memoria.append(memoria_conversacional)
+            bloques_memoria.append(f"MEMORIA DE TRABAJO OPERATIVA:\n{memoria_corto_plazo}")
+            bloques_memoria.append(f"RECUERDOS A LARGO PLAZO:\n{memoria_texto}")
+            return "\n\n".join(bloques_memoria)
         except Exception as e:
             logger.error("Error leyendo contexto de memoria: %s", e, exc_info=True)
+            return ""
+
+    def _obtener_contexto_conversacional(self) -> str:
+        """Lee continuidad conversacional solo cuando ya se autorizo leer memoria."""
+        obtener = getattr(self.memory, "obtener_contexto_conversacional", None)
+        if not callable(obtener):
+            return ""
+        try:
+            return str(obtener(n=6) or "").strip()
+        except Exception as e:
+            logger.error("Error leyendo memoria conversacional: %s", e, exc_info=True)
             return ""
 
     def _guardar_evento_en_memoria(
@@ -241,6 +260,63 @@ class Orchestrator:
             )
         except Exception as e:
             logger.error("Error guardando evento en MemoryManager: %s", e, exc_info=True)
+
+    def _registrar_turno_conversacional_si_aplica(
+        self,
+        evento: EventoEntrante,
+        triage_decision: dict,
+        action_response: ActionResponse,
+        accion_saliente: AccionSaliente,
+    ) -> None:
+        """Guarda en RAM el par usuario/respuesta cuando la salida final fue hablar."""
+        if evento.tipo_evento != "comando_usuario":
+            return
+        if accion_saliente.nombre != "hablar":
+            return
+
+        registrar = getattr(self.memory, "registrar_turno_conversacional", None)
+        if not callable(registrar):
+            return
+
+        mensaje_usuario = self._extraer_mensaje_usuario(evento)
+        respuesta_lazzaro = self._extraer_texto_hablar(action_response.parametros)
+        if not mensaje_usuario and not respuesta_lazzaro:
+            return
+
+        try:
+            registrar(
+                mensaje_usuario=mensaje_usuario,
+                respuesta_lazzaro=respuesta_lazzaro,
+                pensamiento=action_response.pensamiento,
+                emocion=accion_saliente.emocion_facial,
+                route=str(triage_decision.get("route", "")),
+                intent=str(triage_decision.get("intent", "")),
+                metadata={
+                    "origen": evento.origen,
+                    "id_transaccion": evento.id_transaccion,
+                    "accion": accion_saliente.nombre,
+                },
+            )
+        except Exception as e:
+            logger.error("Error registrando turno conversacional: %s", e, exc_info=True)
+
+    @staticmethod
+    def _extraer_mensaje_usuario(evento: EventoEntrante) -> str:
+        for clave in ("mensaje", "texto_usuario", "texto"):
+            valor = evento.detalles.get(clave)
+            if valor:
+                return str(valor).strip()
+        return ""
+
+    @staticmethod
+    def _extraer_texto_hablar(parametros: dict) -> str:
+        if not isinstance(parametros, dict):
+            return ""
+        for clave in ("texto_a_comunicar", "texto", "mensaje"):
+            valor = parametros.get(clave)
+            if valor:
+                return str(valor).strip()
+        return ""
 
     @staticmethod
     def _accion_pasiva(razon: str | None = None) -> ActionResponse:
