@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 import sys
 from pathlib import Path
 
@@ -47,6 +48,7 @@ class FakeSemanticStore:
 
     def buscar(self, query: str, n: int = 5, where: dict | None = None):
         self.where = where
+        ahora = datetime.utcnow()
         return [
             MemoryResult(
                 recuerdo=SemanticMemory(
@@ -55,13 +57,45 @@ class FakeSemanticStore:
                         tipo_evento="memoria_relacional",
                         valencia=0.25,
                         impacto_emocional=0.65,
+                        timestamp=ahora - timedelta(minutes=10),
+                        extra={
+                            "categoria_relacional": "apodo_lazzaro",
+                            "valor_relacional": "lazz",
+                            "estado_relacional": "activo",
+                        },
                     ),
                     regla="Memoria relacional: el usuario suele llamar a Lazzaro 'lazz'.",
                     origen="conversacion_selectiva",
                 ),
                 distancia=0.1,
+            ),
+            MemoryResult(
+                recuerdo=SemanticMemory(
+                    id="rel-2",
+                    metadata=MemoryMetadata(
+                        tipo_evento="memoria_relacional",
+                        valencia=0.25,
+                        impacto_emocional=0.65,
+                        timestamp=ahora,
+                        extra={
+                            "categoria_relacional": "apodo_lazzaro",
+                            "valor_relacional": "lazz",
+                            "estado_relacional": "revocado",
+                        },
+                    ),
+                    regla="Memoria relacional: el usuario pidio no volver a llamar a Lazzaro 'lazz'.",
+                    origen="conversacion_selectiva",
+                ),
+                distancia=0.2,
             )
         ]
+
+
+class FakeClientConHuella:
+    def listar(self, where=None, limite=None):
+        if where and where.get("huella_conversacional"):
+            return {"ids": ["rel-existente"], "documents": [], "metadatas": []}
+        return {"ids": [], "documents": [], "metadatas": []}
 
 
 def main() -> None:
@@ -100,6 +134,15 @@ def main() -> None:
         any("creador" in hecho or "desarrollador" in hecho for hecho in hechos),
         "Debe extraer autoridad relacional explicita.",
     )
+    hechos_detallados = MemoryManager._extraer_hechos_relacionales_detallados("ya no te llamare Lazz")
+    assert_true(
+        any(
+            hecho["categoria_relacional"] == "apodo_lazzaro"
+            and hecho["estado_relacional"] == "revocado"
+            for hecho in hechos_detallados
+        ),
+        "Debe extraer revocaciones de apodo como hechos relacionales.",
+    )
 
     gestor_memoria = object.__new__(MemoryManager)
     gestor_memoria._hechos_conversacionales_guardados = set()
@@ -131,6 +174,25 @@ def main() -> None:
         reglas_guardadas[0]["tipo_evento"] == "memoria_relacional",
         "Debe guardar hechos conversacionales como memoria relacional semantica.",
     )
+    assert_true(
+        reglas_guardadas[0]["extra"]["categoria_relacional"] == "nombre_usuario",
+        "Debe guardar categoria relacional para resolver vigencia.",
+    )
+
+    gestor_memoria_reinicio = object.__new__(MemoryManager)
+    gestor_memoria_reinicio._hechos_conversacionales_guardados = set()
+    gestor_memoria_reinicio.client = FakeClientConHuella()
+    reglas_duplicadas = []
+    gestor_memoria_reinicio.guardar_regla = lambda **kwargs: reglas_duplicadas.append(kwargs) or "duplicada"
+    MemoryManager._registrar_hechos_conversacionales(
+        gestor_memoria_reinicio,
+        mensaje_usuario="mi nombre es Perro",
+        respuesta_lazzaro="Entendido.",
+    )
+    assert_true(
+        not reglas_duplicadas,
+        "Debe evitar duplicados persistidos si la huella ya existe en Chroma.",
+    )
 
     gestor_memoria.semantic_store = FakeSemanticStore()
     contexto_relacional = MemoryManager.obtener_contexto_relacional(
@@ -144,6 +206,14 @@ def main() -> None:
     assert_true(
         gestor_memoria.semantic_store.where == {"tipo_evento": "memoria_relacional"},
         "Debe filtrar la busqueda semantica a memoria_relacional.",
+    )
+    assert_true(
+        "no volver a llamar" in contexto_relacional,
+        "Debe priorizar la correccion relacional mas reciente.",
+    )
+    assert_true(
+        "suele llamar" not in contexto_relacional,
+        "Debe ocultar el hecho relacional antiguo cuando hay correccion vigente.",
     )
 
     orquestador = object.__new__(Orchestrator)

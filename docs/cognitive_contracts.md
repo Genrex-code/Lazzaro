@@ -447,8 +447,14 @@ Contrato:
 - Lectura: `obtener_contexto_relacional(...)` debe filtrar memoria semantica por
   `tipo_evento="memoria_relacional"` y devolver un bloque propio antes de la
   memoria operativa y de recuerdos generales.
+- Vigencia: cada hecho relacional debe guardar `categoria_relacional`,
+  `valor_relacional`, `estado_relacional` y `huella_conversacional`.
+- Correcciones: si el usuario revoca un apodo o nombre, se registra un hecho
+  `estado_relacional="revocado"` en la misma categoria; la lectura debe
+  priorizar el hecho mas reciente por categoria.
 - No debe guardar transcripciones completas del chat.
-- Debe deduplicar hechos dentro del proceso para evitar ruido repetido.
+- Debe deduplicar hechos dentro del proceso y tambien consultar la huella en
+  ChromaDB para evitar duplicados tras reinicios.
 - Debe usar `guardar_regla(...)`, no `guardar_experiencia(...)`, porque estos
   hechos son conocimiento relacional estable y no telemetria episodica.
 

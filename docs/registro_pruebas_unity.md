@@ -535,3 +535,38 @@ El contrato vigente del Oraculo es frio: `OracleResult -> Persona -> hablar`.
   extraidos y guardados correctamente en Fase 2.
 - Falta validar en Unity con una sesion que incluya reinicio del backend y luego
   preguntas como `recuerdas mi apodo?`.
+
+## 2026-06-27 - Fase 4: Higiene De Memoria Relacional
+
+### Sintoma Observado
+
+- La memoria relacional ya podia guardarse y recuperarse, pero aun era fragil
+  ante duplicados tras reinicios.
+- No habia un mecanismo claro para correcciones del usuario, por ejemplo dejar
+  de usar un apodo viejo.
+
+### Cambios Aplicados
+
+- Cada hecho relacional ahora guarda `categoria_relacional`,
+  `valor_relacional`, `estado_relacional` y `huella_conversacional`.
+- La deduplicacion combina cache process-local con busqueda de huella en
+  ChromaDB, evitando duplicados si el backend se reinicia.
+- Se agrego soporte para revocaciones conservadoras como `ya no te llamare X`
+  o `no me digas X`.
+- `obtener_contexto_relacional()` selecciona el hecho mas reciente por
+  categoria, de modo que una revocacion nueva oculta el dato anterior sin borrar
+  recuerdos.
+
+### Pruebas Ejecutadas
+
+- `python -m py_compile memory\memory_manager.py ai_engine\test_conversation_memory.py`
+- `python ai_engine\test_conversation_memory.py`
+
+### Riesgos Pendientes
+
+- No se borran recuerdos viejos; solo se ocultan por vigencia. Si Chroma crece
+  demasiado, hara falta una limpieza relacional posterior.
+- Las revocaciones siguen siendo deterministas y conservadoras; frases muy
+  ambiguas pueden no detectarse hasta mejorar Capa 0 o entrenar clasificador.
+- Falta Fase 5: prueba manual en Unity con sesion larga, reinicio y cambios de
+  apodo/preferencia.

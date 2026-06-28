@@ -390,6 +390,9 @@ Componentes:
 - Lectura relacional prioritaria: `MemoryManager.obtener_contexto_relacional()`
   recupera `tipo_evento="memoria_relacional"` en un bloque separado antes de
   memoria operativa y recuerdos largos.
+- Higiene relacional: los hechos persistidos tienen huella estable, categoria,
+  valor y estado (`activo` o `revocado`) para evitar duplicados y resolver
+  correcciones como dejar de usar un apodo viejo.
 - Consolidacion observacional: compacta telemetria vieja en reglas semanticas.
 
 Reglas actuales:
@@ -400,6 +403,8 @@ Reglas actuales:
   explicitos se promueven a memoria semantica persistente.
 - Cuando hay decision activa, el contexto se arma como continuidad RAM,
   memoria relacional persistente, memoria operativa y recuerdos largos.
+- La memoria relacional elige el hecho mas reciente por categoria, por lo que
+  una revocacion nueva puede ocultar un apodo o nombre anterior sin borrar datos.
 - `resultado_accion` y `actualizacion_estado` no entran a memoria de trabajo si terminan en `none` pasivo.
 - Al detectar descanso, el orquestador llama a `consolidar_memorias_si_hace_falta()`.
 - `ChromaClient` tiene compuerta de hilos process-local; no protege contra otro proceso externo tocando la misma DB.

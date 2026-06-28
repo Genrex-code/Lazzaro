@@ -906,4 +906,47 @@ REGLAS FISICAS Y DE ENTORNO:
 
         return true;
     }
+    [header("Sistema Nervioso (BOLOGIA)")]
+    [TOOLtip("Fuerza minima de impacto para considerar que le dolio el madraso")]
+    public float umnbralDeDolor = 0.5;
+    // Unity llama automaticamente a este metodo cada ves que el capsule collider choca con algo 
+    void OnCollisionEnter(Collision choque)
+    {
+        // 1. Filtar el piso o terreno para que no le duela existir ( aunque me gustaria un poco considerando como me anda tratando usualmente)
+        if (choque.gameObjet.name.Contains("Plane") || choque.gameObject.name.Contains("Ground")) return;
+
+        // 2. medir la fuerza del trancaso
+        float fuerzaDelGolpe = choque.relativeVelocity.magnitude;
+
+        //3. Evaluar si el golpe cruzo su tolerancia al dolor
+        if ( fuerzaDelGolpe > umnbralDeDolor)
+        {
+            string nombreObjeto = choque.gameObject.name;
+            Debug.LogWarning ($"[DOLOR] Lazzaro se pego con '{nombreObjeto}' con fuerza de {fuerzaDelGolpe} jasjasjsa que tonota");
+            // 4. Frenar el NAVMeshAgent para que no siga empujando el obstaculo como zombie y no sufra tanto
+            if (TryGetComponent<UnityEngine.AI.NavMeshAgent>(out var agent))
+            {
+                if (agente.isActiveAndEnable && agente.isOnNavMesh)
+                {
+                    agente.isStopped = true;
+                    agente.ResetPath();
+                    //jasjas le pondira un pobre tonota
+                }
+            }
+            //5. Calcular hacia donde debe saltar para huir del golpe ( direccion opuesta al impacto)
+            Vector3 direccionGolpe = (transform.position - choque.contacts[0].points).normalized;
+            string dirEscapeSTR = $"{direccionGolpe.x:0.##},0, {direccionGolpe.z:0.##}";
+
+            //6. LLAMAR A LA FUNCION DE DOLOR AL PITON O PAITON O COMO SE ESCRIBA d:
+            string causa = $"!ay! Acabo de chocar violentamente contra {nombreObjeto}. Me dolio mucho :c ."; 
+            //   pe
+            ReportarDolor(
+                causaDelDolor: causa,
+                objetoGolpeado: nombreObjeto,
+                direccionEscape : dirEscapeSTR,
+                distanciaEscape: 2.0f,
+                accionFallida: ultimaAccionMovimiento //variable que ya tego en el script quien sabe donde 
+            );
+        }
+    }
 }

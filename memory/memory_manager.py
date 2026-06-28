@@ -186,14 +186,15 @@ class MemoryManager:
 
             recuerdos = self.semantic_store.buscar(
                 query=query_limpia,
-                n=max(1, limite),
+                n=max(1, limite * 3),
                 where={"tipo_evento": "memoria_relacional"},
             )
             if not recuerdos:
                 return ""
 
+            recuerdos_vigentes = self._seleccionar_memorias_relacionales_vigentes(recuerdos)
             lineas = ["MEMORIA RELACIONAL PERSISTENTE:"]
-            for resultado in recuerdos[:limite]:
+            for resultado in recuerdos_vigentes[:limite]:
                 regla = str(getattr(resultado.recuerdo, "regla", "") or "").strip()
                 if not regla:
                     continue
@@ -258,29 +259,47 @@ class MemoryManager:
         metadata: Optional[dict[str, Any]] = None,
     ) -> None:
         """Guarda solo hechos relacionales explicitos; no persiste cada turno."""
-        hechos = self._extraer_hechos_conversacionales(mensaje_usuario, respuesta_lazzaro)
+        hechos = self._extraer_hechos_relacionales_detallados(mensaje_usuario, respuesta_lazzaro)
         if not hechos:
             return
 
         metadata_base = metadata or {}
         for hecho in hechos:
-            huella = sha1(hecho.lower().encode("utf-8")).hexdigest()[:16]
+            regla = str(hecho.get("regla", "")).strip()
+            if not regla:
+                continue
+
+            huella = str(hecho.get("huella_conversacional") or "").strip()
+            if not huella:
+                huella = self._calcular_huella_relacional(
+                    categoria=str(hecho.get("categoria_relacional", "")),
+                    valor=str(hecho.get("valor_relacional", "")),
+                    estado=str(hecho.get("estado_relacional", "")),
+                    regla=regla,
+                )
+
             if huella in self._hechos_conversacionales_guardados:
+                continue
+            if self._hecho_relacional_ya_persistido(huella):
+                self._hechos_conversacionales_guardados.add(huella)
                 continue
 
             guardada = self.guardar_regla(
-                regla=hecho,
+                regla=regla,
                 tipo_evento="memoria_relacional",
                 valencia=0.25,
                 impacto_emocional=0.65,
                 origen="conversacion_selectiva",
                 extra={
-                    "fuente": "memoria_conversacional_fase_2",
+                    "fuente": "memoria_conversacional_fase_4",
                     "route": route,
                     "intent": intent,
                     "id_transaccion": metadata_base.get("id_transaccion"),
                     "accion": metadata_base.get("accion"),
                     "huella_conversacional": huella,
+                    "categoria_relacional": hecho.get("categoria_relacional", ""),
+                    "valor_relacional": hecho.get("valor_relacional", ""),
+                    "estado_relacional": hecho.get("estado_relacional", "activo"),
                 },
             )
             if guardada:
@@ -293,12 +312,65 @@ class MemoryManager:
         respuesta_lazzaro: str = "",
     ) -> list[str]:
         """Extrae hechos pequenos y estables desde texto conversacional explicito."""
+        return [
+            str(hecho.get("regla", "")).strip()
+            for hecho in cls._extraer_hechos_relacionales_detallados(
+                mensaje_usuario,
+                respuesta_lazzaro,
+            )
+            if str(hecho.get("regla", "")).strip()
+        ]
+
+    @classmethod
+    def _extraer_hechos_relacionales_detallados(
+        cls,
+        mensaje_usuario: str,
+        respuesta_lazzaro: str = "",
+    ) -> list[dict[str, str]]:
+        """Extrae hechos relacionales con metadata para vigencia y deduplicacion."""
         texto_original = " ".join(str(mensaje_usuario or "").split())
         if not texto_original:
             return []
 
         texto = cls._normalizar_texto_busqueda(texto_original)
-        hechos: list[str] = []
+        hechos: list[dict[str, str]] = []
+
+        apodo_revocado = cls._buscar_primer_grupo(
+            texto,
+            (
+                r"\bya\s+no\s+te\s+(?:dire|digo|llamare|llamo)\s+['\"]?([a-z0-9_-]{2,32})",
+                r"\bno\s+te\s+(?:dire|digo|llamare|llamo)\s+['\"]?([a-z0-9_-]{2,32})",
+                r"\bdeje\s+de\s+(?:decirte|llamarte)\s+['\"]?([a-z0-9_-]{2,32})",
+                r"\bdeja\s+de\s+(?:decirte|llamarte)\s+['\"]?([a-z0-9_-]{2,32})",
+            ),
+        )
+        if apodo_revocado:
+            hechos.append(
+                cls._crear_hecho_relacional(
+                    regla=f"Memoria relacional: el usuario pidio no volver a llamar a Lazzaro '{apodo_revocado}'.",
+                    categoria="apodo_lazzaro",
+                    valor=apodo_revocado,
+                    estado="revocado",
+                )
+            )
+
+        nombre_usuario_revocado = cls._buscar_primer_grupo(
+            texto,
+            (
+                r"\bya\s+no\s+me\s+(?:digas|llames)\s+['\"]?([a-z0-9_-]{2,32})",
+                r"\bno\s+me\s+(?:digas|llames)\s+['\"]?([a-z0-9_-]{2,32})",
+                r"\bdeja\s+de\s+(?:decirme|llamarme)\s+['\"]?([a-z0-9_-]{2,32})",
+            ),
+        )
+        if nombre_usuario_revocado:
+            hechos.append(
+                cls._crear_hecho_relacional(
+                    regla=f"Memoria relacional: el usuario pidio que Lazzaro ya no lo llame '{nombre_usuario_revocado}'.",
+                    categoria="nombre_usuario",
+                    valor=nombre_usuario_revocado,
+                    estado="revocado",
+                )
+            )
 
         apodo = cls._buscar_primer_grupo(
             texto,
@@ -310,7 +382,14 @@ class MemoryManager:
             ),
         )
         if apodo:
-            hechos.append(f"Memoria relacional: el usuario suele llamar a Lazzaro '{apodo}'.")
+            hechos.append(
+                cls._crear_hecho_relacional(
+                    regla=f"Memoria relacional: el usuario suele llamar a Lazzaro '{apodo}'.",
+                    categoria="apodo_lazzaro",
+                    valor=apodo,
+                    estado="activo",
+                )
+            )
 
         nombre_lazzaro = cls._buscar_primer_grupo(
             texto,
@@ -320,7 +399,14 @@ class MemoryManager:
             ),
         )
         if nombre_lazzaro:
-            hechos.append(f"Memoria relacional: el usuario afirma que el nombre de Lazzaro es '{nombre_lazzaro}'.")
+            hechos.append(
+                cls._crear_hecho_relacional(
+                    regla=f"Memoria relacional: el usuario afirma que el nombre de Lazzaro es '{nombre_lazzaro}'.",
+                    categoria="nombre_lazzaro",
+                    valor=nombre_lazzaro,
+                    estado="activo",
+                )
+            )
 
         nombre_usuario = cls._buscar_primer_grupo(
             texto,
@@ -331,23 +417,76 @@ class MemoryManager:
             ),
         )
         if nombre_usuario:
-            hechos.append(f"Memoria relacional: el usuario se identifica como '{nombre_usuario}'.")
+            hechos.append(
+                cls._crear_hecho_relacional(
+                    regla=f"Memoria relacional: el usuario se identifica como '{nombre_usuario}'.",
+                    categoria="nombre_usuario",
+                    valor=nombre_usuario,
+                    estado="activo",
+                )
+            )
 
         if cls._contiene_autoridad_creador(texto):
             hechos.append(
-                "Memoria relacional: el usuario afirma ser Perro, creador, desarrollador "
-                "o arquitecto principal de Lazzaro."
+                cls._crear_hecho_relacional(
+                    regla=(
+                        "Memoria relacional: el usuario afirma ser Perro, creador, desarrollador "
+                        "o arquitecto principal de Lazzaro."
+                    ),
+                    categoria="autoridad_usuario",
+                    valor="perro_creador",
+                    estado="activo",
+                )
             )
 
         preferencia = cls._buscar_preferencia(texto_original, "me gusta")
         if preferencia:
-            hechos.append(f"Memoria relacional: al usuario le gusta {preferencia}.")
+            hechos.append(
+                cls._crear_hecho_relacional(
+                    regla=f"Memoria relacional: al usuario le gusta {preferencia}.",
+                    categoria=f"preferencia_usuario:{cls._normalizar_valor_relacional(preferencia)}",
+                    valor=preferencia,
+                    estado="activo",
+                )
+            )
 
         rechazo = cls._buscar_preferencia(texto_original, "no me gusta")
         if rechazo:
-            hechos.append(f"Memoria relacional: al usuario no le gusta {rechazo}.")
+            hechos.append(
+                cls._crear_hecho_relacional(
+                    regla=f"Memoria relacional: al usuario no le gusta {rechazo}.",
+                    categoria=f"rechazo_usuario:{cls._normalizar_valor_relacional(rechazo)}",
+                    valor=rechazo,
+                    estado="activo",
+                )
+            )
 
-        return cls._deduplicar_hechos(hechos)
+        return cls._deduplicar_hechos_relacionales(hechos)
+
+    @classmethod
+    def _crear_hecho_relacional(
+        cls,
+        regla: str,
+        categoria: str,
+        valor: str,
+        estado: str = "activo",
+    ) -> dict[str, str]:
+        valor_limpio = str(valor or "").strip(" .,;:!?\"'")
+        categoria_limpia = str(categoria or "").strip().lower()
+        estado_limpio = str(estado or "activo").strip().lower()
+        huella = cls._calcular_huella_relacional(
+            categoria=categoria_limpia,
+            valor=valor_limpio,
+            estado=estado_limpio,
+            regla=regla,
+        )
+        return {
+            "regla": regla,
+            "categoria_relacional": categoria_limpia,
+            "valor_relacional": valor_limpio,
+            "estado_relacional": estado_limpio,
+            "huella_conversacional": huella,
+        }
 
     @staticmethod
     def _normalizar_texto_busqueda(texto: str) -> str:
@@ -408,6 +547,116 @@ class MemoryManager:
             vistos.add(clave)
             resultado.append(hecho)
         return resultado
+
+    @staticmethod
+    def _deduplicar_hechos_relacionales(hechos: list[dict[str, str]]) -> list[dict[str, str]]:
+        vistos: set[str] = set()
+        resultado: list[dict[str, str]] = []
+        for hecho in hechos:
+            huella = str(hecho.get("huella_conversacional", "")).strip()
+            if not huella:
+                huella = MemoryManager._calcular_huella_relacional(
+                    categoria=str(hecho.get("categoria_relacional", "")),
+                    valor=str(hecho.get("valor_relacional", "")),
+                    estado=str(hecho.get("estado_relacional", "")),
+                    regla=str(hecho.get("regla", "")),
+                )
+            if huella in vistos:
+                continue
+            vistos.add(huella)
+            resultado.append(hecho)
+        return resultado
+
+    @staticmethod
+    def _normalizar_valor_relacional(valor: str) -> str:
+        texto = MemoryManager._normalizar_texto_busqueda(valor)
+        texto = re.sub(r"[^a-z0-9_-]+", "_", texto).strip("_")
+        return texto[:48] or "valor"
+
+    @staticmethod
+    def _calcular_huella_relacional(
+        categoria: str,
+        valor: str,
+        estado: str,
+        regla: str,
+    ) -> str:
+        base = "|".join(
+            (
+                MemoryManager._normalizar_valor_relacional(categoria),
+                MemoryManager._normalizar_valor_relacional(valor),
+                MemoryManager._normalizar_valor_relacional(estado),
+                MemoryManager._normalizar_texto_busqueda(regla),
+            )
+        )
+        return sha1(base.encode("utf-8")).hexdigest()[:16]
+
+    def _hecho_relacional_ya_persistido(self, huella: str) -> bool:
+        """Evita duplicados despues de reiniciar buscando la huella en Chroma."""
+        huella_limpia = str(huella or "").strip()
+        if not huella_limpia:
+            return False
+
+        client = getattr(self, "client", None)
+        listar = getattr(client, "listar", None)
+        if not callable(listar):
+            return False
+
+        try:
+            registros = listar(where={"huella_conversacional": huella_limpia}, limite=1)
+        except Exception as e:
+            logger.debug("No se pudo verificar huella relacional existente: %s", e)
+            return False
+
+        if not registros:
+            return False
+        return bool(registros.get("ids"))
+
+    def _seleccionar_memorias_relacionales_vigentes(
+        self,
+        recuerdos: list[MemoryResult],
+    ) -> list[MemoryResult]:
+        """Prioriza el hecho mas reciente por categoria y conserva revocaciones explicitas."""
+        if not recuerdos:
+            return []
+
+        seleccion: dict[str, MemoryResult] = {}
+        sin_categoria: list[MemoryResult] = []
+
+        for recuerdo in recuerdos:
+            metadata = getattr(recuerdo.recuerdo, "metadata", None)
+            extra = getattr(metadata, "extra", {}) if metadata else {}
+            categoria = str(extra.get("categoria_relacional", "")).strip()
+            if not categoria:
+                sin_categoria.append(recuerdo)
+                continue
+
+            existente = seleccion.get(categoria)
+            if existente is None or self._timestamp_relacional(recuerdo) >= self._timestamp_relacional(existente):
+                seleccion[categoria] = recuerdo
+
+        vigentes = list(seleccion.values()) + sin_categoria
+        vigentes.sort(
+            key=lambda resultado: (
+                self._estado_relacional_prioridad(resultado),
+                self._timestamp_relacional(resultado),
+                getattr(resultado, "metadata_score", 0.0),
+            ),
+            reverse=True,
+        )
+        return vigentes
+
+    @staticmethod
+    def _timestamp_relacional(resultado: MemoryResult) -> datetime:
+        metadata = getattr(resultado.recuerdo, "metadata", None)
+        timestamp = getattr(metadata, "timestamp", None)
+        return timestamp if isinstance(timestamp, datetime) else datetime.min
+
+    @staticmethod
+    def _estado_relacional_prioridad(resultado: MemoryResult) -> int:
+        metadata = getattr(resultado.recuerdo, "metadata", None)
+        extra = getattr(metadata, "extra", {}) if metadata else {}
+        estado = str(extra.get("estado_relacional", "activo")).strip().lower()
+        return 1 if estado == "activo" else 0
 
     @staticmethod
     def _recortar_texto(texto: str, limite: int) -> str:
