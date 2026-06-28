@@ -6,6 +6,7 @@ Orquesta todos los subsistemas y expone una API simple para el resto del agente.
 from collections import Counter
 from datetime import datetime, timedelta
 from hashlib import sha1
+import re
 from typing import Any, Optional
 
 from core.logger import get_logger
@@ -66,6 +67,7 @@ class MemoryManager:
         self.consolidacion_antiguedad_minutos = consolidacion_antiguedad_minutos
         self.revision_consolidacion_cada = max(5, min(10, consolidacion_umbral))
         self._observaciones_desde_revision = 0
+        self._hechos_conversacionales_guardados: set[str] = set()
         logger.info("MemoryManager inicializado correctamente.")
 
     def guardar_experiencia(
@@ -184,7 +186,7 @@ class MemoryManager:
         intent: str = "",
         metadata: Optional[dict[str, Any]] = None,
     ) -> None:
-        """Registra un intercambio de dialogo reciente sin persistirlo en Chroma."""
+        """Registra un intercambio de dialogo reciente y persiste hechos relacionales claros."""
         self.conversation_memory.registrar_turno(
             usuario=mensaje_usuario,
             lazzaro=respuesta_lazzaro,
@@ -194,10 +196,177 @@ class MemoryManager:
             intent=intent,
             metadata=metadata,
         )
+        self._registrar_hechos_conversacionales(
+            mensaje_usuario=mensaje_usuario,
+            respuesta_lazzaro=respuesta_lazzaro,
+            route=route,
+            intent=intent,
+            metadata=metadata,
+        )
 
     def obtener_contexto_conversacional(self, n: int = 6) -> str:
         """Devuelve los ultimos turnos conversacionales para continuidad inmediata."""
         return self.conversation_memory.resumen(n=n)
+
+    def _registrar_hechos_conversacionales(
+        self,
+        mensaje_usuario: str,
+        respuesta_lazzaro: str = "",
+        route: str = "",
+        intent: str = "",
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """Guarda solo hechos relacionales explicitos; no persiste cada turno."""
+        hechos = self._extraer_hechos_conversacionales(mensaje_usuario, respuesta_lazzaro)
+        if not hechos:
+            return
+
+        metadata_base = metadata or {}
+        for hecho in hechos:
+            huella = sha1(hecho.lower().encode("utf-8")).hexdigest()[:16]
+            if huella in self._hechos_conversacionales_guardados:
+                continue
+
+            guardada = self.guardar_regla(
+                regla=hecho,
+                tipo_evento="memoria_relacional",
+                valencia=0.25,
+                impacto_emocional=0.65,
+                origen="conversacion_selectiva",
+                extra={
+                    "fuente": "memoria_conversacional_fase_2",
+                    "route": route,
+                    "intent": intent,
+                    "id_transaccion": metadata_base.get("id_transaccion"),
+                    "accion": metadata_base.get("accion"),
+                    "huella_conversacional": huella,
+                },
+            )
+            if guardada:
+                self._hechos_conversacionales_guardados.add(huella)
+
+    @classmethod
+    def _extraer_hechos_conversacionales(
+        cls,
+        mensaje_usuario: str,
+        respuesta_lazzaro: str = "",
+    ) -> list[str]:
+        """Extrae hechos pequenos y estables desde texto conversacional explicito."""
+        texto_original = " ".join(str(mensaje_usuario or "").split())
+        if not texto_original:
+            return []
+
+        texto = cls._normalizar_texto_busqueda(texto_original)
+        hechos: list[str] = []
+
+        apodo = cls._buscar_primer_grupo(
+            texto,
+            (
+                r"\bte\s+(?:puse|di|doy|dije)\s+(?:el\s+)?apodo\s+['\"]?([a-z0-9_-]{2,32})",
+                r"\bte\s+suelo\s+llamar\s+['\"]?([a-z0-9_-]{2,32})",
+                r"\btu\s+apodo\s+(?:es|sera)\s+['\"]?([a-z0-9_-]{2,32})",
+                r"\bte\s+apod(?:e|o)\s+['\"]?([a-z0-9_-]{2,32})",
+            ),
+        )
+        if apodo:
+            hechos.append(f"Memoria relacional: el usuario suele llamar a Lazzaro '{apodo}'.")
+
+        nombre_lazzaro = cls._buscar_primer_grupo(
+            texto,
+            (
+                r"\btu\s+nombre\s+(?:verdadero\s+)?(?:es|sera)\s+['\"]?([a-z0-9_-]{2,32})",
+                r"\btu\s+designacion\s+(?:es|sera)\s+['\"]?([a-z0-9_-]{2,32})",
+            ),
+        )
+        if nombre_lazzaro:
+            hechos.append(f"Memoria relacional: el usuario afirma que el nombre de Lazzaro es '{nombre_lazzaro}'.")
+
+        nombre_usuario = cls._buscar_primer_grupo(
+            texto,
+            (
+                r"\bme\s+llamo\s+['\"]?([a-z0-9_-]{2,32})",
+                r"\bmi\s+nombre\s+es\s+['\"]?([a-z0-9_-]{2,32})",
+                r"\bllamame\s+['\"]?([a-z0-9_-]{2,32})",
+            ),
+        )
+        if nombre_usuario:
+            hechos.append(f"Memoria relacional: el usuario se identifica como '{nombre_usuario}'.")
+
+        if cls._contiene_autoridad_creador(texto):
+            hechos.append(
+                "Memoria relacional: el usuario afirma ser Perro, creador, desarrollador "
+                "o arquitecto principal de Lazzaro."
+            )
+
+        preferencia = cls._buscar_preferencia(texto_original, "me gusta")
+        if preferencia:
+            hechos.append(f"Memoria relacional: al usuario le gusta {preferencia}.")
+
+        rechazo = cls._buscar_preferencia(texto_original, "no me gusta")
+        if rechazo:
+            hechos.append(f"Memoria relacional: al usuario no le gusta {rechazo}.")
+
+        return cls._deduplicar_hechos(hechos)
+
+    @staticmethod
+    def _normalizar_texto_busqueda(texto: str) -> str:
+        tabla = str.maketrans(
+            "\u00e1\u00e9\u00ed\u00f3\u00fa\u00fc\u00f1"
+            "\u00c1\u00c9\u00cd\u00d3\u00da\u00dc\u00d1",
+            "aeiouunAEIOUUN",
+        )
+        return str(texto or "").translate(tabla).lower()
+
+    @staticmethod
+    def _buscar_primer_grupo(texto: str, patrones: tuple[str, ...]) -> str:
+        for patron in patrones:
+            match = re.search(patron, texto, flags=re.IGNORECASE)
+            if match:
+                return match.group(1).strip(" .,;:!?\"'")
+        return ""
+
+    @staticmethod
+    def _contiene_autoridad_creador(texto: str) -> bool:
+        patrones = (
+            r"\bsoy\s+tu\s+(?:creador|desarrollador|arquitecto)\b",
+            r"\byo\s+soy\s+tu\s+(?:creador|desarrollador|arquitecto)\b",
+            r"\bel\s+desarrollador\s+soy\s+yo\b",
+            r"\byo\s+(?:escribi|hice|construi|programe)\s+tu\s+codigo\b",
+            r"\bcomo\s+tu\s+(?:creador|desarrollador|arquitecto)\b",
+            r"\bsoy\s+perro\b",
+            r"\byo\s+soy\s+perro\b",
+        )
+        return any(re.search(patron, texto, flags=re.IGNORECASE) for patron in patrones)
+
+    @classmethod
+    def _buscar_preferencia(cls, texto_original: str, marcador: str) -> str:
+        texto = " ".join(str(texto_original or "").split())
+        prefijo = r"(?<!no\s)" if marcador == "me gusta" else ""
+        patron = rf"{prefijo}\b{re.escape(marcador)}\s+([^?.!,;]{{3,90}})"
+        match = re.search(patron, texto, flags=re.IGNORECASE)
+        if not match:
+            return ""
+        preferencia = match.group(1).strip(" .,;:!?\"'")
+        if cls._parece_pregunta(preferencia):
+            return ""
+        return preferencia[:90].strip()
+
+    @staticmethod
+    def _parece_pregunta(texto: str) -> bool:
+        texto_norm = f" {texto.lower()} "
+        return any(pista in texto_norm for pista in (" te gusta ", " que opinas ", " puedes ", " quieres "))
+
+    @staticmethod
+    def _deduplicar_hechos(hechos: list[str]) -> list[str]:
+        vistos: set[str] = set()
+        resultado: list[str] = []
+        for hecho in hechos:
+            clave = hecho.lower()
+            if clave in vistos:
+                continue
+            vistos.add(clave)
+            resultado.append(hecho)
+        return resultado
 
     def close(self) -> None:
         """Cierra recursos persistentes de memoria."""

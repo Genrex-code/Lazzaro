@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
+import re
 from typing import Any, Optional
 
 from core.logger import get_logger
@@ -85,6 +86,8 @@ class ConversationMemory:
             return ""
 
         lineas = ["CONTINUIDAD CONVERSACIONAL RECIENTE:"]
+        lineas.extend(self._construir_bloque_enfoque(turnos))
+        lineas.append("DIALOGO RECIENTE:")
         for turno in turnos:
             ts = turno.timestamp.strftime("%H:%M")
             if turno.usuario:
@@ -111,3 +114,72 @@ class ConversationMemory:
         if len(resumen) <= self.max_summary_chars:
             return resumen
         return resumen[-self.max_summary_chars :].lstrip()
+
+    def _construir_bloque_enfoque(self, turnos: list[ConversationTurn]) -> list[str]:
+        """Extrae senales simples para que Persona mantenga continuidad inmediata."""
+        if not turnos:
+            return []
+
+        bloque: list[str] = []
+        ultimo = turnos[-1]
+        if ultimo.usuario or ultimo.lazzaro:
+            bloque.append("ULTIMO INTERCAMBIO:")
+            if ultimo.usuario:
+                bloque.append(f"- Usuario venia de decir: {ultimo.usuario}")
+            if ultimo.lazzaro:
+                bloque.append(f"- Lazzaro venia de responder: {ultimo.lazzaro}")
+
+        temas = self._extraer_temas_activos(turnos)
+        if temas:
+            bloque.append("TEMAS ACTIVOS:")
+            bloque.append("- " + ", ".join(temas))
+
+        if self._requiere_continuidad(ultimo.usuario):
+            bloque.append("SENAL DE CONTINUIDAD:")
+            bloque.append(
+                "- El usuario probablemente se refiere al intercambio anterior; "
+                "usa el contexto reciente antes de responder."
+            )
+
+        return bloque
+
+    def _extraer_temas_activos(self, turnos: list[ConversationTurn], limite: int = 6) -> list[str]:
+        texto = " ".join(f"{turno.usuario} {turno.lazzaro}" for turno in turnos).lower()
+        candidatos = [
+            ("apodo/nombre", ("apodo", "nombre", "llamas", "lazz", "ent-0")),
+            ("identidad/creador", ("creador", "desarrollador", "codigo", "perro")),
+            ("memoria", ("recuerdas", "recordar", "memoria", "base de datos")),
+            ("estado interno", ("estres", "energia", "cansada", "agotada", "sientes")),
+            ("percepcion", ("ves", "miras", "entorno", "objeto", "capsule", "cube", "sphere")),
+            ("movimiento", ("camina", "gira", "alejate", "acercate", "interactua")),
+            ("preferencias", ("me gusta", "prefiero", "te gusta", "opinas")),
+        ]
+
+        temas: list[str] = []
+        for nombre, pistas in candidatos:
+            if any(pista in texto for pista in pistas):
+                temas.append(nombre)
+            if len(temas) >= limite:
+                break
+        return temas
+
+    @staticmethod
+    def _requiere_continuidad(texto_usuario: str) -> bool:
+        texto = f" {str(texto_usuario or '').lower()} "
+        patrones = (
+            r"\beso\b",
+            r"\bese\b",
+            r"\besa\b",
+            r"\beste\b",
+            r"\besta\b",
+            r"\blo anterior\b",
+            r"\blo que te dije\b",
+            r"\bcomo te dije\b",
+            r"\brecuerdas\b",
+            r"\brecuerdaste\b",
+            r"\bque opinas\b",
+            r"\bpor que\b",
+            r"\bporque\b",
+            r"\by eso\b",
+        )
+        return any(re.search(patron, texto) for patron in patrones)

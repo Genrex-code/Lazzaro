@@ -12,6 +12,7 @@ from ai_engine.schemas import ActionResponse
 from api.schemas import AccionSaliente, EventoEntrante
 from core.orchestrator import Orchestrator
 from memory.conversation_memory import ConversationMemory
+from memory.memory_manager import MemoryManager
 
 
 def assert_true(condicion: bool, mensaje: str) -> None:
@@ -49,6 +50,60 @@ def main() -> None:
     resumen = memoria.resumen()
     assert_true("Usuario: te puse el apodo Lazz" in resumen, "Debe conservar texto del usuario.")
     assert_true("Lazzaro: Lazz es corto" in resumen, "Debe conservar texto de Lazzaro.")
+
+    memoria.registrar_turno(
+        usuario="recuerdas eso?",
+        lazzaro="Si, venimos hablando de tu apodo para mi.",
+        route="persona",
+        intent="MEMORY_QUERY",
+    )
+    resumen_enriquecido = memoria.resumen()
+    assert_true("ULTIMO INTERCAMBIO" in resumen_enriquecido, "Debe destacar el ultimo intercambio.")
+    assert_true("TEMAS ACTIVOS" in resumen_enriquecido, "Debe resumir temas activos.")
+    assert_true("SENAL DE CONTINUIDAD" in resumen_enriquecido, "Debe detectar referencias al turno anterior.")
+
+    hechos = MemoryManager._extraer_hechos_conversacionales(
+        "te puse el apodo Lazz y yo soy tu desarrollador"
+    )
+    assert_true(
+        any("llamar a Lazzaro 'lazz'" in hecho for hecho in hechos),
+        "Debe extraer apodos explicitos como memoria relacional.",
+    )
+    assert_true(
+        any("creador" in hecho or "desarrollador" in hecho for hecho in hechos),
+        "Debe extraer autoridad relacional explicita.",
+    )
+
+    gestor_memoria = object.__new__(MemoryManager)
+    gestor_memoria._hechos_conversacionales_guardados = set()
+    reglas_guardadas = []
+
+    def guardar_regla(**kwargs):
+        reglas_guardadas.append(kwargs)
+        return f"regla-{len(reglas_guardadas)}"
+
+    gestor_memoria.guardar_regla = guardar_regla
+    MemoryManager._registrar_hechos_conversacionales(
+        gestor_memoria,
+        mensaje_usuario="mi nombre es Perro",
+        respuesta_lazzaro="Entendido.",
+        route="persona",
+        intent="MEMORY_UPDATE",
+        metadata={"id_transaccion": "fact-1", "accion": "hablar"},
+    )
+    MemoryManager._registrar_hechos_conversacionales(
+        gestor_memoria,
+        mensaje_usuario="mi nombre es Perro",
+        respuesta_lazzaro="Entendido.",
+        route="persona",
+        intent="MEMORY_UPDATE",
+        metadata={"id_transaccion": "fact-1", "accion": "hablar"},
+    )
+    assert_true(len(reglas_guardadas) == 1, "Debe persistir hechos relacionales una sola vez.")
+    assert_true(
+        reglas_guardadas[0]["tipo_evento"] == "memoria_relacional",
+        "Debe guardar hechos conversacionales como memoria relacional semantica.",
+    )
 
     orquestador = object.__new__(Orchestrator)
     orquestador.memory = FakeMemory()

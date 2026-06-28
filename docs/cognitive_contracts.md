@@ -361,6 +361,7 @@ Archivos fuente principales:
 - `memory/episodic_memory.py`
 - `memory/semantic_memory.py`
 - `memory/working_memory.py`
+- `memory/conversation_memory.py`
 - `memory/chroma_client.py`
 - `ai_engine/oracle_memory.py`
 
@@ -416,7 +417,7 @@ Contrato:
 ### Memoria conversacional RAM
 
 Responsabilidad: mantener continuidad inmediata de dialogo sin consultar ni
-escribir en ChromaDB.
+escribir turnos completos en ChromaDB.
 
 Contrato:
 
@@ -424,7 +425,26 @@ Contrato:
   `hablar`.
 - Debe vivir solo en RAM y usar una cola circular pequena.
 - Debe inyectarse antes de la memoria operativa y de los recuerdos largos.
+- Debe destacar el ultimo intercambio, temas activos y senales de continuidad
+  cuando el usuario use referencias como `eso`, `recuerdas` o `como te dije`.
 - No debe ejecutarse para eventos `NOOP` o `INTERNAL` filtrados por Capa 0.
+
+### Memoria relacional selectiva
+
+Responsabilidad: persistir solo hechos conversacionales estables que ayuden a
+la continuidad tras reinicios, sin convertir cada mensaje en memoria larga.
+
+Contrato:
+
+- Entrada: el mismo par `mensaje_usuario` / `respuesta_lazzaro` registrado por
+  memoria conversacional.
+- Salida: reglas semanticas `tipo_evento="memoria_relacional"` solo cuando hay
+  una declaracion explicita de apodo, nombre, autoridad de creador/desarrollador
+  o preferencia clara.
+- No debe guardar transcripciones completas del chat.
+- Debe deduplicar hechos dentro del proceso para evitar ruido repetido.
+- Debe usar `guardar_regla(...)`, no `guardar_experiencia(...)`, porque estos
+  hechos son conocimiento relacional estable y no telemetria episodica.
 
 ### Consolidacion / Sueno
 

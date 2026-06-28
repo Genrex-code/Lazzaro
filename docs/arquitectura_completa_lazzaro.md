@@ -383,12 +383,18 @@ Componentes:
 - `MemoryRetriever`: busqueda hibrida episodica + semantica.
 - `MemorySummarizer`: resumen compacto para prompt.
 - `WorkingMemory`: acciones recientes en RAM.
+- `ConversationMemory`: pares recientes Usuario/Lazzaro, ultimo intercambio,
+  temas activos y senales de continuidad inmediata.
+- Memoria relacional selectiva: apodos, identidad del usuario/creador y
+  preferencias claras se guardan como reglas semanticas, no como transcripciones.
 - Consolidacion observacional: compacta telemetria vieja en reglas semanticas.
 
 Reglas actuales:
 
 - Todos los eventos se guardan como experiencia si es posible.
 - La lectura vectorial solo ocurre cuando el evento sobrevive al triage.
+- Los turnos conversacionales completos viven en RAM; solo hechos relacionales
+  explicitos se promueven a memoria semantica persistente.
 - `resultado_accion` y `actualizacion_estado` no entran a memoria de trabajo si terminan en `none` pasivo.
 - Al detectar descanso, el orquestador llama a `consolidar_memorias_si_hace_falta()`.
 - `ChromaClient` tiene compuerta de hilos process-local; no protege contra otro proceso externo tocando la misma DB.

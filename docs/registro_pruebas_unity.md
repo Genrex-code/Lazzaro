@@ -464,3 +464,40 @@ El contrato vigente del Oraculo es frio: `OracleResult -> Persona -> hablar`.
 - La memoria conversacional aun es solo RAM; al reiniciar el proceso se pierde.
 - Falta una fase posterior para persistir selectivamente memorias relacionales importantes.
 - No se ha probado todavia en Unity Play Mode con dialogos largos de apodos, preferencias y referencias al turno anterior.
+
+## 2026-06-27 - Fase 2: Memoria Relacional Selectiva
+
+### Sintoma Observado
+
+- La Fase 1 daba continuidad inmediata, pero los hechos conversacionales utiles
+  seguian siendo fragiles ante reinicios.
+- Lazzaro necesitaba recordar apodos, identidad del usuario/creador y
+  preferencias claras sin guardar cada mensaje completo en ChromaDB.
+
+### Cambios Aplicados
+
+- `ConversationMemory` ahora inyecta un bloque mas estructurado: ultimo
+  intercambio, temas activos y senales de continuidad.
+- `MemoryManager.registrar_turno_conversacional()` mantiene el turno completo
+  en RAM, pero extrae hechos relacionales explicitos.
+- Los hechos relacionales se guardan con `guardar_regla()` como
+  `tipo_evento="memoria_relacional"` y `origen="conversacion_selectiva"`.
+- Se agrego deduplicacion process-local para evitar repetir la misma regla
+  cuando el usuario insiste con el mismo dato.
+
+### Pruebas Ejecutadas
+
+- `python -m py_compile memory\conversation_memory.py memory\memory_manager.py ai_engine\test_conversation_memory.py core\orchestrator.py`
+- `python ai_engine\test_conversation_memory.py`
+- `python ai_engine\test_persona.py`
+- `python ai_engine\test_oracle.py`
+- `python ai_engine\test_motor_guardrails.py`
+
+### Riesgos Pendientes
+
+- La deduplicacion de hechos es process-local; si el proceso reinicia y el
+  usuario repite exactamente el mismo dato, podria guardarse otra regla similar.
+- El extractor es conservador y determinista: no intentara inferir hechos
+  ambiguos o ironicos hasta tener una fase de clasificacion mejor.
+- Falta prueba manual larga en Unity para confirmar que apodos y referencias
+  recientes mejoran en dialogo natural.
