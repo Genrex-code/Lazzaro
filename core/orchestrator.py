@@ -213,10 +213,13 @@ class Orchestrator:
                 max_caracteres=600,
             )
             memoria_conversacional = self._obtener_contexto_conversacional()
+            memoria_relacional = self._obtener_contexto_relacional(query_memoria)
             memoria_corto_plazo = self.memory.obtener_ultimas_acciones()
             bloques_memoria = []
             if memoria_conversacional:
                 bloques_memoria.append(memoria_conversacional)
+            if memoria_relacional:
+                bloques_memoria.append(memoria_relacional)
             bloques_memoria.append(f"MEMORIA DE TRABAJO OPERATIVA:\n{memoria_corto_plazo}")
             bloques_memoria.append(f"RECUERDOS A LARGO PLAZO:\n{memoria_texto}")
             return "\n\n".join(bloques_memoria)
@@ -233,6 +236,17 @@ class Orchestrator:
             return str(obtener(n=6) or "").strip()
         except Exception as e:
             logger.error("Error leyendo memoria conversacional: %s", e, exc_info=True)
+            return ""
+
+    def _obtener_contexto_relacional(self, query_memoria: str) -> str:
+        """Lee hechos relacionales persistentes solo dentro del bloque autorizado de memoria."""
+        obtener = getattr(self.memory, "obtener_contexto_relacional", None)
+        if not callable(obtener):
+            return ""
+        try:
+            return str(obtener(query=query_memoria, limite=4, max_caracteres=500) or "").strip()
+        except Exception as e:
+            logger.error("Error leyendo memoria relacional: %s", e, exc_info=True)
             return ""
 
     def _guardar_evento_en_memoria(

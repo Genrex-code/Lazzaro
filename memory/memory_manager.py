@@ -165,6 +165,47 @@ class MemoryManager:
             logger.error("Error al obtener contexto de memoria: %s", e, exc_info=True)
             return ""
 
+    def obtener_contexto_relacional(
+        self,
+        query: str,
+        limite: int = 4,
+        max_caracteres: int = 500,
+    ) -> str:
+        """
+        Recupera memorias relacionales persistentes antes de los recuerdos generales.
+
+        Estas reglas vienen de hechos conversacionales selectivos (apodos,
+        identidad del usuario/creador y preferencias claras). Se leen solo
+        cuando el evento ya sobrevivio al triage, igual que el resto del
+        contexto de memoria.
+        """
+        try:
+            query_limpia = str(query or "").strip()
+            if not query_limpia:
+                query_limpia = "identidad relacion usuario apodo nombre preferencias creador"
+
+            recuerdos = self.semantic_store.buscar(
+                query=query_limpia,
+                n=max(1, limite),
+                where={"tipo_evento": "memoria_relacional"},
+            )
+            if not recuerdos:
+                return ""
+
+            lineas = ["MEMORIA RELACIONAL PERSISTENTE:"]
+            for resultado in recuerdos[:limite]:
+                regla = str(getattr(resultado.recuerdo, "regla", "") or "").strip()
+                if not regla:
+                    continue
+                lineas.append(f"- {self._recortar_texto(regla, 180)}")
+
+            if len(lineas) == 1:
+                return ""
+            return self._recortar_texto("\n".join(lineas), max_caracteres)
+        except Exception as e:
+            logger.error("Error al obtener memoria relacional: %s", e, exc_info=True)
+            return ""
+
     def agregar_accion(self, accion: str, resultado: str = "pendiente", detalles: Optional[dict] = None):
         """Registra una accion reciente en la memoria de trabajo."""
         if accion == "none" and resultado == "sin_accion":
@@ -367,6 +408,13 @@ class MemoryManager:
             vistos.add(clave)
             resultado.append(hecho)
         return resultado
+
+    @staticmethod
+    def _recortar_texto(texto: str, limite: int) -> str:
+        texto_limpio = " ".join(str(texto or "").split())
+        if len(texto_limpio) <= limite:
+            return texto_limpio
+        return texto_limpio[: limite - 3].rstrip() + "..."
 
     def close(self) -> None:
         """Cierra recursos persistentes de memoria."""

@@ -396,6 +396,9 @@ Formato inyectado al prompt:
 ```text
 <continuidad conversacional reciente en RAM, si existe>
 
+MEMORIA RELACIONAL PERSISTENTE:
+<apodos, identidad del usuario/creador y preferencias claras, si existen>
+
 MEMORIA DE TRABAJO OPERATIVA:
 <acciones recientes de memoria de trabajo>
 
@@ -441,6 +444,9 @@ Contrato:
 - Salida: reglas semanticas `tipo_evento="memoria_relacional"` solo cuando hay
   una declaracion explicita de apodo, nombre, autoridad de creador/desarrollador
   o preferencia clara.
+- Lectura: `obtener_contexto_relacional(...)` debe filtrar memoria semantica por
+  `tipo_evento="memoria_relacional"` y devolver un bloque propio antes de la
+  memoria operativa y de recuerdos generales.
 - No debe guardar transcripciones completas del chat.
 - Debe deduplicar hechos dentro del proceso para evitar ruido repetido.
 - Debe usar `guardar_regla(...)`, no `guardar_experiencia(...)`, porque estos

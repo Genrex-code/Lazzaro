@@ -501,3 +501,37 @@ El contrato vigente del Oraculo es frio: `OracleResult -> Persona -> hablar`.
   ambiguos o ironicos hasta tener una fase de clasificacion mejor.
 - Falta prueba manual larga en Unity para confirmar que apodos y referencias
   recientes mejoran en dialogo natural.
+
+## 2026-06-27 - Fase 3: Recuperacion Relacional Prioritaria
+
+### Sintoma Observado
+
+- La Fase 2 ya guardaba hechos relacionales persistentes, pero el contexto de
+  Persona seguia dependiendo de una busqueda general de memoria.
+- Preguntas como `recuerdas mi apodo?` necesitaban que apodos, identidad y
+  preferencias aparecieran en un bloque propio antes del ruido episodico.
+
+### Cambios Aplicados
+
+- `MemoryManager` expone `obtener_contexto_relacional()`.
+- La lectura relacional filtra memoria semantica por
+  `tipo_evento="memoria_relacional"`.
+- `Orchestrator` inyecta el bloque `MEMORIA RELACIONAL PERSISTENTE` despues de
+  la continuidad RAM y antes de memoria operativa/largo plazo.
+- La lectura sigue respetando Capa 0: solo ocurre cuando el evento sobrevive al
+  triage y ya se iba a leer memoria.
+
+### Pruebas Ejecutadas
+
+- `python -m py_compile memory\memory_manager.py core\orchestrator.py ai_engine\test_conversation_memory.py`
+- `python ai_engine\test_conversation_memory.py`
+- `python ai_engine\test_persona.py`
+
+### Riesgos Pendientes
+
+- Esta fase agrega una busqueda semantica adicional en eventos activos; si la
+  latencia sube, se puede condicionar a intents de memoria/identidad/social.
+- La calidad de recuperacion depende de que los hechos relacionales hayan sido
+  extraidos y guardados correctamente en Fase 2.
+- Falta validar en Unity con una sesion que incluya reinicio del backend y luego
+  preguntas como `recuerdas mi apodo?`.

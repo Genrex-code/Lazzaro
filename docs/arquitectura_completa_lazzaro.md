@@ -387,6 +387,9 @@ Componentes:
   temas activos y senales de continuidad inmediata.
 - Memoria relacional selectiva: apodos, identidad del usuario/creador y
   preferencias claras se guardan como reglas semanticas, no como transcripciones.
+- Lectura relacional prioritaria: `MemoryManager.obtener_contexto_relacional()`
+  recupera `tipo_evento="memoria_relacional"` en un bloque separado antes de
+  memoria operativa y recuerdos largos.
 - Consolidacion observacional: compacta telemetria vieja en reglas semanticas.
 
 Reglas actuales:
@@ -395,6 +398,8 @@ Reglas actuales:
 - La lectura vectorial solo ocurre cuando el evento sobrevive al triage.
 - Los turnos conversacionales completos viven en RAM; solo hechos relacionales
   explicitos se promueven a memoria semantica persistente.
+- Cuando hay decision activa, el contexto se arma como continuidad RAM,
+  memoria relacional persistente, memoria operativa y recuerdos largos.
 - `resultado_accion` y `actualizacion_estado` no entran a memoria de trabajo si terminan en `none` pasivo.
 - Al detectar descanso, el orquestador llama a `consolidar_memorias_si_hace_falta()`.
 - `ChromaClient` tiene compuerta de hilos process-local; no protege contra otro proceso externo tocando la misma DB.

@@ -13,6 +13,7 @@ from api.schemas import AccionSaliente, EventoEntrante
 from core.orchestrator import Orchestrator
 from memory.conversation_memory import ConversationMemory
 from memory.memory_manager import MemoryManager
+from memory.memory_types import MemoryMetadata, MemoryResult, SemanticMemory
 
 
 def assert_true(condicion: bool, mensaje: str) -> None:
@@ -27,6 +28,9 @@ class FakeMemory:
     def obtener_contexto_memoria(self, **kwargs):
         return "Recuerdo largo relevante."
 
+    def obtener_contexto_relacional(self, **kwargs):
+        return "MEMORIA RELACIONAL PERSISTENTE:\n- Memoria relacional: el usuario suele llamar a Lazzaro 'lazz'."
+
     def obtener_ultimas_acciones(self):
         return "Ultimas acciones: hablar -> despachada"
 
@@ -35,6 +39,29 @@ class FakeMemory:
 
     def registrar_turno_conversacional(self, **kwargs):
         self.turnos.append(kwargs)
+
+
+class FakeSemanticStore:
+    def __init__(self):
+        self.where = None
+
+    def buscar(self, query: str, n: int = 5, where: dict | None = None):
+        self.where = where
+        return [
+            MemoryResult(
+                recuerdo=SemanticMemory(
+                    id="rel-1",
+                    metadata=MemoryMetadata(
+                        tipo_evento="memoria_relacional",
+                        valencia=0.25,
+                        impacto_emocional=0.65,
+                    ),
+                    regla="Memoria relacional: el usuario suele llamar a Lazzaro 'lazz'.",
+                    origen="conversacion_selectiva",
+                ),
+                distancia=0.1,
+            )
+        ]
 
 
 def main() -> None:
@@ -105,6 +132,20 @@ def main() -> None:
         "Debe guardar hechos conversacionales como memoria relacional semantica.",
     )
 
+    gestor_memoria.semantic_store = FakeSemanticStore()
+    contexto_relacional = MemoryManager.obtener_contexto_relacional(
+        gestor_memoria,
+        query="recuerdas mi apodo?",
+    )
+    assert_true(
+        contexto_relacional.startswith("MEMORIA RELACIONAL PERSISTENTE"),
+        "Debe exponer hechos relacionales persistentes en bloque propio.",
+    )
+    assert_true(
+        gestor_memoria.semantic_store.where == {"tipo_evento": "memoria_relacional"},
+        "Debe filtrar la busqueda semantica a memoria_relacional.",
+    )
+
     orquestador = object.__new__(Orchestrator)
     orquestador.memory = FakeMemory()
 
@@ -124,6 +165,14 @@ def main() -> None:
     assert_true(
         contexto.startswith("CONTINUIDAD CONVERSACIONAL RECIENTE"),
         "La continuidad conversacional debe preceder a otros recuerdos.",
+    )
+    assert_true(
+        "MEMORIA RELACIONAL PERSISTENTE" in contexto,
+        "Debe inyectar hechos relacionales persistentes.",
+    )
+    assert_true(
+        contexto.index("MEMORIA RELACIONAL PERSISTENTE") < contexto.index("MEMORIA DE TRABAJO OPERATIVA"),
+        "La memoria relacional debe ir antes de la memoria operativa.",
     )
     assert_true(
         "MEMORIA DE TRABAJO OPERATIVA" in contexto,
