@@ -1,5 +1,37 @@
 # Registro De Pruebas Unity-Python
 
+Nota: las entradas anteriores a 2026-06-27 describen comportamiento historico.
+El contrato vigente del Oraculo es frio: `OracleResult -> Persona -> hablar`.
+
+## 2026-06-27 - Contrato Oraculo Frio Y Guardrail Social
+
+### Objetivo
+
+- Corregir el salto critico donde un regano con palabras tecnicas podia ir directo a Capa 3.
+- Congelar el contrato: Oraculo produce conocimiento interno y Persona produce la voz publica.
+
+### Cambios Aplicados
+
+- `OracleEngine` queda documentado como capa fria que devuelve `OracleResult`.
+- `Orchestrator` queda documentado como puente obligatorio `OracleResult -> Persona -> ActionResponse`.
+- `PersonaEngine` queda documentado como unica capa autorizada para voz social publica.
+- `routing_rules.py` y `triage_router.py` incluyen guardrail relacional para autoridad/regano sobre el sistema.
+- `docs/cognitive_contracts.md` y `docs/arquitectura_completa_lazzaro.md` se actualizaron para eliminar el contrato viejo donde Oraculo devolvia `hablar`.
+
+### Pruebas Ejecutadas
+
+- `python -m py_compile core\orchestrator.py ai_engine\schemas.py ai_engine\oracle_engine.py ai_engine\oracle_memory.py ai_engine\persona_engine.py ai_engine\test_oracle.py ai_engine\routing_rules.py ai_engine\triage_router.py ai_engine\test_triage_routing.py`
+- `python ai_engine\test_oracle.py`
+- `python ai_engine\test_triage_routing.py`
+- `python ai_engine\test_persona.py`
+- `git diff --check`
+
+### Riesgos Pendientes
+
+- Reentrenar Capa 0 con ejemplos de autoridad, regano, soporte tecnico real y consultas mixtas.
+- Revisar `ToolPolicy` en una fase futura para separar de forma mas explicita herramientas visibles de cada capa interna.
+- Validar en Unity que las preguntas tecnicas sigan sonando como Lazzaro y no como Oraculo directo.
+
 ## 2026-06-09 - Verificacion Post-Limpieza De Mojibake
 
 ### Objetivo

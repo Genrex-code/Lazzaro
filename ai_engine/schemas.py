@@ -4,7 +4,7 @@ Centraliza las estructuras que viajan entre el core, la memoria, el LLM y las he
 """
 
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -92,3 +92,14 @@ class ActionResponse(BaseModel):
     valido: bool = True
     error: Optional[str] = None
     emocion_facial: str = "Fcl_ALL_Neutral"
+
+
+class OracleResult(BaseModel):
+    """Conocimiento interno producido por Capa 3 antes de pasar por Persona."""
+
+    pregunta_original: str
+    contenido_tecnico: str
+    resumen_para_persona: Optional[str] = None
+    fuente: Literal["api", "cache", "fallback", "error"] = "api"
+    cache_hit: bool = False
+    error: Optional[str] = None

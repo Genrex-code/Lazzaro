@@ -199,6 +199,76 @@ REGLAS_BASE: List[RoutingRule] = [
 REGLAS_BASE.sort(key=lambda r: r.priority)
 
 
+SOCIAL_AUTHORITY_PHRASES = (
+    "yo escribi tu codigo",
+    "escribi tu codigo",
+    "escribi todo tu codigo",
+    "el que escribio tu codigo",
+    "el que escribio todo tu codigo",
+    "yo hice tu codigo",
+    "hice tu codigo",
+    "soy tu desarrollador",
+    "soy el desarrollador",
+    "desarrollador soy yo",
+    "soy tu creador",
+    "soy el creador",
+    "tu creador soy yo",
+    "soy tu arquitecto",
+    "soy el arquitecto",
+    "te programe",
+    "yo te programe",
+    "te cree",
+    "yo te cree",
+    "te construi",
+    "yo te construi",
+)
+
+SOCIAL_REBUKE_TERMS = (
+    "boba",
+    "tonta",
+    "malcriada",
+    "no me hables asi",
+    "no me digas",
+    "me estas diciendo",
+    "quien crees",
+    "quien te crees",
+)
+
+TECHNICAL_OWNERSHIP_TERMS = (
+    "tu codigo",
+    "tu sistema",
+    "tu arquitectura",
+    "desarrollador",
+    "creador",
+    "arquitecto",
+    "te programe",
+    "te cree",
+    "te construi",
+)
+
+
+def match_guardrail_intent(texto: str) -> IntentType:
+    """
+    Reglas de prioridad maxima para casos relacionales que contienen palabras
+    tecnicas, pero no son consultas tecnicas.
+    """
+    texto_normalizado = RoutingRule._normalizar(texto)
+    if not texto_normalizado:
+        return IntentType.UNKNOWN
+
+    if any(frase in texto_normalizado for frase in SOCIAL_AUTHORITY_PHRASES):
+        return IntentType.SOCIAL
+
+    tiene_propiedad_tecnica = any(
+        termino in texto_normalizado for termino in TECHNICAL_OWNERSHIP_TERMS
+    )
+    tiene_regano = any(termino in texto_normalizado for termino in SOCIAL_REBUKE_TERMS)
+    if tiene_propiedad_tecnica and tiene_regano:
+        return IntentType.SOCIAL
+
+    return IntentType.UNKNOWN
+
+
 def match_intent_by_keywords(texto: str) -> IntentType:
     """
     Evalúa el texto y devuelve la intención con mayor prioridad que coincida.

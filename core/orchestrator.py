@@ -15,7 +15,7 @@ from ai_engine.oracle_client import OracleClient
 from ai_engine.oracle_engine import OracleEngine
 from ai_engine.oracle_memory import OracleMemory
 from ai_engine.persona_engine import PersonaEngine
-from ai_engine.schemas import ActionResponse
+from ai_engine.schemas import ActionResponse, OracleResult
 from ai_engine.triage_router import TriageRouter
 from api.schemas import AccionSaliente, EstadoAgente, EventoEntrante, NotificacionSaliente
 from core.logger import get_logger
@@ -149,6 +149,8 @@ class Orchestrator:
         elif self._triage_es_oracle(triage_decision):
             action_response = self._resolver_ruta_oracle(
                 evento=evento,
+                contexto_llm=contexto_llm,
+                memoria_texto=memoria_texto_completa,
                 politica=politica,
             )
         else:
@@ -464,106 +466,168 @@ class Orchestrator:
     def _resolver_ruta_oracle(
         self,
         evento: EventoEntrante,
+        contexto_llm: dict,
+        memoria_texto: str,
         politica: str,
     ) -> ActionResponse:
-        """Usa Capa 3 para conocimiento complejo con cache y fallback del LLM activo."""
+        """Usa Capa 3 para conocimiento frio y delega la voz publica a Persona."""
         mensaje_usuario = str(evento.detalles.get("mensaje", "")).strip()
         if not mensaje_usuario:
-            return self._action_response_desde_oracle(
-                {},
+            oracle_result = OracleResult(
+                pregunta_original="",
+                contenido_tecnico="La consulta al Oraculo no contiene mensaje de usuario.",
+                resumen_para_persona="No habia una consulta clara para procesar.",
+                fuente="error",
+                cache_hit=False,
                 error="La consulta al Oraculo no contiene mensaje de usuario.",
+            )
+            return self._verbalizar_resultado_oracle(
+                evento=evento,
+                contexto_llm=contexto_llm,
+                memoria_texto=memoria_texto,
+                politica=politica,
+                oracle_result=oracle_result,
             )
 
         errores: list[str] = []
         try:
-            respuesta_cacheada = self.oracle_engine.evaluar_cache(
+            oracle_result = self.oracle_engine.evaluar_cache(
                 mensaje_usuario,
                 self.oracle_memory,
             )
         except Exception as e:
             logger.error("Error consultando OracleMemory: %s", e, exc_info=True)
             errores.append("OracleMemory no pudo consultar el cache semantico.")
-            respuesta_cacheada = None
+            oracle_result = None
 
-        if respuesta_cacheada is not None:
-            return self._action_response_desde_oracle(respuesta_cacheada)
+        if oracle_result is None:
+            try:
+                mensajes = self.oracle_engine.preparar_consulta(mensaje_usuario)
+                respuesta_cruda = None
+                fuente_oraculo = "api"
 
-        try:
-            mensajes = self.oracle_engine.preparar_consulta(mensaje_usuario)
-            respuesta_cruda = None
-            if self.oracle_client.configurado:
-                try:
-                    respuesta_cruda = self.oracle_client.consultar_oraculo(mensajes)
-                except Exception as e:
-                    logger.error("Error inesperado en OracleClient: %s", e, exc_info=True)
-                    respuesta_cruda = None
+                if self.oracle_client.configurado:
+                    try:
+                        respuesta_cruda = self.oracle_client.consultar_oraculo(mensajes)
+                    except Exception as e:
+                        logger.error("Error inesperado en OracleClient: %s", e, exc_info=True)
+                        errores.append("OracleClient externo fallo; se intento fallback activo.")
+                        respuesta_cruda = None
+
+                    if not respuesta_cruda or not respuesta_cruda.strip():
+                        fuente_oraculo = "fallback"
+                        logger.warning(
+                            "El Oraculo externo no respondio; se usara el cliente LLM activo como fallback."
+                        )
+                else:
+                    fuente_oraculo = "fallback"
+                    logger.info(
+                        "OracleClient sin API key; se usara el cliente LLM activo como Oraculo."
+                    )
 
                 if not respuesta_cruda or not respuesta_cruda.strip():
-                    logger.warning(
-                        "El Oraculo externo no respondio; se usara el cliente LLM activo como fallback."
+                    respuesta_cruda = self.llm_adapter.ejecutar_texto(
+                        mensajes,
+                        politica=politica,
+                        temperature=0.1,
+                        max_output_tokens=2048,
+                        token_strategy="floor",
+                        error_context="fallback activo del Oraculo",
                     )
-            else:
-                logger.info(
-                    "OracleClient sin API key; se usara el cliente LLM activo como Oraculo."
+
+                oracle_result = self.oracle_engine.keep_y_save(
+                    respuesta_cruda or "",
+                    mensaje_usuario,
+                    self.oracle_memory,
+                    fuente=fuente_oraculo,
+                )
+            except Exception as e:
+                logger.error("Error en OracleEngine: %s", e, exc_info=True)
+                oracle_result = OracleResult(
+                    pregunta_original=mensaje_usuario,
+                    contenido_tecnico="No pude completar esa consulta compleja en este momento.",
+                    resumen_para_persona="Explica que la consulta compleja fallo de forma natural.",
+                    fuente="error",
+                    cache_hit=False,
+                    error=f"Error interno en Capa Oraculo: {e}",
                 )
 
-            if not respuesta_cruda or not respuesta_cruda.strip():
-                respuesta_cruda = self.llm_adapter.ejecutar_texto(
-                    mensajes,
-                    politica=politica,
-                    temperature=0.1,
-                    max_output_tokens=2048,
-                    token_strategy="floor",
-                    error_context="fallback activo del Oraculo",
-                )
+        if oracle_result.error:
+            errores.append(oracle_result.error)
+        if errores:
+            oracle_result = oracle_result.model_copy(update={"error": " ".join(errores)})
 
-            datos = self.oracle_engine.keep_y_save(
-                respuesta_cruda or "",
-                mensaje_usuario,
-                self.oracle_memory,
-            )
-            error_engine = str(datos.get("error", "")).strip() if isinstance(datos, dict) else ""
-            if error_engine:
-                errores.append(error_engine)
-
-            return self._action_response_desde_oracle(
-                datos,
-                error=" ".join(errores) or None,
-            )
-        except Exception as e:
-            logger.error("Error en OracleEngine: %s", e, exc_info=True)
-            return self._action_response_desde_oracle(
-                {},
-                error=f"Error interno en Capa Oraculo: {e}",
-            )
-
-    @staticmethod
-    def _action_response_desde_oracle(
-        datos: dict,
-        error: str | None = None,
-    ) -> ActionResponse:
-        """Convierte cualquier salida de Capa 3 en una respuesta hablada segura."""
-        if not isinstance(datos, dict):
-            datos = {}
-
-        parametros = datos.get("parametros", {})
-        if not isinstance(parametros, dict):
-            parametros = {}
-
-        texto = str(parametros.get("texto_a_comunicar", "")).strip()
-        if not texto:
-            texto = "No pude completar esa consulta compleja en este momento."
-            error = error or "Capa Oraculo no produjo texto para comunicar."
-
-        return ActionResponse(
-            pensamiento=str(datos.get("pensamiento_privado", "")),
-            accion="hablar",
-            parametros={"texto_a_comunicar": texto},
-            razon=str(datos.get("razon", "Respuesta analitica de Capa 3.")),
-            valido=True,
-            error=error,
-            emocion_facial="Fcl_ALL_Neutral",
+        return self._verbalizar_resultado_oracle(
+            evento=evento,
+            contexto_llm=contexto_llm,
+            memoria_texto=memoria_texto,
+            politica=politica,
+            oracle_result=oracle_result,
         )
+
+    def _verbalizar_resultado_oracle(
+        self,
+        evento: EventoEntrante,
+        contexto_llm: dict,
+        memoria_texto: str,
+        politica: str,
+        oracle_result: OracleResult,
+    ) -> ActionResponse:
+        """Pasa conocimiento frio del Oraculo por Persona antes de responder a Unity."""
+        mensaje_usuario = str(evento.detalles.get("mensaje", "")).strip()
+        percepcion = self._extraer_percepcion_motor(evento, contexto_llm)
+
+        try:
+            mensajes = self.persona_engine.preparar_verbalizacion_oraculo(
+                mensaje_usuario=mensaje_usuario,
+                estado_biologico=self.identity_state,
+                datos_oraculo=oracle_result,
+                percepcion=percepcion,
+                recuerdos=memoria_texto,
+            )
+            raw_response = self.llm_adapter.ejecutar_texto(
+                mensajes,
+                politica=politica,
+                temperature=0.35,
+                max_output_tokens=768,
+                token_strategy="cap",
+                error_context="Verbalizacion Capa Social del Oraculo",
+            )
+            datos = self.persona_engine.parsear_respuesta(raw_response)
+            if datos.get("requiere_reintento"):
+                logger.info("Verbalizacion del Oraculo solicita reintento social breve.")
+                mensajes_reintento = self.persona_engine.preparar_reintento_json(
+                    mensaje_usuario=mensaje_usuario,
+                    respuesta_fallida=raw_response or "",
+                )
+                raw_response_reintento = self.llm_adapter.ejecutar_texto(
+                    mensajes_reintento,
+                    politica=politica,
+                    temperature=0.2,
+                    max_output_tokens=256,
+                    token_strategy="cap",
+                    error_context="Reintento verbalizacion Capa Social del Oraculo",
+                )
+                datos = self.persona_engine.parsear_respuesta(raw_response_reintento)
+
+            action_response = self._action_response_desde_persona(datos)
+            if oracle_result.error:
+                action_response = action_response.model_copy(update={"error": oracle_result.error})
+            return action_response
+        except Exception as e:
+            logger.error("Error verbalizando resultado del Oraculo: %s", e, exc_info=True)
+            error = str(e)
+            if oracle_result.error:
+                error = f"{oracle_result.error} {error}".strip()
+            return ActionResponse(
+                pensamiento="Fallback social por error al verbalizar Oraculo.",
+                accion="hablar",
+                parametros={"texto_a_comunicar": "No pude completar esa consulta compleja en este momento."},
+                razon="Error verbalizando conocimiento de Oraculo en Capa Social.",
+                valido=True,
+                error=error,
+                emocion_facial="Fcl_ALL_Neutral",
+            )
 
     def _resolver_ruta_motor(
         self,

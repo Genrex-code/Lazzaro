@@ -32,8 +32,8 @@ La prioridad actual del sistema es estabilidad con bajo consumo:
 |---|---|---|---|
 | Capa 0 | `ai_engine/triage_router.py` | Clasifica cada evento como `noop`, `internal`, `motor`, `persona` u `oracle`. | No |
 | Capa 1 | `ai_engine/motor_engine.py` | Resuelve y valida comandos fisicos. | Solo fallback si el motor determinista no basta |
-| Capa 2 | `ai_engine/persona_engine.py` | Conversacion, identidad, estado biologico y voz segura. | Si |
-| Capa 3 | `ai_engine/oracle_engine.py` | Preguntas tecnicas/complejas con cache semantico. | Si, con cache y fallback |
+| Capa 2 | `ai_engine/persona_engine.py` | Conversacion, identidad, estado biologico y unica voz publica social. | Si |
+| Capa 3 | `ai_engine/oracle_engine.py` | Preguntas tecnicas/complejas con cache semantico; produce `OracleResult` frio. | Si, con cache y fallback |
 | Fallback | `ai_engine/reasoning_engine.py` | Pipeline historico de prompt + LLM + parser. | Si |
 
 ## Diagrama General
@@ -50,7 +50,7 @@ flowchart TD
     TRIAGE -->|"noop/internal"| NONE["Accion none<br/>sin lectura vectorial<br/>sin LLM"]
     TRIAGE -->|"motor"| MOTOR["MotorEngine<br/>Capa 1"]
     TRIAGE -->|"persona"| PERSONA["PersonaEngine<br/>Capa 2"]
-    TRIAGE -->|"oracle"| ORACLE["OracleEngine<br/>Capa 3"]
+    TRIAGE -->|"oracle"| ORACLE["OracleEngine<br/>Capa 3 fria"]
     TRIAGE -->|"fallback"| REASON["ReasoningEngine<br/>pipeline clasico"]
 
     MOTOR --> OUT["ActionResponse"]
@@ -58,10 +58,14 @@ flowchart TD
     ORACLE --> OCACHE["OracleMemory<br/>cache semantico"]
     ORACLE --> OCLIENT["OracleClient<br/>API externa opcional"]
     ORACLE --> ADAPTER
+    ORACLE --> ORESULT["OracleResult<br/>conocimiento interno"]
+    ORESULT --> ORCH
+    ORCH --> PERSONA
     REASON --> LLM["AI client activo<br/>FallbackAIClient o cliente unico"]
     ADAPTER --> LLM
-    LLM --> PARSE["Parser / keep_y_save"]
-    PARSE --> OUT
+    LLM --> PARSE["Parse segun capa"]
+    PARSE -->|"Persona/Reasoning"| OUT
+    PARSE -->|"Oraculo"| ORESULT
     NONE --> OUT
 
     OUT --> SAN["Sanitizacion + AccionSaliente"]
@@ -102,9 +106,14 @@ sequenceDiagram
         Orch-->>API: none
     else resultado_accion hablar o sin solicita_decision
         Orch-->>API: none
-    else motor/persona/oracle/fallback
+    else motor/persona/fallback
         Orch->>Layer: resolver ruta
         Layer-->>Orch: ActionResponse
+    else oracle
+        Orch->>Layer: consultar Oraculo frio
+        Layer-->>Orch: OracleResult
+        Orch->>Layer: verbalizar con Persona
+        Layer-->>Orch: ActionResponse hablar
     end
     Orch->>Orch: sanitizar, cachear, notificar, registrar IdentityState
     API-->>Unity: RespuestaAPI
@@ -342,14 +351,17 @@ Entrada tipica:
 Proceso:
 
 - `OracleEngine.evaluar_cache(...)` consulta `OracleMemory`.
-- Si hay cache hit, responde sin LLM.
+- Si hay cache hit, devuelve `OracleResult` sin gastar API/LLM en Capa 3.
 - Si no hay cache, `OracleClient` intenta API externa opcional.
 - Si falla o no hay key, usa el cliente LLM activo via `LLMGenerationAdapter`.
-- `OracleEngine.keep_y_save(...)` limpia la respuesta, fuerza `hablar` y guarda cache.
+- `OracleEngine.keep_y_save(...)` limpia la respuesta, guarda cache frio y devuelve `OracleResult`.
+- `Orchestrator` pasa ese `OracleResult` a `PersonaEngine`.
+- `PersonaEngine` verbaliza el conocimiento con la voz de Lazzaro.
 
 Salida:
 
-- `hablar` con respuesta tecnica o fallback de rescate.
+- Capa 3: `OracleResult` interno.
+- Salida publica final: `hablar`, generado por Persona.
 
 ### Interrupcion Critica
 
@@ -490,7 +502,7 @@ Reglas importantes de estabilidad:
 | `ai_engine/context_builder.py` | Convierte dicts a `AgentContext`. |
 | `ai_engine/prompt_builder.py` | Ensambla prompts desde plantillas. |
 | `ai_engine/response_parser.py` | Extrae JSON y valida acciones del LLM general. |
-| `ai_engine/schemas.py` | Modelos internos de prompt/respuesta. |
+| `ai_engine/schemas.py` | Modelos internos de prompt/respuesta, incluyendo `OracleResult`. |
 | `ai_engine/llm_policies.py` | Temperatura, tokens y riesgo por politica/proveedor. |
 | `ai_engine/tool_router.py` | Filtro adicional de herramientas en `ReasoningEngine`. |
 | `ai_engine/intent_types.py` | Enum de intenciones y rutas. |
@@ -503,11 +515,12 @@ Reglas importantes de estabilidad:
 | `ai_engine/persona_prompt_buider.py` | Prompt social. Mantiene typo historico `buider`. |
 | `ai_engine/persona_engine.py` | Capa 2 social y parser robusto. |
 | `ai_engine/oracle_client.py` | Cliente API externa para Oraculo. |
-| `ai_engine/oracle_memory.py` | Cache semantico del Oraculo en Chroma. |
-| `ai_engine/oracle_engine.py` | Capa 3 Oraculo, normalizacion y cache. |
+| `ai_engine/oracle_memory.py` | Cache semantico frio del Oraculo en Chroma. |
+| `ai_engine/oracle_engine.py` | Capa 3 Oraculo, normalizacion a `OracleResult` y cache. |
 | `ai_engine/test_llm_fallbacks.py` | Prueba de settings/fallbacks. |
 | `ai_engine/test_oracle.py` | Prueba de Oraculo. |
 | `ai_engine/test_persona.py` | Prueba de Persona. |
+| `ai_engine/test_triage_routing.py` | Prueba de guardarrail social antes de Oraculo. |
 | `ai_engine/test_motor_guardrails.py` | Prueba de guardarrailes motores. |
 
 ### `ai_engine/prompts/`
@@ -628,7 +641,8 @@ El arranque actual registra herramientas simuladas:
 
 `ToolPolicy` filtra por origen/ruta:
 
-- `persona` y `oracle`: solo `hablar`.
+- `persona`: solo `hablar`.
+- `oracle`: no ejecuta herramientas publicas; produce `OracleResult` y vuelve a Persona.
 - `unity`/`roblox`: herramientas seguras de mundo 3D y voz.
 - otros origenes: puede exponer mas herramientas, sujeto al registry y al executor.
 
@@ -652,6 +666,7 @@ python -m compileall -q ai_engine core memory api tools telescopio config main.p
 python ai_engine\test_llm_fallbacks.py
 python ai_engine\test_oracle.py
 python ai_engine\test_persona.py
+python ai_engine\test_triage_routing.py
 python ai_engine\test_motor_guardrails.py
 ```
 

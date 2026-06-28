@@ -5,8 +5,10 @@ al LLM.
 """
 
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
+from ai_engine.schemas import OracleResult
 from core.logger import get_logger
 from memory.chroma_client import ChromaClient
 
@@ -35,8 +37,17 @@ class OracleMemory:
         pregunta: str,
         umbral_similitud: float = DEFAULT_CACHE_DISTANCE,
     ) -> Optional[str]:
+        """Compatibilidad legacy: devuelve solo el contenido tecnico cacheado."""
+        resultado = self.buscar_resultado_cacheado(pregunta, umbral_similitud)
+        return resultado.contenido_tecnico if resultado else None
+
+    def buscar_resultado_cacheado(
+        self,
+        pregunta: str,
+        umbral_similitud: float = DEFAULT_CACHE_DISTANCE,
+    ) -> Optional[OracleResult]:
         """
-        Busca una respuesta previamente guardada para una pregunta similar.
+        Busca conocimiento tecnico previamente guardado para una pregunta similar.
         Con metrica cosine, menor distancia significa mayor similitud.
         """
         if not self.disponible or not pregunta.strip():
@@ -66,28 +77,57 @@ class OracleMemory:
                 return None
 
             metadata = metadatas[0][0] if metadatas and metadatas[0] else {}
-            respuesta = str(metadata.get("respuesta", "")).strip() if isinstance(metadata, dict) else ""
-            if not respuesta:
+            if not isinstance(metadata, dict):
+                return None
+
+            contenido = str(
+                metadata.get("contenido_tecnico")
+                or metadata.get("respuesta")
+                or ""
+            ).strip()
+            if not contenido:
                 return None
 
             logger.info("Oracle Cache HIT (distancia %.3f).", distancia)
-            return respuesta
+            resumen = str(metadata.get("resumen_para_persona", "")).strip() or None
+            return OracleResult(
+                pregunta_original=pregunta,
+                contenido_tecnico=contenido,
+                resumen_para_persona=resumen,
+                fuente="cache",
+                cache_hit=True,
+            )
         except Exception as e:
             logger.error("Error al interpretar Oracle Cache: %s", e)
             return None
 
-    def guardar_en_cache(self, pregunta: str, respuesta: str) -> bool:
+    def guardar_en_cache(
+        self,
+        pregunta: str,
+        contenido_tecnico: str,
+        resumen_para_persona: str | None = None,
+        fuente: str = "api",
+    ) -> bool:
         """
-        Persiste un nuevo par pregunta-respuesta en la cache.
+        Persiste un par pregunta-conocimiento frio en la cache.
         Retorna True si se guardo correctamente.
         """
-        if not self.disponible or not pregunta.strip() or not respuesta.strip():
+        if not self.disponible or not pregunta.strip() or not contenido_tecnico.strip():
             return False
 
         doc_id = str(uuid.uuid4())
         guardado = self.client.agregar(
             documentos=[pregunta],
-            metadatos=[{"respuesta": respuesta}],
+            metadatos=[
+                {
+                    "contenido_tecnico": contenido_tecnico,
+                    "resumen_para_persona": resumen_para_persona or "",
+                    "fuente": fuente,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    # Campo legacy para no romper lectores antiguos durante la migracion.
+                    "respuesta": contenido_tecnico,
+                }
+            ],
             ids=[doc_id],
         )
         if guardado:

@@ -1,6 +1,6 @@
 # Cognitive Contracts - TCM Lazzaro
 
-Fecha de referencia: 2026-06-12
+Fecha de referencia: 2026-06-27
 
 Este documento describe los contratos entre capas del TCM de Lazzaro
 (`Triage Cognitive Multipaca`): que recibe cada capa, que devuelve, que
@@ -17,6 +17,10 @@ El Core es la frontera de seguridad, continuidad, memoria, permisos y
 normalizacion. Ninguna capa debe ejecutar herramientas criticas por su cuenta,
 mutar estado global sin pasar por el orquestador, o hablar directamente con
 Unity sin pasar por el contrato `RespuestaAPI`.
+
+Regla de voz publica: solo Persona puede producir voz social final. Oraculo
+produce conocimiento interno frio (`OracleResult`) y el Core debe pasarlo por
+Persona antes de devolver cualquier `hablar` a Unity.
 
 ## Vista General
 
@@ -46,10 +50,13 @@ flowchart TD
     LocalLLM --> Persona
     Oracle --> OracleCache["OracleMemory\ncache semantico"]
     Oracle --> ExternalAPI["OracleClient\nAPI externa"]
-    Oracle --> LocalFallback["Fallback local\nLLMGenerationAdapter"]
+    Oracle --> LocalFallback["Fallback activo\nLLMGenerationAdapter"]
     ExternalAPI --> Oracle
     LocalFallback --> Oracle
     OracleCache --> Oracle
+    Oracle --> OracleResult["OracleResult\nconocimiento interno"]
+    OracleResult --> Core
+    Core --> Persona
 
     Core --> Policy["ToolPolicy\nherramientas permitidas"]
     Core --> Registry["ToolRegistry\ncontratos de herramientas"]
@@ -276,7 +283,7 @@ Archivo fuente: `core/orchestrator.py`
 | `resultado_accion` de `hablar` devuelve `none` | Evita bucles de voz. |
 | `hablar` no requiere confirmacion desde Unity | Es salida pasiva. |
 | Herramientas reales de escritorio requieren confirmacion | Seguridad fuera del jardin de Unity. |
-| Persona y Oracle solo devuelven `hablar` | No ejecutan herramientas criticas directamente. |
+| Solo Persona produce voz publica `hablar` | Oraculo debe devolver `OracleResult` interno, no `ActionResponse`. |
 
 ### Entrada que el Core espera de BehaviorCore
 
@@ -511,7 +518,9 @@ Diccionario compatible con `ActionResponse`:
 
 Reglas actuales:
 
-- `persona` y `oracle` solo pueden ver `hablar`.
+- `persona` solo puede ver `hablar`.
+- `oracle` no recibe herramientas publicas. Si una politica legacy lo consulta,
+  como maximo expone `hablar`, pero `OracleEngine` no debe usarlo ni devolverlo.
 - `unity` y `roblox` solo pueden recibir herramientas seguras del jardin 3D.
 - `sandbox` y `otro` pueden usar mas herramientas, pero las reales deben
   requerir confirmacion.
@@ -667,12 +676,16 @@ Ejemplo de dataset:
 Responsabilidad: razonamiento pesado, analisis tecnico, arquitectura, codigo,
 debugging, explicaciones complejas y consultas que exceden a Persona.
 
+Regla critica: Oraculo es una capa fria. No produce voz publica, no devuelve
+`ActionResponse`, no decide `hablar` y no genera payload final para Unity.
+
 Archivos fuente:
 
 - `ai_engine/oracle_engine.py`
 - `ai_engine/oracle_client.py`
 - `ai_engine/oracle_memory.py`
 - `ai_engine/llm_generation_adapter.py`
+- `ai_engine/schemas.py`
 
 ### Entrada
 
@@ -681,35 +694,46 @@ Archivos fuente:
 | `mensaje_usuario` | Pregunta compleja o tecnica. |
 | `oracle_memory` | Cache semantico de consultas previas. |
 | `oracle_client` | API externa si esta configurada. |
-| `llm_adapter` | Fallback local o proveedor activo. |
+| `llm_adapter` | Fallback activo usado por el Core si API externa falla. |
 
 ### Flujo
 
-1. `evaluar_cache(mensaje_usuario, oracle_memory)`.
-2. Si hay hit, devolver respuesta cacheada como `hablar`.
-3. Si no hay hit, `preparar_consulta(mensaje_usuario)`.
-4. Intentar API externa con `OracleClient`.
-5. Si falla, usar fallback local con `LLMGenerationAdapter`.
-6. Pasar salida por `keep_y_save(...)`.
-7. Forzar accion final `hablar`.
+1. `Orchestrator._resolver_ruta_oracle(...)` recibe la ruta `oracle`.
+2. `OracleEngine.evaluar_cache(mensaje_usuario, oracle_memory)` intenta un cache hit.
+3. Si hay hit, se obtiene `OracleResult(fuente="cache", cache_hit=True)`.
+4. Si no hay hit, `OracleEngine.preparar_consulta(mensaje_usuario)` crea el prompt frio.
+5. El Core intenta `OracleClient.consultar_oraculo(...)` si esta configurado.
+6. Si API externa falla o no existe, el Core usa `LLMGenerationAdapter` como fallback activo.
+7. `OracleEngine.keep_y_save(...)` normaliza la salida cruda, guarda cache y devuelve `OracleResult`.
+8. El Core llama `PersonaEngine.preparar_verbalizacion_oraculo(...)`.
+9. Persona verbaliza el conocimiento interno y solo entonces se produce `ActionResponse(accion="hablar")`.
 
-### Salida
+### Salida De Oraculo
 
-`ActionResponse` con:
+`OracleResult` con:
 
 | Campo | Valor esperado |
 | --- | --- |
-| `accion` | Siempre `hablar`. |
-| `parametros.texto_a_comunicar` | Respuesta curada. |
-| `pensamiento` | Indica cache, API externa, fallback o error. |
-| `razon` | Motivo tecnico breve. |
-| `emocion_facial` | Normalmente neutral o enfocada. |
+| `pregunta_original` | Texto original del usuario. |
+| `contenido_tecnico` | Conocimiento frio, explicacion, diagnostico o codigo. |
+| `resumen_para_persona` | Resumen opcional para facilitar verbalizacion social. |
+| `fuente` | `api`, `cache`, `fallback` o `error`. |
+| `cache_hit` | `true` solo cuando viene de `OracleMemory`. |
+| `error` | Error interno si la consulta tuvo fallo recuperable. |
+
+### Salida Publica Final
+
+La salida publica no pertenece a Oraculo. La genera Persona despues de recibir
+`OracleResult`. El Core debe rechazar como deuda arquitectonica cualquier flujo
+que convierta Oraculo directamente en `ActionResponse`.
 
 ### Limites
 
 - Oraculo no es la identidad principal.
 - Oraculo no debe ejecutar herramientas directamente.
-- Oraculo puede generar conocimiento o payloads sugeridos, pero el Core valida.
+- Oraculo no debe hablar directo con Unity.
+- Oraculo no debe devolver `accion`, `hablar`, `texto_a_comunicar` ni parametros de Unity.
+- Oraculo puede generar conocimiento o payloads sugeridos, pero el Core/Persona valida la salida publica.
 - Oraculo debe usar cache para reducir costo.
 
 ## Contrato De ReasoningEngine Legacy
@@ -872,7 +896,7 @@ def herramienta(params: ParamsModel) -> ToolResult:
 | Memoria | Experiencias/consultas | Recuerdos/contexto | Decidir acciones. |
 | Motor | Comando fisico + percepcion | Accion validada | Inventar personalidad. |
 | Persona | Mensaje social + identidad | `hablar` | Ejecutar tools criticas. |
-| Oraculo | Consulta compleja | `hablar` con conocimiento | Actuar como identidad principal. |
+| Oraculo | Consulta compleja | `OracleResult` interno | Actuar como identidad principal o devolver `ActionResponse`. |
 | ToolPolicy | Origen/ruta/tools | Tools permitidas | Ejecutar tools. |
 | ToolRegistry | Decoradores | Catalogo | Decidir rutas. |
 | ActionExecutor | Accion local | Resultado local | Ejecutar sin confirmacion requerida. |
@@ -915,10 +939,12 @@ def herramienta(params: ParamsModel) -> ToolResult:
 
 ### Oraculo
 
-- Pregunta cacheada no llama API externa.
-- Falla de API externa usa fallback local.
-- Respuesta final siempre es `hablar`.
-- Respuesta se guarda en `OracleMemory`.
+- Pregunta cacheada devuelve `OracleResult` sin llamar API externa.
+- Falla de API externa usa fallback activo y devuelve `OracleResult`.
+- `OracleEngine` nunca devuelve `ActionResponse`.
+- Ruta `oracle` del Core llama a Persona antes de responder a Unity.
+- Persona verbaliza `OracleResult` como `hablar`.
+- Conocimiento frio se guarda en `OracleMemory`.
 
 ### Unity
 
@@ -971,8 +997,9 @@ Antes de cambiar Oraculo:
 
 1. Mantener cache semantico.
 2. Mantener fallback.
-3. Mantener salida `hablar`.
-4. No mezclar voz de identidad principal con respuesta tecnica sin pasar por
+3. Mantener salida fria `OracleResult`.
+4. No devolver `ActionResponse` desde Capa 3.
+5. No mezclar voz de identidad principal con respuesta tecnica sin pasar por
    Core/Persona.
 
 ## Principio De Evolucion

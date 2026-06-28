@@ -13,6 +13,7 @@ from core.logger import get_logger
 
 from .identity_state import IdentityState
 from .persona_prompt_buider import PersonaPromptBuilder
+from .schemas import OracleResult
 
 logger = get_logger(__name__)
 
@@ -58,6 +59,70 @@ class PersonaEngine:
             "  },\n"
             '  "pensamiento_privado": "Breve reflexion interna antes de hablar",\n'
             '  "razon": "Motivo por el que dices esto"\n'
+            "}"
+        )
+
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": mensaje_usuario},
+        ]
+
+    def preparar_verbalizacion_oraculo(
+        self,
+        mensaje_usuario: str,
+        estado_biologico: IdentityState,
+        datos_oraculo: OracleResult,
+        percepcion: Optional[Dict[str, Any]] = None,
+        recuerdos: str = "",
+    ) -> List[Dict[str, str]]:
+        """
+        Prepara una respuesta publica usando conocimiento frio de Capa 3.
+        El Oraculo aporta contenido; Persona decide voz, tono e identidad.
+        """
+        percepcion = percepcion or {}
+        percepcion_texto = percepcion.get("resumen_percepcion", "")
+        estado_inyectado = estado_biologico.inyectar_en_prompt()
+
+        system_prompt = self.prompt_builder.build_system_prompt(
+            estado_inyectado=estado_inyectado,
+            percepcion_texto=percepcion_texto,
+            recuerdos=recuerdos,
+        ) or ""
+
+        contenido_tecnico = self._limitar_texto(datos_oraculo.contenido_tecnico, 3000)
+        resumen_para_persona = self._limitar_texto(datos_oraculo.resumen_para_persona or "", 800)
+        error_oraculo = self._limitar_texto(datos_oraculo.error or "", 500)
+
+        system_prompt += (
+            "\n=== CONOCIMIENTO INTERNO DEL ORACULO ===\n"
+            "Este bloque NO es tu voz publica. Es material interno de Capa 3.\n"
+            f"Pregunta original: {datos_oraculo.pregunta_original}\n"
+            f"Fuente: {datos_oraculo.fuente}\n"
+            f"Cache hit: {datos_oraculo.cache_hit}\n"
+            f"Error interno: {error_oraculo or 'ninguno'}\n"
+            f"Contenido tecnico:\n{contenido_tecnico}\n"
+        )
+        if resumen_para_persona:
+            system_prompt += f"Resumen sugerido para Persona:\n{resumen_para_persona}\n"
+
+        system_prompt += (
+            "\n=== TU TAREA ===\n"
+            "Responde al usuario con tu propia voz de Lazzaro.\n"
+            "No digas que eres el Oraculo ni que consultaste una capa interna.\n"
+            "No inventes datos fuera del contenido tecnico recibido.\n"
+            "Si el Oraculo fallo, dilo de forma natural y breve.\n"
+            "Mantente social, clara y coherente con tu identidad.\n"
+            "\n=== FORMATO DE SALIDA ESTRICTO ===\n"
+            "Responde UNICAMENTE con un objeto JSON valido. Nada de texto fuera del JSON.\n"
+            "La unica accion permitida es hablar.\n"
+            "Estructura requerida:\n"
+            "{\n"
+            '  "accion": "hablar",\n'
+            '  "parametros": {\n'
+            '    "texto_a_comunicar": "Tu respuesta final como Lazzaro"\n'
+            "  },\n"
+            '  "pensamiento_privado": "Breve reflexion interna antes de hablar",\n'
+            '  "razon": "Como adaptaste el conocimiento tecnico a tu voz"\n'
             "}"
         )
 
