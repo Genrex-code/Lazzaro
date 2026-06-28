@@ -906,14 +906,14 @@ REGLAS FISICAS Y DE ENTORNO:
 
         return true;
     }
-    [header("Sistema Nervioso (BOLOGIA)")]
-    [TOOLtip("Fuerza minima de impacto para considerar que le dolio el madraso")]
-    public float umnbralDeDolor = 0.5;
+    [Header("Sistema Nervioso (BOLOGIA)")]
+    [Tooltip("Fuerza minima de impacto para considerar que le dolio el madraso")]
+    public float umnbralDeDolor = 0.5f;
     // Unity llama automaticamente a este metodo cada ves que el capsule collider choca con algo 
     void OnCollisionEnter(Collision choque)
     {
         // 1. Filtar el piso o terreno para que no le duela existir ( aunque me gustaria un poco considerando como me anda tratando usualmente)
-        if (choque.gameObjet.name.Contains("Plane") || choque.gameObject.name.Contains("Ground")) return;
+        if (choque.gameObject.name.Contains("Plane") || choque.gameObject.name.Contains("Ground")) return;
 
         // 2. medir la fuerza del trancaso
         float fuerzaDelGolpe = choque.relativeVelocity.magnitude;
@@ -924,9 +924,9 @@ REGLAS FISICAS Y DE ENTORNO:
             string nombreObjeto = choque.gameObject.name;
             Debug.LogWarning ($"[DOLOR] Lazzaro se pego con '{nombreObjeto}' con fuerza de {fuerzaDelGolpe} jasjasjsa que tonota");
             // 4. Frenar el NAVMeshAgent para que no siga empujando el obstaculo como zombie y no sufra tanto
-            if (TryGetComponent<UnityEngine.AI.NavMeshAgent>(out var agent))
+            if (TryGetComponent<UnityEngine.AI.NavMeshAgent>(out var agente))
             {
-                if (agente.isActiveAndEnable && agente.isOnNavMesh)
+                if (agente.isActiveAndEnabled && agente.isOnNavMesh)
                 {
                     agente.isStopped = true;
                     agente.ResetPath();
@@ -934,7 +934,7 @@ REGLAS FISICAS Y DE ENTORNO:
                 }
             }
             //5. Calcular hacia donde debe saltar para huir del golpe ( direccion opuesta al impacto)
-            Vector3 direccionGolpe = (transform.position - choque.contacts[0].points).normalized;
+            Vector3 direccionGolpe = (transform.position - choque.contacts[0].point).normalized;
             string dirEscapeSTR = $"{direccionGolpe.x:0.##},0, {direccionGolpe.z:0.##}";
 
             //6. LLAMAR A LA FUNCION DE DOLOR AL PITON O PAITON O COMO SE ESCRIBA d:
