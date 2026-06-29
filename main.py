@@ -130,4 +130,5 @@ if __name__ == "__main__":
     import uvicorn
 
     logger.info("Iniciando servidor Uvicorn en http://0.0.0.0:8000 ...")
+    logger.info("Chingaderita jalando con madre 👍🍞")
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
