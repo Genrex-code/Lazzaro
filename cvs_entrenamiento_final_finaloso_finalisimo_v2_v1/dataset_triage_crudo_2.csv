@@ -1,0 +1,55 @@
+texto_usuario,intencion,ruta
+hola,SOCIAL,persona
+como estas?,SOCIAL,persona
+sabes quien soy yo?,UNKNOWN,persona
+soy yo perro como estas hija mia?,UNKNOWN,persona
+camina al objeto mas cercano,MOTOR_SIMPLE,motor
+media vuelta,MOTOR_SIMPLE,motor
+que ves?,UNKNOWN,persona
+camina al objeto mas lejano,MOTOR_SIMPLE,motor
+ves el cubo?,UNKNOWN,persona
+camina a la sphere,MOTOR_SIMPLE,motor
+gira a tu derecha,MOTOR_SIMPLE,motor
+camina la objeto mas lejano,MOTOR_SIMPLE,motor
+que ves?,UNKNOWN,persona
+camina al cilindro,MOTOR_SIMPLE,motor
+camina al cilindro que tienes enfrente,MOTOR_SIMPLE,motor
+hola mija :3,SOCIAL,persona
+por si lo olvidaste soy yo tu creador niña boba como estas? hoy ando feliz yo,UNKNOWN,persona
+que tienes enfrente?,SOCIAL,motor
+que objeto tienes a la vista?,MOTOR_SIMPLE,motor
+que observas en tu campo de vision?,UNKNOWN,persona
+camina hacia la capsule,MOTOR_SIMPLE,motor
+que me puedes decir sobre la capsule?,UNKNOWN,persona
+interactua con ella,MOTOR_SIMPLE,motor
+interactua con lo que tengas enfrente,MOTOR_SIMPLE,motor
+gira 180 grados,MOTOR_SIMPLE,motor
+que logras ver?,SOCIAL,motor
+camina a la sphere que tienes detras,MOTOR_SIMPLE,motor
+gira 180 grados,MOTOR_SIMPLE,motor
+que ves?,UNKNOWN,persona
+camina a la sphere,MOTOR_SIMPLE,motor
+interactua con la sphere,MOTOR_SIMPLE,motor
+que me puedes decir de la sphere :3,UNKNOWN,persona
+gira a tu derecha,MOTOR_SIMPLE,motor
+que visualizas?,SOCIAL,motor
+que logras ver ?,SOCIAL,motor
+que logras ver con tu vision?,MOTOR_SIMPLE,motor
+que ves?,UNKNOWN,persona
+camina al cubo,MOTOR_SIMPLE,motor
+inspecciona el cubo,MOTOR_SIMPLE,motor
+mira el cubo,MOTOR_SIMPLE,motor
+toca el cubo,MOTOR_SIMPLE,motor
+patea el cubo,MOTOR_SIMPLE,motor
+alejate del cubo,MOTOR_SIMPLE,motor
+que ves?,UNKNOWN,persona
+camina al norte,MOTOR_SIMPLE,motor
+camina al capsule,MOTOR_SIMPLE,motor
+media vuelta,MOTOR_SIMPLE,motor
+camina al cubo,MOTOR_SIMPLE,motor
+camina al cube,MOTOR_SIMPLE,motor
+que ves?,UNKNOWN,persona
+camina a la esfera,MOTOR_SIMPLE,motor
+cansada?,SOCIAL,persona
+descansa mi niña,SOCIAL,persona
+acomodare un pequeño detalle en tu triage ok? te dejo descansando niña boba,SOCIAL,persona

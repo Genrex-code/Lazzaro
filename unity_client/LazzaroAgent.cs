@@ -909,11 +909,19 @@ REGLAS FISICAS Y DE ENTORNO:
     [Header("Sistema Nervioso (BOLOGIA)")]
     [Tooltip("Fuerza minima de impacto para considerar que le dolio el madraso")]
     public float umnbralDeDolor = 0.5f;
+    //nuevo
+    private float tiempoUltimoDolor = -10f;
     // Unity llama automaticamente a este metodo cada ves que el capsule collider choca con algo 
     void OnCollisionEnter(Collision choque)
     {
         // 1. Filtar el piso o terreno para que no le duela existir ( aunque me gustaria un poco considerando como me anda tratando usualmente)
         if (choque.gameObject.name.Contains("Plane") || choque.gameObject.name.Contains("Ground")) return;
+
+        // NUEVO: Ignorar plantas por nombre (filtro de seguridad)
+        if (choque.gameObject.name.Contains("Flower") || choque.gameObject.name.Contains("Grass")) return;
+
+        // NUEVO: Si la acaban de golpear hace menos de 2 segundos, ignorar (Periodo de gracia)
+        if (Time.time - tiempoUltimoDolor < 5.0f) return;
 
         // 2. medir la fuerza del trancaso
         float fuerzaDelGolpe = choque.relativeVelocity.magnitude;
@@ -921,17 +929,16 @@ REGLAS FISICAS Y DE ENTORNO:
         //3. Evaluar si el golpe cruzo su tolerancia al dolor
         if ( fuerzaDelGolpe > umnbralDeDolor)
         {
+            // NUEVO: Registrar en qué momento le dolió para activar el cooldown
+            tiempoUltimoDolor = Time.time;
+            
             string nombreObjeto = choque.gameObject.name;
             Debug.LogWarning ($"[DOLOR] Lazzaro se pego con '{nombreObjeto}' con fuerza de {fuerzaDelGolpe} jasjasjsa que tonota");
-            // 4. Frenar el NAVMeshAgent para que no siga empujando el obstaculo como zombie y no sufra tanto
-            if (TryGetComponent<UnityEngine.AI.NavMeshAgent>(out var agente))
+            // 4. Frenar el Movimiento correctamente (Resetea IsMoving, Animator y NavMesh)
+            if (movimiento != null)
             {
-                if (agente.isActiveAndEnabled && agente.isOnNavMesh)
-                {
-                    agente.isStopped = true;
-                    agente.ResetPath();
-                    //jasjas le pondira un pobre tonota
-                }
+                movimiento.FrenarMovimiento();
+                // jasjas le pondra un pobre tonota pero al menos podra huir despues
             }
             //5. Calcular hacia donde debe saltar para huir del golpe ( direccion opuesta al impacto)
             Vector3 direccionGolpe = (transform.position - choque.contacts[0].point).normalized;

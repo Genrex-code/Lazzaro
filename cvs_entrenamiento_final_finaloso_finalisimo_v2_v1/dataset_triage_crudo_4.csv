@@ -1,0 +1,179 @@
+﻿comando,etiqueta
+camina a las rocas,motor
+camina hacia el arbol alto,motor
+camina hasta los hongos,motor
+camina a los arboles pinos,motor
+camina al gran arbol,motor
+camina hacia la gran flor en la montaña,motor
+camina a las flores,motor
+camina a las ramas,motor
+camina al arbol normal,motor
+acercate a las rocas,motor
+acercate al arbol alto,motor
+acercate a los hongos,motor
+dirigete al gran arbol,motor
+ve a las rocas,motor
+ve a las flores,motor
+alejate de las rocas,motor
+alejate del arbol alto,motor
+alejate de los hongos,motor
+alejate de las flores,motor
+alejate del gran arbol,motor
+alejate de las ramas,motor
+alejate de la gran flor en la montaña,motor
+alejate de los arboles pinos,motor
+alejate del arbol normal,motor
+gira hacia las rocas,motor
+gira hacia el arbol alto,motor
+gira hacia los hongos,motor
+gira para ver el gran arbol,motor
+da media vuelta hacia las flores,motor
+gira a tu izquierda mirando las rocas,motor
+inspecciona las rocas,motor
+inspecciona el arbol alto,motor
+inspecciona los hongos,motor
+inspecciona las flores,motor
+inspecciona las ramas,motor
+inspecciona el gran arbol,motor
+inspecciona la gran flor en la montaña,motor
+inspecciona los arboles pinos,motor
+inspecciona el arbol normal,motor
+mira las rocas,motor
+mira el arbol alto,motor
+observa los arboles pinos,motor
+que me puedes decir de las rocas,motor
+que me puedes decir del gran arbol,motor
+que ves en el bosque,motor
+ves las rocas,motor
+ves el arbol alto,motor
+ves el gran arbol,motor
+ves los hongos,motor
+vez las flores,motor
+interactua con las rocas,motor
+interactua con el gran arbol,motor
+interactua con las flores,motor
+interactua con los hongos,motor
+interactua con las ramas,motor
+agarra las ramas,motor
+agarra un hongo,motor
+agarra una flor,motor
+recoge las flores,motor
+recoge los hongos,motor
+recoge una rama,motor
+suelta la rama,motor
+suelta el hongo,motor
+toca el arbol alto,motor
+toca las rocas,motor
+empuja el arbol normal,motor
+aplica fuerza al arbol alto,motor
+usa las ramas,motor
+camina a las rocas y observalas,motor
+camina hacia los hongos e inspeccionalos,motor
+gira a tu derecha y mira las flores,motor
+alejate de las rocas y ve hacia el arbol,motor
+inspecciona las ramas caidas,motor
+camina hacia el arbol mas alto,motor
+acercate al arbol normal y tocalo,motor
+ves alguna flor cerca,motor
+que hay detras de las rocas,motor
+mira las rocas de cerca,motor
+recoge los hongos del suelo,motor
+camina a las rokas,motor
+alejate d las rocas,motor
+inspeciona las flores,motor
+interacua con las ramas,motor
+ves el arvol alto,motor
+que me puedes desir de las rokas,motor
+gira acia el arbol alto,motor
+da media buelta,motor
+camina asia el gran arvol,motor
+recoje los ongos,motor
+camina ala roca,motor
+camina ala rocas,motor
+camina a las rocas del suelo,motor
+acercate a los arboles pinos,motor
+alejate del gran arbol,motor
+inspecciona las ramas caidas,motor
+mira las flores de cerca,motor
+observa los hongos en la tierra,motor
+ves la gran flor en la montaña?,motor
+que me puedes decir del arbol alto,motor
+interactua con las rocas,motor
+camina hacia el arbol normal y tocalo,motor
+agarra una flor del prado,motor
+recoge las ramas tiradas,motor
+suelta los hongos que tienes,motor
+toca el arbol normal,motor
+empuja el arbol alto con cuidado,motor
+gira alrededor del gran arbol,motor
+camina a los arboles pinos y mira hacia arriba,motor
+alejate de la gran flor en la montaña,motor
+da media vuelta y camina al arbol normal,motor
+camina a las flores mas cercanas,motor
+inspecciona los hongos venenosos,motor
+mira las rocas que tienes enfrente,motor
+que ves en el bosque?,motor
+ves los arboles pinos?,motor
+camina a lo que parezca un gran arbol,motor
+acercate a las ramas y recogelas,motor
+alejate de las rocas y ve a los hongos,motor
+gira a tu izquierda viendo las flores,motor
+gira a tu derecha hacia el arbol alto,motor
+inspecciona la gran flor en la montaña,motor
+interactua con el arbol alto,motor
+camina al arbol alto y espera,motor
+recoge los hongos del suelo,motor
+suelta las flores que agarraste,motor
+toca las rocas con la mano,motor
+empuja el arbol normal para ver que pasa,motor
+ves algo entre las ramas?,motor
+camina hacia la gran flor en la montaña,motor
+mira detras de las rocas,motor
+inspecciona el gran arbol de cerca,motor
+agarra una rama y muevela,motor
+alejate del arbol normal,motor
+gira 90 grados a tu derecha mirando las flores,motor
+camina al arbol mas alto del bosque,motor
+acercate a la gran flor en la montaña,motor
+interactua con los hongos luminosos,motor
+"que tienes enfrente, rocas o flores?",motor
+ves el arbol alto a lo lejos?,motor
+camina hacia donde estan los arboles pinos,motor
+alejate de las flores y no las pises,motor
+inspecciona las rocas mas grandes,motor
+recoge una flor para mi,motor
+suelta la rama que cargas,motor
+toca el gran arbol con respeto,motor
+empuja las rocas pequeñas,motor
+gira a tu izquierda y dime que ves,motor
+camina a las rocas y trepa,motor
+acercate a los hongos y observalos,motor
+alejate de la gran flor en la montaña rapido,motor
+da media vuelta hacia los arboles pinos,motor
+camina al arbol normal y descansa,motor
+inspecciona las ramas del arbol alto,motor
+mira si hay hongos bajo el arbol normal,motor
+ves la gran flor en la montaña desde aqui?,motor
+interactua con las flores silvestres,motor
+camina a las rokas,motor
+alejate d las rocas,motor
+inspeciona los arboles pinos,motor
+recoje los ongos,motor
+mira el arvol alto,motor
+interacua con las flores,motor
+ves el gran arvol?,motor
+gira asia las rocas,motor
+camina ala montaña donde esta la gran flor,motor
+acercate al arvol normal,motor
+alejate del arvol normal,motor
+agarra una flor del campo,motor
+suelta los hongos ya,motor
+toca las rokas con la mano,motor
+empuja el arvol alto,motor
+da media buelta y camina al gran arbol,motor
+camina asia los arboles pinos,motor
+inspecciona el gran arvol con cuidado,motor
+que me puedes desir de las rokas,motor
+ves los ongos en el suelo?,motor
+interactua con el arbol alto del bosque,motor
+camina al objeto mas cercano que veas,motor

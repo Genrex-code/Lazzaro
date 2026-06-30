@@ -87,6 +87,7 @@ async def lifespan(app: FastAPI):
 
         app.state.orchestrator = orchestrator
         logger.info("Lazzaro inicializado correctamente. Sistemas nominales.")
+        logger.info("Chingaderita jalando con madre 👍🍞")
 
     except Exception as e:
         logger.error("Error critico durante el arranque: %s", e, exc_info=True)
@@ -96,8 +97,7 @@ async def lifespan(app: FastAPI):
             ai_client.close()
         raise
 
-    yield
-
+    yield # no se para que esta madre :3 
     logger.info("=== Apagando Lazzaro ===")
     orchestrator = getattr(app.state, "orchestrator", None)
     if orchestrator is not None:
@@ -130,5 +130,5 @@ if __name__ == "__main__":
     import uvicorn
 
     logger.info("Iniciando servidor Uvicorn en http://0.0.0.0:8000 ...")
-    logger.info("Chingaderita jalando con madre 👍🍞")
+    
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)

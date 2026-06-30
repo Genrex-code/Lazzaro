@@ -8,7 +8,7 @@ from sklearn.pipeline import Pipeline
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DATASET_PATH = BASE_DIR / "dataset_triage_etiquetado.csv"
+DATASET_PATH = BASE_DIR / "dataset_shingon.csv"
 MODEL_DIR = BASE_DIR / "lazzaro_data"
 INTENT_MODEL_PATH = MODEL_DIR / "triage_model_intent.joblib"
 ROUTE_MODEL_PATH = MODEL_DIR / "triage_model_route.joblib"
