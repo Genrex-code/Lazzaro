@@ -88,6 +88,18 @@ def main() -> None:
         "Girar a la derecha debe traducirse a 90 grados.",
     )
 
+    percepcion_bosque = {"objetos_visibles": [{"nombre": "Flores"}]}
+    diagnostico_bosque = motor.diagnosticar_comando_usuario(
+        "camina a las flores",
+        percepcion=percepcion_bosque,
+        herramientas_disponibles=herramientas,
+    )
+    assert_true(diagnostico_bosque["estado"] == "lista", "El diccionario del bosque debe resolver flores.")
+    assert_true(
+        diagnostico_bosque["parametros"]["nombre_objeto"] == "Flores",
+        "El motor debe resolver flores al objeto visible Flores.",
+    )
+
     orquestador = _orquestador_minimo()
     evento_incompleto = EventoEntrante(
         origen="unity",

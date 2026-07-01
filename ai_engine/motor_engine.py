@@ -36,6 +36,10 @@ class MotorEngine:
         "sphere": ("sphere", "esfera", "pelota", "bola"),
         "capsule": ("capsule", "capsula", "capsula", "cápsula"),
         "plane": ("plane", "plano", "suelo", "piso"),
+        "flor": ("flor", "flores"),
+        "arbol": ("arbol",),
+        "roca": ("roca",),
+        "hongo": ("hongo",),
     }
 
     def __init__(self):
