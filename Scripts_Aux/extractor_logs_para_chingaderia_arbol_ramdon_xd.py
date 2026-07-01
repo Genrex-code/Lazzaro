@@ -6,7 +6,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_LOG_CANDIDATES = (
-    BASE_DIR / "logs antiguos" / "lazzaro_3.log", # acuerdate de cambiar aca el numero para que registres los correctos por el momento queda en 0 
+    BASE_DIR / "logs antiguos" / "lazzaro_4.log", # acuerdate de cambiar aca el numero para que registres los correctos por el momento queda en 0 
     BASE_DIR / "lazzaro.log",
 )
 DEFAULT_OUTPUT = BASE_DIR / "dataset_triage_crudo.csv"

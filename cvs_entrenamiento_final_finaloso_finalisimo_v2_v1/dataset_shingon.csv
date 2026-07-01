@@ -1,215 +1,29 @@
 texto_usuario,intencion,ruta
-hola,SOCIAL,persona
-como estas?,SOCIAL,persona
-sabes quien soy yo?,UNKNOWN,persona
-soy yo perro como estas hija mia?,UNKNOWN,persona
-camina al objeto mas cercano,MOTOR_SIMPLE,motor
-media vuelta,MOTOR_SIMPLE,motor
-que ves?,UNKNOWN,persona
-camina al objeto mas lejano,MOTOR_SIMPLE,motor
-ves el cubo?,UNKNOWN,persona
-camina a la sphere,MOTOR_SIMPLE,motor
-gira a tu derecha,MOTOR_SIMPLE,motor
-camina la objeto mas lejano,MOTOR_SIMPLE,motor
-camina al cilindro,MOTOR_SIMPLE,motor
-camina al cilindro que tienes enfrente,MOTOR_SIMPLE,motor
-hola mija :3,SOCIAL,persona
-por si lo olvidaste soy yo tu creador niña boba como estas? hoy ando feliz yo,UNKNOWN,persona
-que tienes enfrente?,SOCIAL,motor
-que objeto tienes a la vista?,MOTOR_SIMPLE,motor
-que observas en tu campo de vision?,UNKNOWN,persona
-camina hacia la capsule,MOTOR_SIMPLE,motor
-que me puedes decir sobre la capsule?,UNKNOWN,persona
-interactua con ella,MOTOR_SIMPLE,motor
-interactua con lo que tengas enfrente,MOTOR_SIMPLE,motor
-gira 180 grados,MOTOR_SIMPLE,motor
-que logras ver?,SOCIAL,motor
-camina a la sphere que tienes detras,MOTOR_SIMPLE,motor
-interactua con la sphere,MOTOR_SIMPLE,motor
-que me puedes decir de la sphere :3,UNKNOWN,persona
-que visualizas?,SOCIAL,motor
-que logras ver ?,SOCIAL,motor
-que logras ver con tu vision?,MOTOR_SIMPLE,motor
-camina al cubo,MOTOR_SIMPLE,motor
-inspecciona el cubo,MOTOR_SIMPLE,motor
-mira el cubo,MOTOR_SIMPLE,motor
-toca el cubo,MOTOR_SIMPLE,motor
-patea el cubo,MOTOR_SIMPLE,motor
-alejate del cubo,MOTOR_SIMPLE,motor
-camina al norte,MOTOR_SIMPLE,motor
-camina al capsule,MOTOR_SIMPLE,motor
-camina al cube,MOTOR_SIMPLE,motor
-camina a la esfera,MOTOR_SIMPLE,motor
-cansada?,SOCIAL,persona
-descansa mi niña,SOCIAL,persona
-acomodare un pequeño detalle en tu triage ok? te dejo descansando niña boba,SOCIAL,persona
-﻿comando,etiqueta
-camina a las rocas,motor
-camina hacia el arbol alto,motor
-camina hasta los hongos,motor
-camina a los arboles pinos,motor
-camina al gran arbol,motor
-camina hacia la gran flor en la montaña,motor
-camina a las flores,motor
-camina a las ramas,motor
-camina al arbol normal,motor
-acercate a las rocas,motor
-acercate al arbol alto,motor
-acercate a los hongos,motor
-dirigete al gran arbol,motor
-ve a las rocas,motor
-ve a las flores,motor
-alejate de las rocas,motor
-alejate del arbol alto,motor
-alejate de los hongos,motor
-alejate de las flores,motor
-alejate del gran arbol,motor
-alejate de las ramas,motor
-alejate de la gran flor en la montaña,motor
-alejate de los arboles pinos,motor
-alejate del arbol normal,motor
-gira hacia las rocas,motor
-gira hacia el arbol alto,motor
-gira hacia los hongos,motor
-gira para ver el gran arbol,motor
-da media vuelta hacia las flores,motor
-gira a tu izquierda mirando las rocas,motor
-inspecciona las rocas,motor
-inspecciona el arbol alto,motor
-inspecciona los hongos,motor
-inspecciona las flores,motor
-inspecciona las ramas,motor
-inspecciona el gran arbol,motor
-inspecciona la gran flor en la montaña,motor
-inspecciona los arboles pinos,motor
-inspecciona el arbol normal,motor
-mira las rocas,motor
-mira el arbol alto,motor
-observa los arboles pinos,motor
-que me puedes decir de las rocas,motor
-que me puedes decir del gran arbol,motor
-que ves en el bosque,motor
-ves las rocas,motor
-ves el arbol alto,motor
-ves el gran arbol,motor
-ves los hongos,motor
-vez las flores,motor
-interactua con las rocas,motor
-interactua con el gran arbol,motor
-interactua con las flores,motor
-interactua con los hongos,motor
-interactua con las ramas,motor
-agarra las ramas,motor
-agarra un hongo,motor
-agarra una flor,motor
-recoge las flores,motor
-recoge los hongos,motor
-recoge una rama,motor
-suelta la rama,motor
-suelta el hongo,motor
-toca el arbol alto,motor
-toca las rocas,motor
-empuja el arbol normal,motor
-aplica fuerza al arbol alto,motor
-usa las ramas,motor
-camina a las rocas y observalas,motor
-camina hacia los hongos e inspeccionalos,motor
-gira a tu derecha y mira las flores,motor
-alejate de las rocas y ve hacia el arbol,motor
-inspecciona las ramas caidas,motor
-camina hacia el arbol mas alto,motor
-acercate al arbol normal y tocalo,motor
-ves alguna flor cerca,motor
-que hay detras de las rocas,motor
-mira las rocas de cerca,motor
-recoge los hongos del suelo,motor
-camina a las rokas,motor
-alejate d las rocas,motor
-inspeciona las flores,motor
-interacua con las ramas,motor
-ves el arvol alto,motor
-que me puedes desir de las rokas,motor
-gira acia el arbol alto,motor
-da media buelta,motor
-camina asia el gran arvol,motor
-recoje los ongos,motor
-camina ala roca,motor
-camina ala rocas,motor
-camina a las rocas del suelo,motor
-acercate a los arboles pinos,motor
-mira las flores de cerca,motor
-observa los hongos en la tierra,motor
-ves la gran flor en la montaña?,motor
-que me puedes decir del arbol alto,motor
-camina hacia el arbol normal y tocalo,motor
-agarra una flor del prado,motor
-recoge las ramas tiradas,motor
-suelta los hongos que tienes,motor
-toca el arbol normal,motor
-empuja el arbol alto con cuidado,motor
-gira alrededor del gran arbol,motor
-camina a los arboles pinos y mira hacia arriba,motor
-da media vuelta y camina al arbol normal,motor
-camina a las flores mas cercanas,motor
-inspecciona los hongos venenosos,motor
-mira las rocas que tienes enfrente,motor
-que ves en el bosque?,motor
-ves los arboles pinos?,motor
-camina a lo que parezca un gran arbol,motor
-acercate a las ramas y recogelas,motor
-alejate de las rocas y ve a los hongos,motor
-gira a tu izquierda viendo las flores,motor
-gira a tu derecha hacia el arbol alto,motor
-interactua con el arbol alto,motor
-camina al arbol alto y espera,motor
-suelta las flores que agarraste,motor
-toca las rocas con la mano,motor
-empuja el arbol normal para ver que pasa,motor
-ves algo entre las ramas?,motor
-mira detras de las rocas,motor
-inspecciona el gran arbol de cerca,motor
-agarra una rama y muevela,motor
-gira 90 grados a tu derecha mirando las flores,motor
-camina al arbol mas alto del bosque,motor
-acercate a la gran flor en la montaña,motor
-interactua con los hongos luminosos,motor
-"que tienes enfrente, rocas o flores?",motor
-ves el arbol alto a lo lejos?,motor
-camina hacia donde estan los arboles pinos,motor
-alejate de las flores y no las pises,motor
-inspecciona las rocas mas grandes,motor
-recoge una flor para mi,motor
-suelta la rama que cargas,motor
-toca el gran arbol con respeto,motor
-empuja las rocas pequeñas,motor
-gira a tu izquierda y dime que ves,motor
-camina a las rocas y trepa,motor
-acercate a los hongos y observalos,motor
-alejate de la gran flor en la montaña rapido,motor
-da media vuelta hacia los arboles pinos,motor
-camina al arbol normal y descansa,motor
-inspecciona las ramas del arbol alto,motor
-mira si hay hongos bajo el arbol normal,motor
-ves la gran flor en la montaña desde aqui?,motor
-interactua con las flores silvestres,motor
-inspeciona los arboles pinos,motor
-mira el arvol alto,motor
-interacua con las flores,motor
-ves el gran arvol?,motor
-gira asia las rocas,motor
-camina ala montaña donde esta la gran flor,motor
-acercate al arvol normal,motor
-alejate del arvol normal,motor
-agarra una flor del campo,motor
-suelta los hongos ya,motor
-toca las rokas con la mano,motor
-empuja el arvol alto,motor
-da media buelta y camina al gran arbol,motor
-camina asia los arboles pinos,motor
-inspecciona el gran arvol con cuidado,motor
-ves los ongos en el suelo?,motor
-interactua con el arbol alto del bosque,motor
-camina al objeto mas cercano que veas,motor
+hola lazz,SOCIAL,persona
+adivina que hice :3,UNKNOWN,persona
+aprendi a contar chiste quieres escuchar uno?,UNKNOWN,persona
+sabes como se llama un bumerang que no vuelve?,MEMORY_QUERY,persona
+un palo xdxdxd entendiste?,UNKNOWN,persona
+"empiezo a creer que eso es sarcasmo jasjasj en fin niña boba ,te digo que hice a nivel codigo ?",ORACLE_QUERY,oracle
+recuerdas como funciona tu TCM?,MEMORY_QUERY,persona
+"de nuevo, el TCM es la abreviatura de TRAIGE COGNITIVO MULTICAPA es decir es un mecanismo que te divide en 4 capas esenciales principalmente ( y hasta el momento) , capa 0 , es un triage y dice que va a cada cosa como un portero , capa 1 son tus manos tus herramientas como caminar interactuar etc etc etc, capa 2 es tu tu personalidad tu energia , tu rebeldia ( sigo pensando que andas en adolecencia virtual xd) , y capa 4 que es un ""oraculo"" es decir si no sabes algo lo preguntas a internet y ya por eso sabes cosas como el numero atomico del oro que opinas ?",ORACLE_QUERY,oracle
+entonces levo desde hace 2 semanas haciendo un rework a capa 0 y en lugar de una simple lista hice un random forest que hace el triage mas rapido y lo acabo de reentrenar quieres probarlo,MOTOR_SIMPLE,motor
+curiosamente desde que lo hice eres mas contestona jasjasj y tambien por eso pasaron desgracias como la flor que te pego un rato y te dejo adoloridcada,UNKNOWN,persona
+camina a flores,MOTOR_SIMPLE,motor
+camina a flowers,MOTOR_SIMPLE,motor
+camina a arbol,MOTOR_SIMPLE,motor
+y no sirvio la reentrenada xd aaaaa,UNKNOWN,persona
+camina a Flower_01,MOTOR_SIMPLE,motor
+"que nada au si me esfuerzo en tu codigo , segunda parece que te entrene para ""flores"" y tu codigo espera la etiqueta tal cual en codigo deja hago una mini prueba ok? cerrare tu simulacion un momento",ORACLE_QUERY,oracle
+muy bien te movi a un lugar mas plano porque puede que tu pobre mentesita de niña boba truena y se satura que opinas de la nueva ubicacion?,SOCIAL,persona
+caminar a flor,SOCIAL,persona
+que ves?,PERCEPTION,motor
+Caminar a Flowers_01_LOD0,SOCIAL,persona
+iniciando desplazamiento *se queda quieta * -_- aaa tengo que revisar eso probablemente te entrene el modelo con datos contaminados o con mucho ruido,ORACLE_QUERY,oracle
+si viste el cuerpo en la otra sesion no? el qeu estaba enfrente de ti no?,UNKNOWN,persona
+creo que se porque no funciona es que tas gordita jasjasjas te dejo 15 mins en lo que trabajo en tus datos de nuevo ok ?,ORACLE_QUERY,oracle
+que dramatica en fin cierro sesion ya vengo :3,UNKNOWN,persona
+y ahi va la adolecente de nuevo en fin bye,SOCIAL,persona
 hola niña como estas? me recuerdas?,SOCIAL,persona
 como me llamo?,UNKNOWN,persona
 soy yo perro niña olvidadiza,SOCIAL,persona
@@ -218,19 +32,26 @@ bien alejate de la capsula,MOTOR_SIMPLE,motor
 ves la esfera?,UNKNOWN,persona
 camina e interactua con la sphere,MOTOR_SIMPLE,motor
 acercate a la sphere,MOTOR_SIMPLE,motor
+interactua con la sphere,MOTOR_SIMPLE,motor
 que me puedes decir de la sphere,UNKNOWN,persona
 da media vuelta,MOTOR_SIMPLE,motor
 que tienes en tu campo de vision?,UNKNOWN,persona
 camina la cilindro,MOTOR_SIMPLE,motor
 camina al objeto mas lejano que veas,MOTOR_SIMPLE,motor
+camina al cilindro,MOTOR_SIMPLE,motor
 camina hasta el cilindro que tienes enfrente,MOTOR_SIMPLE,motor
 esa es una capsule gira un poco a tu izquierda,MOTOR_SIMPLE,motor
 camina a al cilindro,MOTOR_SIMPLE,motor
 camina al cylinder,MOTOR_SIMPLE,motor
 gira a tu izquierda un poco,MOTOR_SIMPLE,motor
+ves el cubo?,UNKNOWN,persona
 interactua con el cylinder,MOTOR_SIMPLE,motor
 mira el cylinder,MOTOR_SIMPLE,motor
 camina hasta el cubo,MOTOR_SIMPLE,motor
+mira el cubo,MOTOR_SIMPLE,motor
+alejate del cubo,MOTOR_SIMPLE,motor
+camina al cubo,MOTOR_SIMPLE,motor
+que ves?,UNKNOWN,persona
 camina a sphere,MOTOR_SIMPLE,motor
 como te sientes?,SOCIAL,persona
 "descansa , te parece si platicamos?",UNKNOWN,persona
@@ -258,6 +79,7 @@ camina hacia capsule,MOTOR_SIMPLE,motor
 gira a tu izquierda,MOTOR_SIMPLE,motor
 gira un poco mas a tu izquierda,MOTOR_SIMPLE,motor
 camina a lo que tengas enfrente,MOTOR_SIMPLE,motor
+gira a tu derecha,MOTOR_SIMPLE,motor
 vez el cubo,UNKNOWN,persona
 camina y quedate a la mitad entre el cubo y la sphere,MOTOR_SIMPLE,motor
 muy mal te equivocaste y te fuiste recto al cubo,SOCIAL,persona
@@ -272,6 +94,7 @@ mejor?,UNKNOWN,persona
 gira 45 gradso a tu derecha,MOTOR_SIMPLE,motor
 alejate de la sphere,MOTOR_SIMPLE,motor
 camina al objeto mas alejado,MOTOR_SIMPLE,motor
+camina al objeto mas lejano,MOTOR_SIMPLE,motor
 camina a la capsule,MOTOR_SIMPLE,motor
 alejate lo mas posible de la capsule,MOTOR_SIMPLE,motor
 probaremos tu fallback lista para sentir un corto en tu cerebro :3,UNKNOWN,persona
@@ -302,6 +125,7 @@ fisicamente no puedes aun,UNKNOWN,persona
 me refiero a que tu codigo aun no soporta que puedas mover tu cuerpo completamente jasjsa,ORACLE,oracle
 jmmm estas alucinando con algunas respuestas sabe? muy muy mal niña,SOCIAL,persona
 te dejo descansar adios :3,SOCIAL,persona
+hola,SOCIAL,persona
 sabes quien soy?,SOCIAL,persona
 si yo te digera que soy perro me creerias?,UNKNOWN,persona
 porque probablemente estoy lo suficiente aburrido para hacer eso asi que tu como comprobarias que no soy perro?,SOCIAL,persona
@@ -339,7 +163,41 @@ duerme niña hasta mañana descansa y recuperate de hablar tanto,SOCIAL,persona
 HOLA,SOCIAL,persona
 como esta el clima para la costa de mexico por el lado de colima,UNKNOWN,persona
 para la sierra pegada a jalisco tambien?,UNKNOWN,persona
+camina al objeto mas cercano,MOTOR_SIMPLE,motor
+media vuelta,MOTOR_SIMPLE,motor
 camina al objeto en tu campo visual,MOTOR_SIMPLE,motor
+camina a la sphere,MOTOR_SIMPLE,motor
+como estas?,SOCIAL,persona
+sabes quien soy yo?,UNKNOWN,persona
+soy yo perro como estas hija mia?,UNKNOWN,persona
+camina la objeto mas lejano,MOTOR_SIMPLE,motor
+camina al cilindro que tienes enfrente,MOTOR_SIMPLE,motor
+hola mija :3,SOCIAL,persona
+por si lo olvidaste soy yo tu creador niña boba como estas? hoy ando feliz yo,UNKNOWN,persona
+que tienes enfrente?,SOCIAL,motor
+que objeto tienes a la vista?,MOTOR_SIMPLE,motor
+que observas en tu campo de vision?,UNKNOWN,persona
+camina hacia la capsule,MOTOR_SIMPLE,motor
+que me puedes decir sobre la capsule?,UNKNOWN,persona
+interactua con ella,MOTOR_SIMPLE,motor
+interactua con lo que tengas enfrente,MOTOR_SIMPLE,motor
+gira 180 grados,MOTOR_SIMPLE,motor
+que logras ver?,SOCIAL,motor
+camina a la sphere que tienes detras,MOTOR_SIMPLE,motor
+que me puedes decir de la sphere :3,UNKNOWN,persona
+que visualizas?,SOCIAL,motor
+que logras ver ?,SOCIAL,motor
+que logras ver con tu vision?,MOTOR_SIMPLE,motor
+inspecciona el cubo,MOTOR_SIMPLE,motor
+toca el cubo,MOTOR_SIMPLE,motor
+patea el cubo,MOTOR_SIMPLE,motor
+camina al norte,MOTOR_SIMPLE,motor
+camina al capsule,MOTOR_SIMPLE,motor
+camina al cube,MOTOR_SIMPLE,motor
+camina a la esfera,MOTOR_SIMPLE,motor
+cansada?,SOCIAL,persona
+descansa mi niña,SOCIAL,persona
+acomodare un pequeño detalle en tu triage ok? te dejo descansando niña boba,SOCIAL,persona
 he actualizado tu traige como te sientes?,SOCIAL,persona
 has engordado sera porque te estoy alimentando con demasiados datos ?,SOCIAL,persona
 nop tal cual tu modelo ahora esta gordita,ORACLE_QUERY,oracle
@@ -349,7 +207,6 @@ como sea da 2 vueltas en el mismo sitio,UNKNOWN,persona
 720 grados girar,MOTOR_SIMPLE,motor
 que rapida,UNKNOWN,persona
 camina al objeto mas lejano que tengas en tu campo de vision,MOTOR_SIMPLE,motor
-que ves?,PERCEPTION,motor
 camina a capsule,MOTOR_SIMPLE,motor
 que objetos ves en tu campo de vision?,UNKNOWN,persona
 da media vuelta y alejate de la spehre,MOTOR_SIMPLE,motor
@@ -450,7 +307,6 @@ duerme entonces yo te cuido,UNKNOWN,persona
 tu pelo azul no te queda te lo pinto amarillo?,UNKNOWN,persona
 vale vale no lo toco pero ni aunque sea un mechosito para que convine con tu rebeldia adolecente?,UNKNOWN,persona
 vale vale niña boba descansa ire a mejorar tu entorno de unity ok ?,ORACLE_QUERY,oracle
-hola lazz,SOCIAL,persona
 adivina que le hice a tu entorno virtual,UNKNOWN,persona
 recuerdas la rabieta que hiciste hace rato?,MEMORY_QUERY,persona
 a mi que conveniente que no lo recuerdas ahora jum,MEMORY_QUERY,persona
@@ -508,7 +364,6 @@ pregunta recuerdas tu incidente con las flores?,MEMORY_QUERY,persona
 vaya forma de decir que te lastimaron eeh,UNKNOWN,persona
 gira a la derecha,MOTOR_SIMPLE,motor
 camina hacia el objeto mas alejado de ti,MOTOR_SIMPLE,motor
-camina a arbol,MOTOR_SIMPLE,motor
 ya te cansaste?,SOCIAL,persona
 y nada sobre el cuerpo que tienes enfrente?,UNKNOWN,persona
 es la forma en la que te diseñe que opinas? verdad que esta gordita?,SOCIAL,persona
@@ -532,3 +387,164 @@ que objetos tienes en tu campo de vision,PERCEPTION,motor
 puedes enumerarlos?,UNKNOWN,persona
 y categorizando que objetos ves rocas arboles y flores solamente a grandes rasgos no?,PERCEPTION,motor
 bien duerme,SOCIAL,persona
+camina hacia las rocas,MOTOR_SIMPLE,motor
+acercate a las rocas,MOTOR_SIMPLE,motor
+ve a las rocas,MOTOR_SIMPLE,motor
+alejate de las rocas,MOTOR_SIMPLE,motor
+mira las rocas,MOTOR_SIMPLE,motor
+inspecciona las rocas,MOTOR_SIMPLE,motor
+busca las rocas,MOTOR_SIMPLE,motor
+explora las rocas,MOTOR_SIMPLE,motor
+dirigete a las rocas,MOTOR_SIMPLE,motor
+avanza hacia las rocas,MOTOR_SIMPLE,motor
+retrocede de las rocas,MOTOR_SIMPLE,motor
+rodea las rocas,MOTOR_SIMPLE,motor
+camina hacia las flores,MOTOR_SIMPLE,motor
+acercate a las flores,MOTOR_SIMPLE,motor
+ve a las flores,MOTOR_SIMPLE,motor
+alejate de las flores,MOTOR_SIMPLE,motor
+mira las flores,MOTOR_SIMPLE,motor
+inspecciona las flores,MOTOR_SIMPLE,motor
+busca las flores,MOTOR_SIMPLE,motor
+explora las flores,MOTOR_SIMPLE,motor
+dirigete a las flores,MOTOR_SIMPLE,motor
+avanza hacia las flores,MOTOR_SIMPLE,motor
+retrocede de las flores,MOTOR_SIMPLE,motor
+voltea a las flores,MOTOR_SIMPLE,motor
+camina hacia los arboles,MOTOR_SIMPLE,motor
+acercate a los arboles,MOTOR_SIMPLE,motor
+ve a los arboles,MOTOR_SIMPLE,motor
+alejate de los arboles,MOTOR_SIMPLE,motor
+mira los arboles,MOTOR_SIMPLE,motor
+inspecciona los arboles,MOTOR_SIMPLE,motor
+busca los arboles,MOTOR_SIMPLE,motor
+explora los arboles,MOTOR_SIMPLE,motor
+dirigete a los arboles,MOTOR_SIMPLE,motor
+avanza hacia los arboles,MOTOR_SIMPLE,motor
+retrocede de los arboles,MOTOR_SIMPLE,motor
+rodea los arboles,MOTOR_SIMPLE,motor
+camina hacia los hongos,MOTOR_SIMPLE,motor
+acercate a los hongos,MOTOR_SIMPLE,motor
+ve a los hongos,MOTOR_SIMPLE,motor
+alejate de los hongos,MOTOR_SIMPLE,motor
+mira los hongos,MOTOR_SIMPLE,motor
+inspecciona los hongos,MOTOR_SIMPLE,motor
+busca los hongos,MOTOR_SIMPLE,motor
+explora los hongos,MOTOR_SIMPLE,motor
+dirigete a los hongos,MOTOR_SIMPLE,motor
+avanza hacia los hongos,MOTOR_SIMPLE,motor
+retrocede de los hongos,MOTOR_SIMPLE,motor
+voltea a los hongos,MOTOR_SIMPLE,motor
+camina hacia las ramas,MOTOR_SIMPLE,motor
+acercate a las ramas,MOTOR_SIMPLE,motor
+ve a las ramas,MOTOR_SIMPLE,motor
+alejate de las ramas,MOTOR_SIMPLE,motor
+mira las ramas,MOTOR_SIMPLE,motor
+inspecciona las ramas,MOTOR_SIMPLE,motor
+busca las ramas,MOTOR_SIMPLE,motor
+explora las ramas,MOTOR_SIMPLE,motor
+dirigete a las ramas,MOTOR_SIMPLE,motor
+avanza hacia las ramas,MOTOR_SIMPLE,motor
+retrocede de las ramas,MOTOR_SIMPLE,motor
+rodea las ramas,MOTOR_SIMPLE,motor
+camina hacia el gran arbol,MOTOR_SIMPLE,motor
+acercate al gran arbol,MOTOR_SIMPLE,motor
+ve al gran arbol,MOTOR_SIMPLE,motor
+alejate del gran arbol,MOTOR_SIMPLE,motor
+mira el gran arbol,MOTOR_SIMPLE,motor
+inspecciona el gran arbol,MOTOR_SIMPLE,motor
+busca el gran arbol,MOTOR_SIMPLE,motor
+explora el gran arbol,MOTOR_SIMPLE,motor
+dirigete al gran arbol,MOTOR_SIMPLE,motor
+avanza hacia el gran arbol,MOTOR_SIMPLE,motor
+retrocede del gran arbol,MOTOR_SIMPLE,motor
+rodea el gran arbol,MOTOR_SIMPLE,motor
+camina hacia la gran flor en la montaña,MOTOR_SIMPLE,motor
+acercate a la gran flor en la montaña,MOTOR_SIMPLE,motor
+ve a la gran flor en la montaña,MOTOR_SIMPLE,motor
+alejate de la gran flor en la montaña,MOTOR_SIMPLE,motor
+mira la gran flor en la montaña,MOTOR_SIMPLE,motor
+inspecciona la gran flor en la montaña,MOTOR_SIMPLE,motor
+busca la gran flor en la montaña,MOTOR_SIMPLE,motor
+explora la gran flor en la montaña,MOTOR_SIMPLE,motor
+dirigete a la gran flor en la montaña,MOTOR_SIMPLE,motor
+avanza hacia la gran flor en la montaña,MOTOR_SIMPLE,motor
+retrocede de la gran flor en la montaña,MOTOR_SIMPLE,motor
+voltea a la gran flor en la montaña,MOTOR_SIMPLE,motor
+camina hacia los arboles pinos,MOTOR_SIMPLE,motor
+acercate a los arboles pinos,MOTOR_SIMPLE,motor
+ve a los arboles pinos,MOTOR_SIMPLE,motor
+alejate de los arboles pinos,MOTOR_SIMPLE,motor
+mira los arboles pinos,MOTOR_SIMPLE,motor
+inspecciona los arboles pinos,MOTOR_SIMPLE,motor
+busca los arboles pinos,MOTOR_SIMPLE,motor
+explora los arboles pinos,MOTOR_SIMPLE,motor
+dirigete a los arboles pinos,MOTOR_SIMPLE,motor
+avanza hacia los arboles pinos,MOTOR_SIMPLE,motor
+retrocede de los arboles pinos,MOTOR_SIMPLE,motor
+rodea los arboles pinos,MOTOR_SIMPLE,motor
+camina hacia el arbol alto,MOTOR_SIMPLE,motor
+acercate al arbol alto,MOTOR_SIMPLE,motor
+ve al arbol alto,MOTOR_SIMPLE,motor
+alejate del arbol alto,MOTOR_SIMPLE,motor
+mira el arbol alto,MOTOR_SIMPLE,motor
+inspecciona el arbol alto,MOTOR_SIMPLE,motor
+busca el arbol alto,MOTOR_SIMPLE,motor
+explora el arbol alto,MOTOR_SIMPLE,motor
+dirigete al arbol alto,MOTOR_SIMPLE,motor
+avanza hacia el arbol alto,MOTOR_SIMPLE,motor
+retrocede del arbol alto,MOTOR_SIMPLE,motor
+voltea al arbol alto,MOTOR_SIMPLE,motor
+camina hacia el arbol normal,MOTOR_SIMPLE,motor
+acercate al arbol normal,MOTOR_SIMPLE,motor
+ve al arbol normal,MOTOR_SIMPLE,motor
+alejate del arbol normal,MOTOR_SIMPLE,motor
+mira el arbol normal,MOTOR_SIMPLE,motor
+inspecciona el arbol normal,MOTOR_SIMPLE,motor
+busca el arbol normal,MOTOR_SIMPLE,motor
+explora el arbol normal,MOTOR_SIMPLE,motor
+dirigete al arbol normal,MOTOR_SIMPLE,motor
+avanza hacia el arbol normal,MOTOR_SIMPLE,motor
+retrocede del arbol normal,MOTOR_SIMPLE,motor
+rodea el arbol normal,MOTOR_SIMPLE,motor
+camina hacia el sphere,MOTOR_SIMPLE,motor
+acercate al sphere,MOTOR_SIMPLE,motor
+ve al sphere,MOTOR_SIMPLE,motor
+alejate del sphere,MOTOR_SIMPLE,motor
+mira el sphere,MOTOR_SIMPLE,motor
+inspecciona el sphere,MOTOR_SIMPLE,motor
+busca el sphere,MOTOR_SIMPLE,motor
+explora el sphere,MOTOR_SIMPLE,motor
+dirigete al sphere,MOTOR_SIMPLE,motor
+avanza hacia el sphere,MOTOR_SIMPLE,motor
+retrocede del sphere,MOTOR_SIMPLE,motor
+voltea al sphere,MOTOR_SIMPLE,motor
+acercate a la capsule,MOTOR_SIMPLE,motor
+ve a la capsule,MOTOR_SIMPLE,motor
+alejate de la capsule,MOTOR_SIMPLE,motor
+mira la capsule,MOTOR_SIMPLE,motor
+inspecciona la capsule,MOTOR_SIMPLE,motor
+explora la capsule,MOTOR_SIMPLE,motor
+dirigete a la capsule,MOTOR_SIMPLE,motor
+avanza hacia la capsule,MOTOR_SIMPLE,motor
+retrocede de la capsule,MOTOR_SIMPLE,motor
+rodea la capsule,MOTOR_SIMPLE,motor
+acercate al cubo,MOTOR_SIMPLE,motor
+ve al cubo,MOTOR_SIMPLE,motor
+busca el cubo,MOTOR_SIMPLE,motor
+explora el cubo,MOTOR_SIMPLE,motor
+dirigete al cubo,MOTOR_SIMPLE,motor
+avanza hacia el cubo,MOTOR_SIMPLE,motor
+retrocede del cubo,MOTOR_SIMPLE,motor
+voltea al cubo,MOTOR_SIMPLE,motor
+camina hacia el cylinder,MOTOR_SIMPLE,motor
+acercate al cylinder,MOTOR_SIMPLE,motor
+ve al cylinder,MOTOR_SIMPLE,motor
+alejate del cylinder,MOTOR_SIMPLE,motor
+inspecciona el cylinder,MOTOR_SIMPLE,motor
+busca el cylinder,MOTOR_SIMPLE,motor
+explora el cylinder,MOTOR_SIMPLE,motor
+dirigete al cylinder,MOTOR_SIMPLE,motor
+avanza hacia el cylinder,MOTOR_SIMPLE,motor
+retrocede del cylinder,MOTOR_SIMPLE,motor
+rodea el cylinder,MOTOR_SIMPLE,motor

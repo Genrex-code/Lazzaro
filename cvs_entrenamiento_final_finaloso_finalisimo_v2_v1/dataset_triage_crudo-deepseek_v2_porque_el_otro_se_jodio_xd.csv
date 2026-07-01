@@ -1,0 +1,169 @@
+texto_usuario,intencion,ruta
+camina hacia las rocas,MOTOR_SIMPLE,motor
+acercate a las rocas,MOTOR_SIMPLE,motor
+ve a las rocas,MOTOR_SIMPLE,motor
+alejate de las rocas,MOTOR_SIMPLE,motor
+mira las rocas,MOTOR_SIMPLE,motor
+inspecciona las rocas,MOTOR_SIMPLE,motor
+busca las rocas,MOTOR_SIMPLE,motor
+explora las rocas,MOTOR_SIMPLE,motor
+dirigete a las rocas,MOTOR_SIMPLE,motor
+avanza hacia las rocas,MOTOR_SIMPLE,motor
+retrocede de las rocas,MOTOR_SIMPLE,motor
+rodea las rocas,MOTOR_SIMPLE,motor
+camina hacia las flores,MOTOR_SIMPLE,motor
+acercate a las flores,MOTOR_SIMPLE,motor
+ve a las flores,MOTOR_SIMPLE,motor
+alejate de las flores,MOTOR_SIMPLE,motor
+mira las flores,MOTOR_SIMPLE,motor
+inspecciona las flores,MOTOR_SIMPLE,motor
+busca las flores,MOTOR_SIMPLE,motor
+explora las flores,MOTOR_SIMPLE,motor
+dirigete a las flores,MOTOR_SIMPLE,motor
+avanza hacia las flores,MOTOR_SIMPLE,motor
+retrocede de las flores,MOTOR_SIMPLE,motor
+voltea a las flores,MOTOR_SIMPLE,motor
+camina hacia los arboles,MOTOR_SIMPLE,motor
+acercate a los arboles,MOTOR_SIMPLE,motor
+ve a los arboles,MOTOR_SIMPLE,motor
+alejate de los arboles,MOTOR_SIMPLE,motor
+mira los arboles,MOTOR_SIMPLE,motor
+inspecciona los arboles,MOTOR_SIMPLE,motor
+busca los arboles,MOTOR_SIMPLE,motor
+explora los arboles,MOTOR_SIMPLE,motor
+dirigete a los arboles,MOTOR_SIMPLE,motor
+avanza hacia los arboles,MOTOR_SIMPLE,motor
+retrocede de los arboles,MOTOR_SIMPLE,motor
+rodea los arboles,MOTOR_SIMPLE,motor
+camina hacia los hongos,MOTOR_SIMPLE,motor
+acercate a los hongos,MOTOR_SIMPLE,motor
+ve a los hongos,MOTOR_SIMPLE,motor
+alejate de los hongos,MOTOR_SIMPLE,motor
+mira los hongos,MOTOR_SIMPLE,motor
+inspecciona los hongos,MOTOR_SIMPLE,motor
+busca los hongos,MOTOR_SIMPLE,motor
+explora los hongos,MOTOR_SIMPLE,motor
+dirigete a los hongos,MOTOR_SIMPLE,motor
+avanza hacia los hongos,MOTOR_SIMPLE,motor
+retrocede de los hongos,MOTOR_SIMPLE,motor
+voltea a los hongos,MOTOR_SIMPLE,motor
+camina hacia las ramas,MOTOR_SIMPLE,motor
+acercate a las ramas,MOTOR_SIMPLE,motor
+ve a las ramas,MOTOR_SIMPLE,motor
+alejate de las ramas,MOTOR_SIMPLE,motor
+mira las ramas,MOTOR_SIMPLE,motor
+inspecciona las ramas,MOTOR_SIMPLE,motor
+busca las ramas,MOTOR_SIMPLE,motor
+explora las ramas,MOTOR_SIMPLE,motor
+dirigete a las ramas,MOTOR_SIMPLE,motor
+avanza hacia las ramas,MOTOR_SIMPLE,motor
+retrocede de las ramas,MOTOR_SIMPLE,motor
+rodea las ramas,MOTOR_SIMPLE,motor
+camina hacia el gran arbol,MOTOR_SIMPLE,motor
+acercate al gran arbol,MOTOR_SIMPLE,motor
+ve al gran arbol,MOTOR_SIMPLE,motor
+alejate del gran arbol,MOTOR_SIMPLE,motor
+mira el gran arbol,MOTOR_SIMPLE,motor
+inspecciona el gran arbol,MOTOR_SIMPLE,motor
+busca el gran arbol,MOTOR_SIMPLE,motor
+explora el gran arbol,MOTOR_SIMPLE,motor
+dirigete al gran arbol,MOTOR_SIMPLE,motor
+avanza hacia el gran arbol,MOTOR_SIMPLE,motor
+retrocede del gran arbol,MOTOR_SIMPLE,motor
+rodea el gran arbol,MOTOR_SIMPLE,motor
+camina hacia la gran flor en la montaña,MOTOR_SIMPLE,motor
+acercate a la gran flor en la montaña,MOTOR_SIMPLE,motor
+ve a la gran flor en la montaña,MOTOR_SIMPLE,motor
+alejate de la gran flor en la montaña,MOTOR_SIMPLE,motor
+mira la gran flor en la montaña,MOTOR_SIMPLE,motor
+inspecciona la gran flor en la montaña,MOTOR_SIMPLE,motor
+busca la gran flor en la montaña,MOTOR_SIMPLE,motor
+explora la gran flor en la montaña,MOTOR_SIMPLE,motor
+dirigete a la gran flor en la montaña,MOTOR_SIMPLE,motor
+avanza hacia la gran flor en la montaña,MOTOR_SIMPLE,motor
+retrocede de la gran flor en la montaña,MOTOR_SIMPLE,motor
+voltea a la gran flor en la montaña,MOTOR_SIMPLE,motor
+camina hacia los arboles pinos,MOTOR_SIMPLE,motor
+acercate a los arboles pinos,MOTOR_SIMPLE,motor
+ve a los arboles pinos,MOTOR_SIMPLE,motor
+alejate de los arboles pinos,MOTOR_SIMPLE,motor
+mira los arboles pinos,MOTOR_SIMPLE,motor
+inspecciona los arboles pinos,MOTOR_SIMPLE,motor
+busca los arboles pinos,MOTOR_SIMPLE,motor
+explora los arboles pinos,MOTOR_SIMPLE,motor
+dirigete a los arboles pinos,MOTOR_SIMPLE,motor
+avanza hacia los arboles pinos,MOTOR_SIMPLE,motor
+retrocede de los arboles pinos,MOTOR_SIMPLE,motor
+rodea los arboles pinos,MOTOR_SIMPLE,motor
+camina hacia el arbol alto,MOTOR_SIMPLE,motor
+acercate al arbol alto,MOTOR_SIMPLE,motor
+ve al arbol alto,MOTOR_SIMPLE,motor
+alejate del arbol alto,MOTOR_SIMPLE,motor
+mira el arbol alto,MOTOR_SIMPLE,motor
+inspecciona el arbol alto,MOTOR_SIMPLE,motor
+busca el arbol alto,MOTOR_SIMPLE,motor
+explora el arbol alto,MOTOR_SIMPLE,motor
+dirigete al arbol alto,MOTOR_SIMPLE,motor
+avanza hacia el arbol alto,MOTOR_SIMPLE,motor
+retrocede del arbol alto,MOTOR_SIMPLE,motor
+voltea al arbol alto,MOTOR_SIMPLE,motor
+camina hacia el arbol normal,MOTOR_SIMPLE,motor
+acercate al arbol normal,MOTOR_SIMPLE,motor
+ve al arbol normal,MOTOR_SIMPLE,motor
+alejate del arbol normal,MOTOR_SIMPLE,motor
+mira el arbol normal,MOTOR_SIMPLE,motor
+inspecciona el arbol normal,MOTOR_SIMPLE,motor
+busca el arbol normal,MOTOR_SIMPLE,motor
+explora el arbol normal,MOTOR_SIMPLE,motor
+dirigete al arbol normal,MOTOR_SIMPLE,motor
+avanza hacia el arbol normal,MOTOR_SIMPLE,motor
+retrocede del arbol normal,MOTOR_SIMPLE,motor
+rodea el arbol normal,MOTOR_SIMPLE,motor
+camina hacia el sphere,MOTOR_SIMPLE,motor
+acercate al sphere,MOTOR_SIMPLE,motor
+ve al sphere,MOTOR_SIMPLE,motor
+alejate del sphere,MOTOR_SIMPLE,motor
+mira el sphere,MOTOR_SIMPLE,motor
+inspecciona el sphere,MOTOR_SIMPLE,motor
+busca el sphere,MOTOR_SIMPLE,motor
+explora el sphere,MOTOR_SIMPLE,motor
+dirigete al sphere,MOTOR_SIMPLE,motor
+avanza hacia el sphere,MOTOR_SIMPLE,motor
+retrocede del sphere,MOTOR_SIMPLE,motor
+voltea al sphere,MOTOR_SIMPLE,motor
+camina hacia la capsule,MOTOR_SIMPLE,motor
+acercate a la capsule,MOTOR_SIMPLE,motor
+ve a la capsule,MOTOR_SIMPLE,motor
+alejate de la capsule,MOTOR_SIMPLE,motor
+mira la capsule,MOTOR_SIMPLE,motor
+inspecciona la capsule,MOTOR_SIMPLE,motor
+busca la capsule,MOTOR_SIMPLE,motor
+explora la capsule,MOTOR_SIMPLE,motor
+dirigete a la capsule,MOTOR_SIMPLE,motor
+avanza hacia la capsule,MOTOR_SIMPLE,motor
+retrocede de la capsule,MOTOR_SIMPLE,motor
+rodea la capsule,MOTOR_SIMPLE,motor
+camina hacia el cubo,MOTOR_SIMPLE,motor
+acercate al cubo,MOTOR_SIMPLE,motor
+ve al cubo,MOTOR_SIMPLE,motor
+alejate del cubo,MOTOR_SIMPLE,motor
+mira el cubo,MOTOR_SIMPLE,motor
+inspecciona el cubo,MOTOR_SIMPLE,motor
+busca el cubo,MOTOR_SIMPLE,motor
+explora el cubo,MOTOR_SIMPLE,motor
+dirigete al cubo,MOTOR_SIMPLE,motor
+avanza hacia el cubo,MOTOR_SIMPLE,motor
+retrocede del cubo,MOTOR_SIMPLE,motor
+voltea al cubo,MOTOR_SIMPLE,motor
+camina hacia el cylinder,MOTOR_SIMPLE,motor
+acercate al cylinder,MOTOR_SIMPLE,motor
+ve al cylinder,MOTOR_SIMPLE,motor
+alejate del cylinder,MOTOR_SIMPLE,motor
+mira el cylinder,MOTOR_SIMPLE,motor
+inspecciona el cylinder,MOTOR_SIMPLE,motor
+busca el cylinder,MOTOR_SIMPLE,motor
+explora el cylinder,MOTOR_SIMPLE,motor
+dirigete al cylinder,MOTOR_SIMPLE,motor
+avanza hacia el cylinder,MOTOR_SIMPLE,motor
+retrocede del cylinder,MOTOR_SIMPLE,motor
+rodea el cylinder,MOTOR_SIMPLE,motor
