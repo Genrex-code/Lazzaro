@@ -942,7 +942,13 @@ REGLAS FISICAS Y DE ENTORNO:
             }
             //5. Calcular hacia donde debe saltar para huir del golpe ( direccion opuesta al impacto)
             Vector3 direccionGolpe = (transform.position - choque.contacts[0].point).normalized;
-            string dirEscapeSTR = $"{direccionGolpe.x:0.##},0, {direccionGolpe.z:0.##}";
+            // Traducir el vector a lenguaje natural para Python
+string dirEscapeSTR = "atras"; 
+if (Mathf.Abs(direccionGolpe.x) > Mathf.Abs(direccionGolpe.z)) {
+    dirEscapeSTR = direccionGolpe.x > 0 ? "derecha" : "izquierda";
+} else {
+    dirEscapeSTR = direccionGolpe.z > 0 ? "adelante" : "atras";
+}
 
             //6. LLAMAR A LA FUNCION DE DOLOR AL PITON O PAITON O COMO SE ESCRIBA d:
             string causa = $"!ay! Acabo de chocar violentamente contra {nombreObjeto}. Me dolio mucho :c ."; 

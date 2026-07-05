@@ -232,7 +232,7 @@ public class MovementController : MonoBehaviour
         OnMovimientoCompletado?.Invoke(true, $"Gire {grados:0.#} grados.");
     }
 
-    private void FrenarMovimiento()
+    public void FrenarMovimiento()
     {
         if (navAgent != null && navAgent.isOnNavMesh)
         {

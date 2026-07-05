@@ -199,26 +199,16 @@ public class PerceptionSystem : MonoBehaviour
     }
 
     private bool EstaEnCampoVisual(Vector3 direccionAlObjeto)
-    {
-        Vector3 direccionPlana = direccionAlObjeto;
-        direccionPlana.y = 0f;
+{
+    // Evitar errores si el objeto está literalmente adentro de ella
+    if (direccionAlObjeto.sqrMagnitude <= 0.001f) return true;
 
-        if (direccionPlana.sqrMagnitude <= 0.0001f)
-        {
-            return true;
-        }
-
-        Vector3 frentePlano = transform.forward;
-        frentePlano.y = 0f;
-
-        if (frentePlano.sqrMagnitude <= 0.0001f)
-        {
-            frentePlano = Vector3.forward;
-        }
-
-        float anguloAlObjeto = Vector3.Angle(frentePlano.normalized, direccionPlana.normalized);
-        return anguloAlObjeto <= Mathf.Clamp(anguloVision, 1f, 360f) / 2f;
-    }
+    // Calcular el ángulo 3D real desde donde mira Lazzaro
+    float anguloAlObjeto = Vector3.Angle(transform.forward, direccionAlObjeto.normalized);
+    
+    // Si el ángulo es menor o igual a la mitad de su FOV, lo está viendo
+    return anguloAlObjeto <= (Mathf.Clamp(anguloVision, 1f, 360f) / 2f);
+}
 
     private static string DescribirDireccion(Vector3 delta)
     {
