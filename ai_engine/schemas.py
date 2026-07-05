@@ -92,6 +92,7 @@ class ActionResponse(BaseModel):
     valido: bool = True
     error: Optional[str] = None
     emocion_facial: str = "Fcl_ALL_Neutral"
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class OracleResult(BaseModel):

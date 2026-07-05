@@ -146,6 +146,9 @@ Campos frecuentes en `detalles`:
 | `mensaje` | Texto del usuario, manual inicial o texto de subtarea. |
 | `solicita_decision` | Si `true`, una telemetria puede pedir decision. Default practico: `false`. |
 | `objetos_visibles` | Resumen textual o lista comprimida de percepcion Unity. |
+| `objetos_normalizados` | Lista compatible con `PerceivedObject` para grounding de Capa 1. |
+| `snapshot_id`, `source` | Identidad y origen del snapshot perceptivo. |
+| `unknown_affordances` | Affordances rechazadas por el schema cerrado. |
 | `resumen_percepcion` | Texto legible de percepcion frontal. |
 | `cantidad_objetos_visibles` | Conteo de objetos detectados. |
 | `posicion_lazzaro` | Coordenadas `{x, y, z}`. |

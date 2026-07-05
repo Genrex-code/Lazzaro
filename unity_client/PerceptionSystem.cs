@@ -5,6 +5,32 @@ using UnityEngine;
 
 public class PerceptionSystem : MonoBehaviour
 {
+    private static readonly HashSet<string> AffordancesPermitidas = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "obstaculo",
+        "transitable",
+        "bloquea_paso",
+        "punto_refugio",
+        "mirar",
+        "tocar",
+        "agarrable",
+        "empujable",
+        "activable",
+        "inspeccionable",
+        "da_sombra",
+        "cubre",
+        "ilumina",
+        "descanso",
+        "peligro",
+        "recurso",
+        "clicable",
+        "escribible",
+        "arrastrable",
+        "ventana",
+        "boton",
+        "campo_texto",
+    };
+
     public float radioVision = 15f;
     [Tooltip("Angulo de vision frontal en grados. 120 equivale a 60 grados por lado.")]
     public float anguloVision = 120f;
@@ -14,24 +40,36 @@ public class PerceptionSystem : MonoBehaviour
     {
         List<Collider> interactuables = ObtenerObjetosInteractuables();
         string resumenTextual = GenerarResumenTextual(interactuables);
+        List<string> unknownAffordances;
+        List<Dictionary<string, object>> objetosNormalizados = GenerarObjetosNormalizados(
+            interactuables,
+            out unknownAffordances
+        );
 
         Dictionary<string, object> objetoMasCercano = null;
         if (interactuables.Count > 0)
         {
             Collider cercano = interactuables[0];
             float distancia = Vector3.Distance(transform.position, cercano.transform.position);
+            InteractableMetadata metadata = cercano.GetComponent<InteractableMetadata>();
             objetoMasCercano = new Dictionary<string, object>
             {
                 { "nombre", cercano.name },
+                { "id", ObtenerObjectId(cercano, metadata) },
+                { "display_name", ObtenerDisplayName(cercano, metadata) },
                 { "distancia", Math.Round(distancia, 2) },
             };
         }
 
         return new Dictionary<string, object>
         {
+            { "snapshot_id", CrearSnapshotId(interactuables) },
+            { "source", "unity" },
             { "objetos_visibles", resumenTextual },
+            { "objetos_normalizados", objetosNormalizados },
             { "resumen_percepcion", resumenTextual },
             { "cantidad_objetos_visibles", interactuables.Count },
+            { "unknown_affordances", unknownAffordances },
             {
                 "posicion_lazzaro",
                 new Dictionary<string, object>
@@ -119,6 +157,60 @@ public class PerceptionSystem : MonoBehaviour
         }
 
         return "Frente a mi veo: " + string.Join(", ", fragmentos) + ".";
+    }
+
+    public List<Dictionary<string, object>> GenerarObjetosNormalizados(
+        List<Collider> objetos,
+        out List<string> unknownAffordances
+    )
+    {
+        unknownAffordances = new List<string>();
+        List<Dictionary<string, object>> normalizados = new List<Dictionary<string, object>>();
+
+        if (objetos == null)
+        {
+            return normalizados;
+        }
+
+        int limite = Mathf.Min(maxObjetosVisibles, objetos.Count);
+        for (int i = 0; i < limite; i++)
+        {
+            Collider col = objetos[i];
+            if (col == null)
+            {
+                continue;
+            }
+
+            InteractableMetadata metadata = col.GetComponent<InteractableMetadata>();
+            float distancia = Vector3.Distance(transform.position, col.transform.position);
+            List<string> aliases = ObtenerAliases(col, metadata);
+            List<string> affordances = ObtenerAffordancesCanonicas(metadata, unknownAffordances);
+
+            normalizados.Add(new Dictionary<string, object>
+            {
+                { "id", ObtenerObjectId(col, metadata) },
+                { "display_name", ObtenerDisplayName(col, metadata) },
+                { "nombre", col.name },
+                { "runtime_instance_id", col.gameObject.GetInstanceID() },
+                { "aliases", aliases },
+                {
+                    "position",
+                    new Dictionary<string, object>
+                    {
+                        { "x", Math.Round(col.transform.position.x, 2) },
+                        { "y", Math.Round(col.transform.position.y, 2) },
+                        { "z", Math.Round(col.transform.position.z, 2) },
+                    }
+                },
+                { "distance", Math.Round(distancia, 2) },
+                { "distancia", Math.Round(distancia, 2) },
+                { "affordances", affordances },
+                { "source", "unity" },
+                { "confidence", metadata != null ? Mathf.Clamp01(metadata.confidence) : 1f },
+            });
+        }
+
+        return normalizados;
     }
 
     public bool CambioSignificativo(List<Collider> nuevos, List<Collider> viejos)
@@ -218,5 +310,126 @@ public class PerceptionSystem : MonoBehaviour
         }
 
         return delta.z >= 0f ? "norte (al frente)" : "sur (detras)";
+    }
+
+    private static string ObtenerObjectId(Collider col, InteractableMetadata metadata)
+    {
+        if (metadata != null)
+        {
+            return metadata.GetObjectId(col.gameObject);
+        }
+
+        return col != null ? col.name : "unknown_object";
+    }
+
+    private static string ObtenerDisplayName(Collider col, InteractableMetadata metadata)
+    {
+        if (metadata != null)
+        {
+            return metadata.GetDisplayName(col.gameObject);
+        }
+
+        return col != null ? col.name : "unknown_object";
+    }
+
+    private static List<string> ObtenerAliases(Collider col, InteractableMetadata metadata)
+    {
+        List<string> aliases = new List<string>();
+        AgregarUnico(aliases, col != null ? col.name : "");
+
+        if (metadata != null)
+        {
+            AgregarUnico(aliases, metadata.GetDisplayName(col.gameObject));
+            foreach (string alias in metadata.GetAliases())
+            {
+                AgregarUnico(aliases, alias);
+            }
+        }
+
+        return aliases;
+    }
+
+    private static List<string> ObtenerAffordancesCanonicas(
+        InteractableMetadata metadata,
+        List<string> unknownAffordances
+    )
+    {
+        List<string> affordances = new List<string>();
+        if (metadata == null)
+        {
+            return affordances;
+        }
+
+        foreach (string raw in metadata.GetAffordances())
+        {
+            string normalizada = NormalizarAffordance(raw);
+            if (string.IsNullOrWhiteSpace(normalizada))
+            {
+                continue;
+            }
+
+            if (AffordancesPermitidas.Contains(normalizada))
+            {
+                AgregarUnico(affordances, normalizada);
+            }
+            else
+            {
+                AgregarUnico(unknownAffordances, normalizada);
+            }
+        }
+
+        return affordances;
+    }
+
+    private static string NormalizarAffordance(string valor)
+    {
+        if (string.IsNullOrWhiteSpace(valor))
+        {
+            return "";
+        }
+
+        return valor.Trim().ToLowerInvariant().Replace(" ", "_").Replace("-", "_");
+    }
+
+    private static void AgregarUnico(List<string> valores, string valor)
+    {
+        if (valores == null || string.IsNullOrWhiteSpace(valor))
+        {
+            return;
+        }
+
+        string limpio = valor.Trim();
+        if (!valores.Contains(limpio))
+        {
+            valores.Add(limpio);
+        }
+    }
+
+    private string CrearSnapshotId(List<Collider> objetos)
+    {
+        List<string> partes = new List<string>
+        {
+            "unity",
+            transform.position.x.ToString("0.00", CultureInfo.InvariantCulture),
+            transform.position.y.ToString("0.00", CultureInfo.InvariantCulture),
+            transform.position.z.ToString("0.00", CultureInfo.InvariantCulture),
+        };
+
+        if (objetos != null)
+        {
+            int limite = Mathf.Min(maxObjetosVisibles, objetos.Count);
+            for (int i = 0; i < limite; i++)
+            {
+                Collider col = objetos[i];
+                if (col != null)
+                {
+                    partes.Add(col.name);
+                    float distancia = Vector3.Distance(transform.position, col.transform.position);
+                    partes.Add(distancia.ToString("0.00", CultureInfo.InvariantCulture));
+                }
+            }
+        }
+
+        return string.Join("_", partes);
     }
 }

@@ -2,7 +2,7 @@
 motor_schemas.py - Esquemas Pydantic para acciones fisicas de la Capa 1.
 """
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -107,4 +107,8 @@ class MotorAction(BaseModel):
     razon: str = Field(
         "",
         description="Justificacion tecnica breve; no se renderiza en el avatar.",
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Metadata interna de auditoria. No se envia como parametro fisico.",
     )

@@ -14,7 +14,9 @@ from pydantic import ValidationError
 
 from core.logger import get_logger
 
+from .fuzzy_object_resolver import FuzzyObjectResolver
 from .motor_schemas import ACTION_SCHEMA_MAP, MotorAction
+from .motor_resolution import MotorResolution
 from .spatial_reasoner import SpatialReasoner
 
 logger = get_logger(__name__)
@@ -44,6 +46,7 @@ class MotorEngine:
 
     def __init__(self):
         self.spatial = SpatialReasoner()
+        self.fuzzy_resolver = FuzzyObjectResolver()
 
     def resolver_comando_usuario(
         self,
@@ -74,6 +77,8 @@ class MotorEngine:
         mensaje: str,
         percepcion: Dict[str, Any],
         herramientas_disponibles: Iterable[str] | None = None,
+        intent: str = "MOTOR_SIMPLE",
+        contexto_motor: dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         """
         Clasifica un comando motor sin llamar al LLM.
@@ -88,10 +93,18 @@ class MotorEngine:
             logger.info("Motor determinista omitido: %s no esta permitida.", accion)
             return {"estado": "no_permitida", "accion": accion, "parametros": None}
 
+        if accion in self.ACCIONES_CON_OBJETO:
+            return self._diagnosticar_accion_con_objeto(
+                accion=accion,
+                mensaje=mensaje,
+                percepcion=percepcion,
+                intent=intent,
+                contexto_motor=contexto_motor or {},
+            )
+
         parametros = self._construir_parametros_desde_texto(accion, mensaje, percepcion)
         if parametros is None:
-            estado = "falta_objetivo" if accion in self.ACCIONES_CON_OBJETO else "ambigua"
-            return {"estado": estado, "accion": accion, "parametros": None}
+            return {"estado": "ambigua", "accion": accion, "parametros": None}
 
         return {"estado": "lista", "accion": accion, "parametros": parametros}
 
@@ -100,6 +113,8 @@ class MotorEngine:
         accion_propuesta: str,
         parametros: Dict[str, Any] | None,
         percepcion: Dict[str, Any] | None,
+        intent: str = "MOTOR_SIMPLE",
+        contexto_motor: dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         """
         Valida una accion motora propuesta por reglas o por el LLM.
@@ -117,25 +132,38 @@ class MotorEngine:
             logger.warning("Accion motora desconocida: %s. Se devuelve none.", accion)
             return self._none(f"Accion '{accion}' no reconocida por el Motor.")
 
-        parametros_limpios = self._enriquecer_parametros(accion, parametros_limpios, percepcion_limpia)
+        parametros_limpios, metadata = self._enriquecer_parametros(
+            accion,
+            parametros_limpios,
+            percepcion_limpia,
+            intent=intent,
+            contexto_motor=contexto_motor or {},
+        )
+        if metadata.get("motor_resolution", {}).get("status") not in {None, "ready"}:
+            estado = str(metadata.get("motor_resolution", {}).get("status", "none"))
+            return self._none(
+                f"Resolucion motora '{estado}' bloqueo la accion.",
+                metadata=metadata,
+            )
 
         try:
             params_validados = schema_cls(**parametros_limpios)
         except ValidationError as e:
             logger.warning("Parametros invalidos para '%s': %s", accion, e.errors())
-            return self._none("Parametros invalidos. Accion bloqueada por Capa 1.")
+            return self._none("Parametros invalidos. Accion bloqueada por Capa 1.", metadata=metadata)
 
         motor_action = MotorAction(
             accion=accion,
             parametros=params_validados.model_dump(exclude_none=True),
             razon=f"Accion '{accion}' validada por Capa 1.",
+            metadata=metadata,
         )
         logger.debug("MotorAction generada: %s", motor_action.accion)
         return motor_action.model_dump()
 
     @staticmethod
-    def _none(razon: str) -> Dict[str, Any]:
-        return MotorAction(accion="none", parametros={}, razon=razon).model_dump()
+    def _none(razon: str, metadata: dict[str, Any] | None = None) -> Dict[str, Any]:
+        return MotorAction(accion="none", parametros={}, razon=razon, metadata=metadata or {}).model_dump()
 
     def _inferir_accion(self, mensaje: str) -> Optional[str]:
         texto = self.spatial.normalizar_texto(mensaje)
@@ -205,6 +233,83 @@ class MotorEngine:
 
         return None
 
+    def _diagnosticar_accion_con_objeto(
+        self,
+        *,
+        accion: str,
+        mensaje: str,
+        percepcion: Dict[str, Any],
+        intent: str,
+        contexto_motor: dict[str, Any],
+    ) -> Dict[str, Any]:
+        resolucion = self._resolver_objetivo_fuzzy(
+            query=mensaje,
+            accion=accion,
+            percepcion=percepcion,
+            intent=intent,
+            contexto_motor=contexto_motor,
+        )
+        if resolucion is not None:
+            metadata = resolucion.to_metadata()
+            if resolucion.status == "ready":
+                parametros = self._parametros_desde_resolucion(accion, mensaje, resolucion)
+                return {
+                    "estado": "lista",
+                    "accion": accion,
+                    "parametros": parametros,
+                    "metadata": metadata,
+                }
+
+            parametros_legacy = self._construir_parametros_legacy_con_objeto(accion, mensaje, percepcion)
+            if parametros_legacy is not None and self._puede_usar_fallback_legacy(resolucion):
+                return {"estado": "lista", "accion": accion, "parametros": parametros_legacy, "metadata": {}}
+
+            return {
+                "estado": resolucion.status,
+                "accion": accion,
+                "parametros": None,
+                "metadata": metadata,
+                "resolucion_motor": resolucion.to_dict(),
+            }
+
+        parametros = self._construir_parametros_legacy_con_objeto(accion, mensaje, percepcion)
+        if parametros is None:
+            logger.info("Motor determinista no encontro objeto objetivo en: %s", mensaje)
+            return {"estado": "falta_objetivo", "accion": accion, "parametros": None}
+
+        return {"estado": "lista", "accion": accion, "parametros": parametros, "metadata": {}}
+
+    def _construir_parametros_legacy_con_objeto(
+        self,
+        accion: str,
+        mensaje: str,
+        percepcion: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        nombre = self._extraer_objeto_objetivo(mensaje, percepcion)
+        if not nombre:
+            return None
+
+        parametros: Dict[str, Any] = {"nombre_objeto": nombre}
+        if accion == "alejarse_de_objeto":
+            parametros["distancia"] = 2.0
+        if accion == "interactuar_objeto_3d":
+            parametros["tipo_accion"] = self._inferir_tipo_interaccion(mensaje)
+        return parametros
+
+    def _parametros_desde_resolucion(
+        self,
+        accion: str,
+        mensaje: str,
+        resolucion: MotorResolution,
+    ) -> Dict[str, Any]:
+        nombre = resolucion.legacy_nombre_objeto or resolucion.target_display_name or resolucion.target_id or ""
+        parametros: Dict[str, Any] = {"nombre_objeto": nombre}
+        if accion == "alejarse_de_objeto":
+            parametros["distancia"] = 2.0
+        if accion == "interactuar_objeto_3d":
+            parametros["tipo_accion"] = self._inferir_tipo_interaccion(mensaje)
+        return parametros
+
     @staticmethod
     def _es_comando_giro(texto: str) -> bool:
         return any(
@@ -266,25 +371,92 @@ class MotorEngine:
         accion: str,
         parametros: Dict[str, Any],
         percepcion: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        *,
+        intent: str = "MOTOR_SIMPLE",
+        contexto_motor: dict[str, Any] | None = None,
+    ) -> tuple[Dict[str, Any], dict[str, Any]]:
+        metadata: dict[str, Any] = {}
         if accion not in self.ACCIONES_CON_OBJETO:
-            return parametros
+            return parametros, metadata
 
         nombre = str(parametros.get("nombre_objeto", "")).strip()
         if not nombre:
-            return parametros
+            return parametros, metadata
+
+        resolucion = self._resolver_objetivo_fuzzy(
+            query=nombre,
+            accion=accion,
+            percepcion=percepcion,
+            intent=intent,
+            contexto_motor=contexto_motor or {},
+        )
+        if resolucion is not None:
+            metadata = resolucion.to_metadata()
+            if resolucion.status == "ready":
+                parametros["nombre_objeto"] = (
+                    resolucion.legacy_nombre_objeto
+                    or resolucion.target_display_name
+                    or resolucion.target_id
+                    or nombre
+                )
+            if self._puede_usar_fallback_legacy(resolucion):
+                nombre_visible = self._resolver_alias_visible(nombre, percepcion)
+                if nombre_visible:
+                    parametros["nombre_objeto"] = nombre_visible
+                    return parametros, {}
+            return parametros, metadata
 
         nombre_normalizado = self.spatial.normalizar_texto(nombre)
         if nombre_normalizado in {"mas_cercano", "objeto_mas_cercano", "cercano", "enfrente"}:
             cercano = self._nombre_objeto_mas_cercano(percepcion)
             if cercano:
                 parametros["nombre_objeto"] = cercano
-            return parametros
+            return parametros, metadata
 
         nombre_visible = self._resolver_alias_visible(nombre, percepcion)
         if nombre_visible:
             parametros["nombre_objeto"] = nombre_visible
-        return parametros
+        return parametros, metadata
+
+    def _resolver_objetivo_fuzzy(
+        self,
+        *,
+        query: str,
+        accion: str,
+        percepcion: Dict[str, Any],
+        intent: str,
+        contexto_motor: dict[str, Any],
+    ) -> MotorResolution | None:
+        if not self._percepcion_tiene_objetos_normalizados(percepcion):
+            return None
+
+        try:
+            return self.fuzzy_resolver.resolve(
+                query,
+                percepcion,
+                intent=intent,
+                action=accion,
+                context=contexto_motor,
+            )
+        except Exception as exc:
+            logger.warning("FuzzyObjectResolver fallo; se conserva fallback legacy: %s", exc, exc_info=True)
+            return None
+
+    @staticmethod
+    def _percepcion_tiene_objetos_normalizados(percepcion: Dict[str, Any]) -> bool:
+        if not isinstance(percepcion, dict):
+            return False
+        for key in ("objetos_normalizados", "objects", "perceived_objects"):
+            value = percepcion.get(key)
+            if isinstance(value, list) and value:
+                return True
+        return False
+
+    @staticmethod
+    def _puede_usar_fallback_legacy(resolucion: MotorResolution) -> bool:
+        if resolucion.status not in {"not_found", "requires_clarification"}:
+            return False
+        return len(resolucion.candidates) <= 1
 
     def _extraer_objeto_objetivo(self, mensaje: str, percepcion: Dict[str, Any]) -> Optional[str]:
         texto = self.spatial.normalizar_texto(mensaje)
@@ -333,6 +505,16 @@ class MotorEngine:
                     nombres.append(str(obj["nombre"]))
         elif isinstance(objetos, str):
             nombres.extend(self.spatial.extraer_nombres_desde_resumen(objetos))
+
+        normalizados = percepcion.get("objetos_normalizados")
+        if isinstance(normalizados, list):
+            for obj in normalizados:
+                if not isinstance(obj, dict):
+                    continue
+                for clave in ("nombre", "display_name", "id"):
+                    valor = obj.get(clave)
+                    if valor:
+                        nombres.append(str(valor))
 
         resumen = percepcion.get("resumen_percepcion")
         if isinstance(resumen, str):

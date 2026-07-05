@@ -132,6 +132,7 @@ class Orchestrator:
         elif self._triage_es_motor(triage_decision):
             action_response = self._resolver_ruta_motor(
                 evento=evento,
+                triage_decision=triage_decision,
                 contexto_llm=contexto_llm,
                 memoria_texto=memoria_texto_completa,
                 herramientas=herramientas,
@@ -652,21 +653,26 @@ class Orchestrator:
         herramientas_detalle: dict[str, str],
         politica: str,
         tarea: dict | None,
+        triage_decision: dict | None = None,
     ) -> ActionResponse:
         """Usa Capa 1 para resolver/validar acciones fisicas."""
         percepcion = self._extraer_percepcion_motor(evento, contexto_llm)
         mensaje = str(evento.detalles.get("mensaje", ""))
+        triage_info = triage_decision if isinstance(triage_decision, dict) else {}
+        intent = str(triage_info.get("intent") or "MOTOR_SIMPLE")
 
         diagnostico_motor = self.motor_engine.diagnosticar_comando_usuario(
             mensaje,
             percepcion=percepcion,
             herramientas_disponibles=herramientas,
+            intent=intent,
         )
         if diagnostico_motor["estado"] == "lista":
             accion_motora = self.motor_engine.procesar_comando_motor(
                 str(diagnostico_motor["accion"]),
                 diagnostico_motor["parametros"],
                 percepcion=percepcion,
+                intent=intent,
             )
             return self._action_response_desde_motor(
                 accion_motora,
@@ -675,6 +681,8 @@ class Orchestrator:
             )
         if diagnostico_motor["estado"] in {"falta_objetivo", "ambigua"}:
             return self._respuesta_aclaracion_motor(diagnostico_motor)
+        if diagnostico_motor["estado"] in {"requires_clarification", "not_found", "not_allowed", "unsafe"}:
+            return self._respuesta_resolucion_motor(diagnostico_motor)
 
         try:
             action_response = self.reasoning.process(
@@ -701,6 +709,7 @@ class Orchestrator:
                 action_response.accion,
                 action_response.parametros,
                 percepcion=percepcion,
+                intent=intent,
             )
             return self._action_response_desde_motor(
                 accion_validada,
@@ -719,10 +728,14 @@ class Orchestrator:
 
         claves_percepcion = {
             "objetos_visibles",
+            "objetos_normalizados",
             "resumen_percepcion",
             "objeto_mas_cercano",
             "cantidad_objetos_visibles",
             "posicion_lazzaro",
+            "snapshot_id",
+            "source",
+            "unknown_affordances",
             "estado_fisico",
             "salud_avatar",
             "mensaje_critico",
@@ -755,6 +768,7 @@ class Orchestrator:
             valido=valido,
             error=None if valido else str(motor_action.get("razon", "Accion bloqueada por Capa 1.")),
             emocion_facial=emocion_facial or "Fcl_ALL_Neutral",
+            metadata=motor_action.get("metadata", {}) if isinstance(motor_action.get("metadata"), dict) else {},
         )
 
     @staticmethod
@@ -775,6 +789,73 @@ class Orchestrator:
             razon="Capa 1 bloqueo un comando motor ambiguo para evitar alucinaciones fisicas.",
             valido=True,
             emocion_facial="Fcl_ALL_Neutral",
+        )
+
+    @staticmethod
+    def _respuesta_resolucion_motor(diagnostico_motor: dict) -> ActionResponse:
+        estado = str(diagnostico_motor.get("estado", "")).strip()
+        accion = str(diagnostico_motor.get("accion", "")).strip()
+        metadata = diagnostico_motor.get("metadata", {}) if isinstance(diagnostico_motor.get("metadata"), dict) else {}
+        resolucion = metadata.get("motor_resolution", {}) if isinstance(metadata.get("motor_resolution"), dict) else {}
+        candidatos = resolucion.get("candidates", []) if isinstance(resolucion, dict) else []
+
+        if estado == "requires_clarification":
+            nombres = [
+                str(candidato.get("display_name") or candidato.get("legacy_nombre_objeto") or "").strip()
+                for candidato in candidatos
+                if isinstance(candidato, dict)
+            ]
+            nombres = [nombre for nombre in nombres if nombre][:3]
+            if len(nombres) >= 2:
+                texto = f"Veo {', '.join(nombres)}. Cual quieres?"
+            else:
+                texto = "No estoy segura de a que objeto te refieres. Cual quieres?"
+            razon = "Capa 1 detecto candidatos ambiguos y pidio aclaracion."
+            return ActionResponse(
+                pensamiento="Comando motor ambiguo; Capa 1 pide aclaracion antes de actuar.",
+                accion="hablar",
+                parametros={"texto_a_comunicar": texto},
+                razon=razon,
+                valido=True,
+                emocion_facial="Fcl_ALL_Neutral",
+                metadata=metadata,
+            )
+
+        if estado == "not_allowed":
+            texto = "Ese objeto no permite esa accion."
+            razon = "Capa 1 bloqueo la accion porque el objeto no tiene affordance compatible."
+            return ActionResponse(
+                pensamiento="La accion no aplica al objeto seleccionado.",
+                accion="hablar",
+                parametros={"texto_a_comunicar": texto},
+                razon=razon,
+                valido=True,
+                emocion_facial="Fcl_ALL_Neutral",
+                metadata=metadata,
+            )
+
+        if estado == "not_found":
+            texto = "No veo ese objeto en mi percepcion actual."
+            razon = "Capa 1 no encontro un candidato perceptivo suficiente."
+            return ActionResponse(
+                pensamiento="No hay objeto perceptivo suficiente para ejecutar.",
+                accion="hablar",
+                parametros={"texto_a_comunicar": texto},
+                razon=razon,
+                valido=True,
+                emocion_facial="Fcl_ALL_Neutral",
+                metadata=metadata,
+            )
+
+        return ActionResponse(
+            pensamiento="Capa 1 bloqueo una accion potencialmente insegura.",
+            accion="none",
+            parametros={},
+            razon=f"Resolucion motora '{estado or accion}' bloqueada por seguridad.",
+            valido=False,
+            error="Accion fisica bloqueada por Capa 1.",
+            emocion_facial="Fcl_ALL_Neutral",
+            metadata=metadata,
         )
 
     def _registrar_estado_identidad(
@@ -950,6 +1031,7 @@ class Orchestrator:
                 valido=False,
                 error=action_response.error or "Respuesta invalida del modelo.",
                 emocion_facial=action_response.emocion_facial,
+                metadata=action_response.metadata,
             )
 
         if (
@@ -967,6 +1049,7 @@ class Orchestrator:
                 valido=False,
                 error=error,
                 emocion_facial=action_response.emocion_facial,
+                metadata=action_response.metadata,
             )
 
         return action_response

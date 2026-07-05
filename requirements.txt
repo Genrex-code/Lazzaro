@@ -8,3 +8,4 @@ httpx
 pandas
 scikit-learn
 joblib
+thefuzz

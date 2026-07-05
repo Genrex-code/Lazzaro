@@ -149,10 +149,16 @@ Archivo fuente: `ai_engine/schemas.py`
 | `valido` | `bool` | Si la accion es confiable. |
 | `error` | `str | None` | Error controlado. No debe romper el flujo. |
 | `emocion_facial` | `str | None` | Expresion facial sugerida. |
+| `metadata` | `dict` | Metadata interna opcional, por ejemplo auditoria motora. No debe ser voz publica. |
 
 Invariante importante: cualquier salida invalida, accion desconocida o payload
 no ejecutable debe convertirse a una accion segura, normalmente `none` o
 `hablar` con aclaracion.
+
+Invariante de auditoria motora: si una respuesta viene de `MotorResolution`, el
+Core debe preservar `metadata.motor_resolution` y `metadata.motor_audit`. Esa
+metadata no debe convertirse en parametros fisicos para Unity ni en texto social
+automatico.
 
 ### Decision de Triage
 
@@ -482,14 +488,22 @@ Contrato:
 - Salida: respuesta cacheada si la distancia semantica esta bajo umbral.
 - No reemplaza la memoria episodica normal.
 
-## Contrato De Capa 1: Motor / Manos / Herramientas
+## Contrato De Capa 1: Motor / Grounding Fisico / Herramientas
 
-Responsabilidad: resolver acciones fisicas o ejecutables de bajo nivel.
+Responsabilidad: aterrizar lenguaje humano y percepcion cruda en acciones
+fisicas seguras, auditables y compatibles con Unity.
+
+Capa 1 no es una segunda Persona y no es una memoria paralela. Su trabajo es
+decidir a que objeto real se refiere el usuario, validar si la accion aplica a
+ese objeto, bloquear ejecuciones inseguras y devolver una salida estructurada.
+Capa 2 verbaliza. Capa 3 recuerda. Capa 0 enruta. El Core conserva el flujo y
+los permisos.
 
 Archivos fuente:
 
 - `ai_engine/motor_engine.py`
 - `ai_engine/motor_schemas.py`
+- `ai_engine/affordance_resolver.py`
 - `core/tool_policy.py`
 - `tools/registry.py`
 - `tools/executor.py`
@@ -503,8 +517,56 @@ Archivos fuente:
 | Entrada | Tipo | Descripcion |
 | --- | --- | --- |
 | `mensaje_usuario` | `str` | Comando motor del usuario. |
+| `intent` | `str` | Intencion normalizada por Capa 0, por ejemplo `MOTOR_SIMPLE`, `MOTOR_REFERENCE`, `PERCEPTION` o `INTERACTION`. |
 | `herramientas_disponibles` | `list[str]` | Herramientas permitidas por ToolPolicy. |
-| `percepcion_resumida` | `dict | str` | Objetos visibles, objeto cercano, posicion. |
+| `percepcion_resumida` | `dict | str` | Formato legacy de Unity: objetos visibles, objeto cercano, posicion. |
+| `percepcion_normalizada` | `PerceptionSnapshot | None` | Formato canonico nuevo, derivado desde Unity, escritorio, OCR o UI-tree. |
+
+La compatibilidad legacy con Unity se conserva. Si Unity envia nombres como
+`nombre_objeto` o resumen textual, un adaptador Python debe traducir esa entrada
+a `PerceivedObject` antes de que el resolver fuzzy haga scoring. El contrato
+externo hacia Unity puede seguir usando `nombre_objeto`; internamente Capa 1 debe
+resolver a `target_id` y conservar la traduccion `target_id -> display_name ->
+nombre_objeto` en auditoria.
+
+### PerceptionSnapshot y PerceivedObject
+
+Todo origen perceptivo debe normalizarse al mismo contrato antes de resolver
+targets. Unity es el primer origen, pero el formato debe servir despues para
+escritorio, OCR y UI-tree.
+
+```python
+@dataclass
+class PerceivedObject:
+    id: str
+    display_name: str
+    aliases: list[str]
+    position: dict | None
+    screen_position: dict | None
+    distance: float | None
+    affordances: list[str]
+    source: str
+    confidence: float = 1.0
+```
+
+```python
+@dataclass
+class PerceptionSnapshot:
+    snapshot_id: str
+    objects: list[PerceivedObject]
+    source: str
+    raw: dict | str | None = None
+```
+
+Reglas:
+
+- `source` debe ser `unity`, `desktop`, `ocr` o `ui_tree`.
+- Un string legacy como `Frente a mi veo: Cube, Sphere` debe convertirse a
+  objetos normalizados con `source="unity"` y confianza conservadora.
+- `snapshot_id` debe existir cuando el origen pueda proveerlo; si no existe, el
+  adaptador puede derivarlo de contenido y tiempo para cache local.
+- `confidence` perceptiva no autoriza acciones por si sola; solo participa como
+  componente auditado del scoring.
 
 ### Salida de MotorEngine
 
@@ -518,8 +580,99 @@ Diccionario compatible con `ActionResponse`:
 | `razon` | `str` | Por que se eligio la accion. |
 | `valido` | `bool` | Si es ejecutable. |
 | `error` | `str | None` | Error controlado. |
+| `metadata.motor_resolution` | `dict | None` | Estado estructurado de Capa 1, sin voz social. |
+| `metadata.motor_audit` | `dict | None` | Metadata obligatoria para depurar decisiones fuzzy. |
 
-### Diagnosticos motores
+`metadata.motor_resolution` y `metadata.motor_audit` son internos. Pueden viajar
+por el objeto devuelto por MotorEngine y por logs del Core, pero no deben
+convertirse en parametros fisicos para Unity. Unity recibe solo la accion y
+parametros que su contrato entiende.
+
+### MotorResolution
+
+Toda resolucion de objetivo debe producir un estado explicito. Los estados viven
+en `MotorResolution`; la metadata de por que se llego a ellos viaja en
+`metadata.motor_audit`.
+
+| Estado | Significado | Salida esperada |
+| --- | --- | --- |
+| `ready` | Objeto y accion suficientemente claros. | Accion fisica validada por `motor_schemas.py`. |
+| `requires_clarification` | Hay candidatos plausibles pero no seguros. | Aclaracion directa y tecnica; no ejecutar. |
+| `not_found` | No hay candidato razonable. | `hablar` seguro: no veo/no encuentro ese objeto. |
+| `not_allowed` | La accion no aplica al objeto o affordance. | `hablar` seguro: ese objeto no permite esa accion. |
+| `unsafe` | La accion seria riesgosa o contradice el estado fisico. | `none` o negativa breve; no ejecutar. |
+
+Campos minimos esperados:
+
+| Campo | Tipo | Descripcion |
+| --- | --- | --- |
+| `status` | `str` | Uno de los estados anteriores. |
+| `action` | `str | None` | Accion candidata, por ejemplo `navegar_a_objeto`. |
+| `target_id` | `str | None` | Identificador interno del objeto elegido. |
+| `target_display_name` | `str | None` | Nombre visible/humano del objeto elegido. |
+| `legacy_nombre_objeto` | `str | None` | Nombre compatible con Unity cuando aplique. |
+| `confidence` | `float` | Score final normalizado. |
+| `candidates` | `list[CandidateMatch]` | Maximo 3 candidatos relevantes para ready/aclaracion. |
+| `reason` | `str` | Razon tecnica breve, no voz de Persona. |
+| `audit` | `dict` | Scores, thresholds, candidatos rechazados y reglas aplicadas. |
+
+### Auditoria Obligatoria
+
+Cada decision fuzzy debe dejar rastro suficiente para explicar si Lazzaro fue
+demasiado permisiva, demasiado conservadora o confundio objetos parecidos.
+
+Campos minimos:
+
+| Campo | Descripcion |
+| --- | --- |
+| `query` | Texto original usado para resolver el target. |
+| `normalized_query` | Texto normalizado antes de scoring. |
+| `intent` | Intencion usada para seleccionar thresholds. |
+| `snapshot_id` | Snapshot perceptivo usado o `None`. |
+| `threshold_execute` | Umbral de ejecucion aplicado. |
+| `threshold_clarify` | Umbral de aclaracion aplicado. |
+| `score_components` | `name_score`, `alias_score`, `affordance_score`, `context_bonus`, `risk_penalty`, `final_score`. |
+| `selected_candidate` | Candidato elegido o `None`. |
+| `rejected_candidates` | Candidatos descartados con razon. |
+| `status_reason` | Regla que produjo `ready`, `requires_clarification`, `not_found`, `not_allowed` o `unsafe`. |
+
+Log recomendado:
+
+```text
+FUZZ_DECISION query="roca" intent=MOTOR_SIMPLE status=requires_clarification best=Rock_01 score=77 candidates=[Rock_01:77, Rock_02:74]
+```
+
+### Scoring Fuzzy
+
+`thefuzz` queda autorizado para el matching de nombres y aliases. No debe correr
+en loops de frame ni en `Update`; solo en comandos de usuario, consultas
+perceptivas, validacion de parametros o revalidacion de acciones propuestas por
+LLM.
+
+Formula inicial:
+
+```text
+final_score = name_score * 0.50 + alias_score * 0.20 + affordance_score * 0.20 + context_bonus * 0.10 - risk_penalty
+```
+
+El score final no basta por si solo: si hay riesgo fisico, affordance ausente o
+ambiguedad estrecha, el estado debe ser conservador.
+
+Umbrales iniciales:
+
+| Intent | Ejecutar | Aclarar | Razon |
+| --- | --- | --- | --- |
+| `MOTOR_SIMPLE` | `88+` | `68-87` | Moverse requiere precision alta. |
+| `MOTOR_REFERENCE` | `82+` | `60-81` | Referencias como `eso` aceptan mas contexto, no menos auditoria. |
+| `PERCEPTION` | `65+` | `45-64` | Describir es menos riesgoso que actuar. |
+| `INTERACTION` | `90+` | `72-89` | Tocar, usar o agarrar tiene mas riesgo fisico. |
+| `DESKTOP_FUTURE` | `92+` | `80-91` | Un clic equivocado puede ser caro. |
+
+Regla de ambiguedad: si dos candidatos estan dentro de 8 puntos de diferencia y
+ambos superan el umbral de aclaracion, el estado debe ser
+`requires_clarification`. No se ejecuta.
+
+### Diagnosticos motores legacy
 
 | Diagnostico | Respuesta esperada |
 | --- | --- |
@@ -529,6 +682,45 @@ Diccionario compatible con `ActionResponse`:
 | `ambigua` | Devolver `hablar` pidiendo objetivo concreto. |
 | `lista` | Devolver accion fisica validada. |
 
+Estos diagnosticos se mantienen para compatibilidad con el motor actual. El
+rework debe mapearlos gradualmente a `MotorResolution` sin romper tests viejos.
+
+### Clarificaciones
+
+La decision de no estar seguro pertenece a Capa 1. En la primera fase, la salida
+de aclaracion debe ser directa, estandarizada y tecnica:
+
+```text
+Veo Rock_01 y Rock_02. Cual quieres?
+```
+
+Persona no debe interpretar objetivos ni decidir targets. Si se usa Persona para
+verbalizar una aclaracion, debe recibir una instruccion corta de estilo tecnico y
+solo cambiar tono superficial, no la decision.
+
+### Affordances Cerradas
+
+Capa 1 usa una ontologia cerrada de affordances. Unity no debe enviar tags libres
+como contrato cognitivo final. Si llegan valores desconocidos, el validador debe
+marcarlos como `unknown_affordance` en logs/auditoria y no contarlos para scoring.
+
+Affordances permitidas iniciales:
+
+| Categoria | Valores |
+| --- | --- |
+| Movimiento | `obstaculo`, `transitable`, `bloquea_paso`, `punto_refugio` |
+| Interaccion | `mirar`, `tocar`, `agarrable`, `empujable`, `activable`, `inspeccionable` |
+| Utilidad | `da_sombra`, `cubre`, `ilumina`, `descanso`, `peligro`, `recurso` |
+| Escritorio futuro | `clicable`, `escribible`, `arrastrable`, `ventana`, `boton`, `campo_texto` |
+
+`AffordanceResolver` valida si una accion aplica al objeto seleccionado. Ejemplos:
+
+- `agarrar_objeto` requiere `agarrable`.
+- `interactuar_objeto_3d` con `mirar` permite `mirar` o `inspeccionable`.
+- Un objeto con `peligro` puede aumentar `risk_penalty`.
+- `da_sombra` o `cubre` puede resolver consultas como "algo para cubrirme", pero
+  no debe forzar acciones autonomas.
+
 ### Acciones motoras actuales
 
 | Accion | Parametros minimos | Descripcion |
@@ -536,13 +728,30 @@ Diccionario compatible con `ActionResponse`:
 | `navegar_a_objeto` | `nombre_objeto` | Ir hacia un objeto visible o localizable. |
 | `navegar_a_posicion` | `x`, `y`, `z` | Ir a una posicion del mundo. |
 | `alejarse_de_objeto` | `nombre_objeto`, `distancia` | Alejarse de un objeto. |
-| `girar_avatar` | `rotacion_y` | Rotar en grados sobre eje Y. |
-| `interactuar_objeto_3d` | `nombre_objeto`, `tipo_interaccion` | Tocar, inspeccionar, activar, etc. |
+| `girar_avatar` | `grados` | Rotar en grados sobre eje Y. |
+| `interactuar_objeto_3d` | `nombre_objeto`, `tipo_accion` | Tocar, inspeccionar, activar, etc. |
 | `agarrar_objeto` | `nombre_objeto` | Agarrar objeto cercano. |
 | `soltar_objeto` | Opcional | Soltar objeto actualmente agarrado. |
 | `aplicar_fuerza` | `nombre_objeto`, vector/intensidad | Empujar o aplicar fuerza. |
 | `hablar` | `texto_a_comunicar` | Aclaracion segura cuando no se puede actuar. |
 | `none` | Ninguno | No actuar. |
+
+Todas las acciones fisicas pasan por `motor_schemas.py` como ultimo filtro antes
+de salir a Unity. Ningun target fuzzy puede saltarse los schemas.
+
+### Limites Anti-Spaghetti
+
+Reglas no negociables:
+
+- Capa 1 no escribe directo a ChromaDB.
+- Capa 1 no llama LLM dentro del resolver fuzzy.
+- Capa 1 no ejecuta `thefuzz` en loops de frame, `Update` o telemetria pasiva.
+- Capa 1 no decide persistencia de aliases aprendidos; solo emite candidatos.
+- Persona no decide targets fisicos.
+- Memoria puede aportar contexto acotado, pero no reemplaza la decision de Capa 1.
+- El sesgo por estado interno no puede dominar nombre, alias, affordance ni
+  seguridad.
+- Si hay duda, se aclara. Si hay riesgo, `none`. Si esta claro, accion validada.
 
 ### Contrato de ToolPolicy
 
@@ -840,11 +1049,15 @@ Campos esperados:
 
 | Campo | Descripcion |
 | --- | --- |
+| `snapshot_id` | Identificador estable del snapshot perceptivo para cache local. |
+| `source` | Origen perceptivo, inicialmente `unity`. |
 | `objetos_visibles` | Resumen textual, no lista gigante. |
+| `objetos_normalizados` | Lista compacta de objetos compatibles con `PerceivedObject`. |
 | `resumen_percepcion` | Lenguaje natural compacto. |
 | `cantidad_objetos_visibles` | Conteo. |
 | `posicion_lazzaro` | Posicion actual. |
 | `objeto_mas_cercano` | Objeto relevante mas cercano. |
+| `unknown_affordances` | Valores rechazados por la ontologia cerrada de affordances. |
 
 ### Movimiento
 
@@ -960,6 +1173,17 @@ def herramienta(params: ParamsModel) -> ToolResult:
 - `gira 180` devuelve `girar_avatar`.
 - `camina` devuelve `hablar` pidiendo objetivo.
 - Objeto inexistente no debe convertirse en exito falso.
+- `camina a la spehre` puede resolver `Sphere` solo si supera threshold.
+- `ve a la roca` con `Rock_01` y `Rock_02` cercanos en score devuelve
+  `requires_clarification`.
+- `busca algo para cubrirte` puede elegir un objeto con `cubre` o `da_sombra`,
+  no un match literal inventado.
+- `agarra el arbol` devuelve `not_allowed` si el arbol no tiene `agarrable`.
+- Cualquier resolucion fuzzy incluye `metadata.motor_audit` con componentes de
+  score, thresholds y candidatos rechazados.
+- Affordances fuera de la lista cerrada se registran como `unknown_affordance` y
+  no suman score.
+- Capa 1 no escribe directo a ChromaDB cuando genera candidatos de alias.
 
 ### Persona
 
