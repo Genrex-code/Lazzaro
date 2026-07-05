@@ -1,23 +1,24 @@
 """
-memory_retriever.py - Sistema especializado de búsqueda y recuperación de recuerdos.
-Combina resultados de memoria episódica y semántica, aplica filtros y reranking
-basado en relevancia emocional, recencia y similitud semántica.
+memory_retriever.py - Recuperacion hibrida de recuerdos.
+
+Combina memoria episodica y semantica, aplica reranking por similitud,
+impacto y decaimiento temporal.
 """
 
 from typing import List, Optional
 
-from memory.memory_types import MemoryResult
-from memory.episodic_memory import EpisodicMemoryStore
-from memory.semantic_memory import SemanticMemoryStore
 from core.logger import get_logger
+from memory.episodic_memory import EpisodicMemoryStore
+from memory.memory_decay import MemoryDecay
+from memory.memory_types import MemoryResult, SemanticMemory
+from memory.semantic_memory import SemanticMemoryStore
 
 logger = get_logger(__name__)
 
 
 class MemoryRetriever:
     """
-    Recuperador híbrido que consulta las memorias episódica y semántica,
-    combina los resultados y los ordena según múltiples criterios.
+    Recuperador hibrido que consulta memorias episodicas y semanticas.
     """
 
     def __init__(
@@ -25,11 +26,6 @@ class MemoryRetriever:
         episodic_store: EpisodicMemoryStore,
         semantic_store: SemanticMemoryStore,
     ):
-        """
-        Args:
-            episodic_store: Repositorio de memoria episódica.
-            semantic_store: Repositorio de memoria semántica.
-        """
         self.episodic = episodic_store
         self.semantic = semantic_store
 
@@ -42,82 +38,67 @@ class MemoryRetriever:
     ) -> List[MemoryResult]:
         """
         Busca en ambas memorias y devuelve los mejores resultados combinados.
-
-        Args:
-            query: Texto de consulta (normalmente la narrativa actual del agente).
-            limite: Número máximo de resultados a retornar.
-            where_episodica: Filtro de metadatos para ChromaDB (memoria episódica).
-            where_semantica: Filtro de metadatos para ChromaDB (memoria semántica).
-
-        Returns:
-            Lista de MemoryResult ordenados por relevancia (el más relevante primero).
         """
-        # Obtener resultados de ambas memorias (con más candidatos de los necesarios para rerankear)
         episodicos = self._buscar_episodica(query, limite * 2, where_episodica)
         semanticos = self._buscar_semantica(query, limite, where_semantica)
 
         ids_semanticos = {r.recuerdo.id for r in semanticos}
         episodicos = [r for r in episodicos if r.recuerdo.id not in ids_semanticos]
-
-        # Combinar todos los resultados
         todos = episodicos + semanticos
 
         if not todos:
             logger.debug("Sin recuerdos recuperados para '%s'.", query[:50])
             return []
 
-        # Calcular puntuación combinada (score) para cada resultado
         self._calcular_scores(todos)
-
-        # Ordenar por score descendente (mayor = mejor)
         todos.sort(key=lambda r: r.metadata_score, reverse=True)
-
-        # Devolver los mejores hasta el límite
         return todos[:limite]
 
     def _buscar_episodica(self, query: str, n: int, where: Optional[dict]) -> List[MemoryResult]:
-        """Recupera recuerdos episódicos con manejo de errores."""
+        """Recupera recuerdos episodicos con manejo de errores."""
         try:
             return self.episodic.buscar(query, n, where)
         except Exception as e:
-            logger.error("Error al buscar en memoria episódica: %s", e)
+            logger.error("Error al buscar en memoria episodica: %s", e)
             return []
 
     def _buscar_semantica(self, query: str, n: int, where: Optional[dict]) -> List[MemoryResult]:
-        """Recupera reglas semánticas con manejo de errores."""
+        """Recupera reglas semanticas con manejo de errores."""
         try:
             return self.semantic.buscar(query, n, where)
         except Exception as e:
-            logger.error("Error al buscar en memoria semántica: %s", e)
+            logger.error("Error al buscar en memoria semantica: %s", e)
             return []
 
-    def _calcular_scores(self, resultados: List[MemoryResult]):
+    def _calcular_scores(self, resultados: List[MemoryResult]) -> None:
         """
-        Asigna a cada MemoryResult un puntaje combinado (metadata_score)
-        basado en similitud, impacto emocional y recencia.
-        """
-        now = None  # se calculará bajo demanda
-        for r in resultados:
-            # Similitud: distancia coseno (menor = más similar). Convertimos a 0-1.
-            similitud = max(0.0, 1.0 - r.distancia)  # asumiendo distancia en [0,1] para cosine
+        Asigna metadata_score usando similitud, impacto y MemoryDecay.
 
-            # Impacto emocional: valor directo de metadata
-            if hasattr(r.recuerdo, 'metadata') and r.recuerdo.metadata:
-                impacto = r.recuerdo.metadata.impacto_emocional
+        Las reglas semanticas envejecen mas lento que los episodios crudos para
+        no perder aprendizajes consolidados por el simple paso del tiempo.
+        """
+        for resultado in resultados:
+            similitud = max(0.0, 1.0 - resultado.distancia)
+            metadata = getattr(resultado.recuerdo, "metadata", None)
+
+            if metadata:
+                impacto = metadata.impacto_emocional
+                es_semantica = isinstance(resultado.recuerdo, SemanticMemory)
+                decaimiento = MemoryDecay.calcular_importancia_efectiva(
+                    resultado.recuerdo,
+                    vida_media_horas=24.0 * 30.0 if es_semantica else 72.0,
+                    minimo_recencia=0.35 if es_semantica else 0.1,
+                )
+                recencia = float(decaimiento["peso_recencia"])
+                importancia_temporal = float(decaimiento["importancia_total"])
             else:
                 impacto = 0.5
-
-            # Recencia: antigüedad en horas (más reciente = mayor peso)
-            if hasattr(r.recuerdo, 'metadata') and r.recuerdo.metadata:
-                timestamp = r.recuerdo.metadata.timestamp
-                if now is None:
-                    from datetime import datetime
-                    now = datetime.utcnow()
-                horas = (now - timestamp).total_seconds() / 3600.0
-                # Peso decreciente: 1.0 para 0h, 0.1 para 24h+
-                recencia = max(0.1, 1.0 - horas / 24.0)
-            else:
                 recencia = 0.5
+                importancia_temporal = impacto * recencia
 
-            # Score combinado (ponderaciones ajustables)
-            r.metadata_score = 0.4 * similitud + 0.35 * impacto + 0.25 * recencia
+            resultado.metadata_score = (
+                0.45 * similitud
+                + 0.25 * impacto
+                + 0.20 * importancia_temporal
+                + 0.10 * recencia
+            )

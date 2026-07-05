@@ -13,6 +13,7 @@ from core.logger import get_logger
 from memory.chroma_client import ChromaClient
 from memory.conversation_memory import ConversationMemory
 from memory.episodic_memory import EpisodicMemoryStore
+from memory.memory_decay import MemoryDecay
 from memory.memory_encoder import MemoryEncoder
 from memory.memory_filters import MemoryFilters
 from memory.memory_retriever import MemoryRetriever
@@ -53,6 +54,7 @@ class MemoryManager:
         conversation_memory_size: int = 12,
         consolidacion_umbral: int = 30,
         consolidacion_antiguedad_minutos: int = 5,
+        consolidacion_importancia_maxima: float = 0.25,
     ):
         self.client = chroma_client
         self.encoder = MemoryEncoder()
@@ -60,11 +62,13 @@ class MemoryManager:
         self.semantic_store = SemanticMemoryStore(self.client)
         self.retriever = MemoryRetriever(self.episodic_store, self.semantic_store)
         self.filters = MemoryFilters()
+        self.decay = MemoryDecay()
         self.summarizer = MemorySummarizer()
         self.working_memory = WorkingMemory(max_size=working_memory_size)
         self.conversation_memory = ConversationMemory(max_turns=conversation_memory_size)
         self.consolidacion_umbral = consolidacion_umbral
         self.consolidacion_antiguedad_minutos = consolidacion_antiguedad_minutos
+        self.consolidacion_importancia_maxima = consolidacion_importancia_maxima
         self.revision_consolidacion_cada = max(5, min(10, consolidacion_umbral))
         self._observaciones_desde_revision = 0
         self._hechos_conversacionales_guardados: set[str] = set()
@@ -782,6 +786,15 @@ class MemoryManager:
             if ts > umbral_antiguedad:
                 continue
 
+            decaimiento = self.decay.calcular_importancia_desde_metadata(
+                timestamp=ts,
+                impacto_emocional=impacto,
+                vida_media_horas=72.0,
+                minimo_recencia=0.05,
+            )
+            if decaimiento["importancia_total"] > self.consolidacion_importancia_maxima:
+                continue
+
             candidatos.append(
                 {
                     "id": doc_id,
@@ -789,10 +802,16 @@ class MemoryManager:
                     "tipo_evento": tipo_evento,
                     "metadata": meta,
                     "timestamp": ts,
+                    "decaimiento": decaimiento,
                 }
             )
 
-        candidatos.sort(key=lambda candidato: candidato["timestamp"])
+        candidatos.sort(
+            key=lambda candidato: (
+                candidato["decaimiento"]["importancia_total"],
+                candidato["timestamp"],
+            )
+        )
         return candidatos[: self.consolidacion_umbral]
 
     def _ya_existe_consolidacion_lote(self, lote_consolidacion: str) -> bool:

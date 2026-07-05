@@ -6,8 +6,8 @@ qué recuerdos son candidatos a ser descartados o comprimidos por el garbage col
 """
 
 import math
-from datetime import datetime, timedelta
-from typing import List, Optional
+from datetime import datetime
+from typing import Optional
 
 from memory.memory_types import EpisodicMemory, SemanticMemory
 from core.logger import get_logger
@@ -82,6 +82,8 @@ class MemoryDecay:
         recuerdo: EpisodicMemory | SemanticMemory,
         accesos: int = 0,
         ultimo_acceso: Optional[datetime] = None,
+        vida_media_horas: float = 48.0,
+        minimo_recencia: float = 0.1,
     ) -> dict:
         """
         Calcula un diccionario con los pesos y la importancia combinada del recuerdo.
@@ -95,16 +97,39 @@ class MemoryDecay:
                 - importancia_total: float (combinación de los anteriores)
         """
         metadata = recuerdo.metadata
-        peso_recencia = MemoryDecay.calcular_peso_recencia(metadata.timestamp)
+        return MemoryDecay.calcular_importancia_desde_metadata(
+            timestamp=metadata.timestamp,
+            impacto_emocional=metadata.impacto_emocional,
+            accesos=accesos,
+            ultimo_acceso=ultimo_acceso,
+            vida_media_horas=vida_media_horas,
+            minimo_recencia=minimo_recencia,
+        )
+
+    @staticmethod
+    def calcular_importancia_desde_metadata(
+        timestamp: datetime,
+        impacto_emocional: float,
+        accesos: int = 0,
+        ultimo_acceso: Optional[datetime] = None,
+        vida_media_horas: float = 48.0,
+        minimo_recencia: float = 0.1,
+    ) -> dict:
+        """
+        Variante liviana para datos ya extraidos de Chroma sin reconstruir recuerdos.
+        """
+        peso_recencia = MemoryDecay.calcular_peso_recencia(
+            timestamp,
+            vida_media_horas=vida_media_horas,
+            minimo=minimo_recencia,
+        )
         peso_uso = MemoryDecay.calcular_peso_uso(accesos, ultimo_acceso)
-        # La importancia total = impacto_emocional * recencia * uso
-        importancia_total = metadata.impacto_emocional * peso_recencia * peso_uso
-        # Escalar a un rango razonable (0.0 - 1.0)
-        importancia_total = min(1.0, importancia_total)
+        impacto_limpio = max(0.0, min(1.0, float(impacto_emocional)))
+        importancia_total = min(1.0, impacto_limpio * peso_recencia * peso_uso)
         return {
             "peso_recencia": round(peso_recencia, 3),
             "peso_uso": round(peso_uso, 3),
-            "impacto_emocional": metadata.impacto_emocional,
+            "impacto_emocional": impacto_limpio,
             "importancia_total": round(importancia_total, 3),
         }
 
@@ -114,6 +139,8 @@ class MemoryDecay:
         accesos: int = 0,
         ultimo_acceso: Optional[datetime] = None,
         umbral_importancia: float = 0.1,
+        vida_media_horas: float = 48.0,
+        minimo_recencia: float = 0.1,
     ) -> bool:
         """
         Determina si un recuerdo puede ser considerado para eliminación/compresión.
@@ -127,6 +154,10 @@ class MemoryDecay:
             True si es candidato a descarte.
         """
         importancia = MemoryDecay.calcular_importancia_efectiva(
-            recuerdo, accesos, ultimo_acceso
+            recuerdo,
+            accesos,
+            ultimo_acceso,
+            vida_media_horas=vida_media_horas,
+            minimo_recencia=minimo_recencia,
         )
         return importancia["importancia_total"] < umbral_importancia
