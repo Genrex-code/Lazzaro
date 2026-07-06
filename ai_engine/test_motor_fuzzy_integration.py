@@ -86,8 +86,8 @@ def test_ambiguous_fuzzy_target_asks_clarification() -> None:
         "snapshot_id": "snap-ambiguous",
         "source": "unity",
         "objetos_normalizados": [
-            {"id": "Rock_01", "display_name": "Rock_01", "nombre": "Rock_01", "aliases": ["roca"], "affordances": ["mirar"]},
-            {"id": "Rock_02", "display_name": "Rock_02", "nombre": "Rock_02", "aliases": ["roca"], "affordances": ["mirar"]},
+            {"id": "Rock_01", "display_name": "Rock_01", "nombre": "Rock_01", "aliases": ["roca"], "distance": 1.5, "affordances": ["mirar"]},
+            {"id": "Rock_02", "display_name": "Rock_02", "nombre": "Rock_02", "aliases": ["roca"], "distance": 6.0, "affordances": ["mirar"]},
         ],
     }
 
@@ -95,6 +95,7 @@ def test_ambiguous_fuzzy_target_asks_clarification() -> None:
 
     assert_true(respuesta.accion == "hablar", "La ambiguedad debe producir aclaracion, no accion fisica.")
     assert_true("Rock_01" in respuesta.parametros["texto_a_comunicar"], "La aclaracion debe listar candidatos.")
+    assert_true("1.5m" in respuesta.parametros["texto_a_comunicar"], "La aclaracion debe incluir distancia util.")
     assert_true(
         respuesta.metadata["motor_resolution"]["status"] == "requires_clarification",
         "Debe preservar estado requires_clarification.",

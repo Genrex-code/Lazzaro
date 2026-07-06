@@ -20,6 +20,9 @@ class CandidateMatch:
     reason: str = ""
     legacy_nombre_objeto: str | None = None
     affordance_decision: dict[str, Any] = field(default_factory=dict)
+    distance: float | None = None
+    position: dict[str, float] | None = None
+    unmatched_descriptors: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -29,6 +32,31 @@ class CandidateMatch:
             "confidence": round(float(self.confidence), 4),
             "score_components": dict(self.score_components),
             "affordance_decision": dict(self.affordance_decision),
+            "distance": self.distance,
+            "position": dict(self.position) if self.position is not None else None,
+            "unmatched_descriptors": list(self.unmatched_descriptors),
+            "reason": self.reason,
+        }
+
+
+@dataclass(slots=True)
+class CandidateCorrection:
+    requested: str
+    suggested_id: str
+    suggested_display_name: str
+    score: float
+    requires_confirmation: bool = True
+    legacy_nombre_objeto: str | None = None
+    reason: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "requested": self.requested,
+            "suggested_id": self.suggested_id,
+            "suggested_display_name": self.suggested_display_name,
+            "legacy_nombre_objeto": self.legacy_nombre_objeto or self.suggested_display_name,
+            "score": round(float(self.score), 4),
+            "requires_confirmation": bool(self.requires_confirmation),
             "reason": self.reason,
         }
 
@@ -42,6 +70,7 @@ class MotorResolution:
     legacy_nombre_objeto: str | None = None
     confidence: float = 0.0
     candidates: list[CandidateMatch] = field(default_factory=list)
+    candidate_correction: CandidateCorrection | None = None
     reason: str = ""
     audit: dict[str, Any] = field(default_factory=dict)
 
@@ -58,6 +87,7 @@ class MotorResolution:
             "legacy_nombre_objeto": self.legacy_nombre_objeto,
             "confidence": round(float(self.confidence), 4),
             "candidates": [candidate.to_dict() for candidate in self.candidates],
+            "candidate_correction": self.candidate_correction.to_dict() if self.candidate_correction else None,
             "reason": self.reason,
             "audit": dict(self.audit),
         }

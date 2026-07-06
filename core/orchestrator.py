@@ -798,16 +798,44 @@ class Orchestrator:
         metadata = diagnostico_motor.get("metadata", {}) if isinstance(diagnostico_motor.get("metadata"), dict) else {}
         resolucion = metadata.get("motor_resolution", {}) if isinstance(metadata.get("motor_resolution"), dict) else {}
         candidatos = resolucion.get("candidates", []) if isinstance(resolucion, dict) else []
+        correccion = resolucion.get("candidate_correction") if isinstance(resolucion, dict) else None
 
         if estado == "requires_clarification":
-            nombres = [
-                str(candidato.get("display_name") or candidato.get("legacy_nombre_objeto") or "").strip()
+            if isinstance(correccion, dict):
+                candidato = Orchestrator._candidato_de_correccion_motor(candidatos, correccion)
+                descripcion = Orchestrator._descripcion_candidato_motor(candidato) if candidato else ""
+                if not descripcion:
+                    descripcion = str(
+                        correccion.get("suggested_display_name")
+                        or correccion.get("legacy_nombre_objeto")
+                        or correccion.get("suggested_id")
+                        or ""
+                    ).strip()
+                solicitado = str(correccion.get("requested") or "").strip()
+                if solicitado and descripcion:
+                    texto = f"No veo \"{solicitado}\" como objeto exacto. Quisiste decir {descripcion}?"
+                elif descripcion:
+                    texto = f"Quisiste decir {descripcion}?"
+                else:
+                    texto = "No veo ese objeto exacto. Quieres confirmar el candidato sugerido?"
+                return ActionResponse(
+                    pensamiento="Capa 1 detecto una posible correccion de objetivo y pide confirmacion antes de actuar.",
+                    accion="hablar",
+                    parametros={"texto_a_comunicar": texto},
+                    razon="Capa 1 propuso una correccion candidata sin ejecutar accion fisica.",
+                    valido=True,
+                    emocion_facial="Fcl_ALL_Neutral",
+                    metadata=metadata,
+                )
+
+            descripciones = [
+                Orchestrator._descripcion_candidato_motor(candidato)
                 for candidato in candidatos
                 if isinstance(candidato, dict)
             ]
-            nombres = [nombre for nombre in nombres if nombre][:3]
-            if len(nombres) >= 2:
-                texto = f"Veo {', '.join(nombres)}. Cual quieres?"
+            descripciones = [descripcion for descripcion in descripciones if descripcion][:3]
+            if len(descripciones) >= 2:
+                texto = f"Veo {', '.join(descripciones)}. Cual quieres?"
             else:
                 texto = "No estoy segura de a que objeto te refieres. Cual quieres?"
             razon = "Capa 1 detecto candidatos ambiguos y pidio aclaracion."
@@ -857,6 +885,51 @@ class Orchestrator:
             emocion_facial="Fcl_ALL_Neutral",
             metadata=metadata,
         )
+
+    @staticmethod
+    def _descripcion_candidato_motor(candidato: dict) -> str:
+        nombre = str(
+            candidato.get("display_name")
+            or candidato.get("legacy_nombre_objeto")
+            or candidato.get("target_id")
+            or ""
+        ).strip()
+        if not nombre:
+            return ""
+
+        distancia = candidato.get("distance")
+        if distancia is not None:
+            try:
+                return f"{nombre} a {float(distancia):0.1f}m"
+            except (TypeError, ValueError):
+                return nombre
+
+        posicion = candidato.get("position")
+        if isinstance(posicion, dict):
+            x = posicion.get("x")
+            z = posicion.get("z")
+            try:
+                return f"{nombre} en x={float(x):0.1f}, z={float(z):0.1f}"
+            except (TypeError, ValueError):
+                return nombre
+
+        return nombre
+
+    @staticmethod
+    def _candidato_de_correccion_motor(candidatos: list, correccion: dict) -> dict | None:
+        suggested_id = str(correccion.get("suggested_id") or "").strip()
+        suggested_name = str(correccion.get("suggested_display_name") or "").strip()
+        for candidato in candidatos:
+            if not isinstance(candidato, dict):
+                continue
+            ids = {
+                str(candidato.get("target_id") or "").strip(),
+                str(candidato.get("display_name") or "").strip(),
+                str(candidato.get("legacy_nombre_objeto") or "").strip(),
+            }
+            if suggested_id in ids or suggested_name in ids:
+                return candidato
+        return None
 
     def _registrar_estado_identidad(
         self,

@@ -14,7 +14,7 @@ from thefuzz import fuzz
 from core.logger import get_logger
 
 from .affordance_resolver import AffordanceResolver
-from .motor_resolution import CandidateMatch, MotorResolution
+from .motor_resolution import CandidateCorrection, CandidateMatch, MotorResolution
 from .perception_models import PerceivedObject, PerceptionSnapshot, normalize_perception, normalize_text
 
 logger = get_logger(__name__)
@@ -181,6 +181,24 @@ class FuzzyObjectResolver:
                 },
             )
 
+        candidate_correction = self._candidate_correction(normalized_query, best)
+        if candidate_correction is not None:
+            return self._resolution(
+                status="requires_clarification",
+                action=action,
+                match=best,
+                candidates=candidates,
+                candidate_correction=candidate_correction,
+                reason="El objeto pedido no coincide exactamente con la percepcion actual.",
+                audit={
+                    **audit_base,
+                    "selected_candidate": best.to_dict(),
+                    "candidate_correction": candidate_correction.to_dict(),
+                    "rejected_candidates": [candidate.to_dict() for candidate in matches[1:4]],
+                    "status_reason": "candidate_correction",
+                },
+            )
+
         if best.confidence < execute_threshold:
             return self._resolution(
                 status="requires_clarification",
@@ -223,6 +241,11 @@ class FuzzyObjectResolver:
         requested_affordances = self.affordances.requested_from_query(normalized_query)
         scored: list[CandidateMatch] = []
         for obj in objects:
+            unmatched_descriptors = self._unmatched_query_descriptors(
+                normalized_query,
+                obj,
+                requested_affordances=requested_affordances,
+            )
             name_score = self._name_score(normalized_query, obj)
             alias_score = self._alias_score(normalized_query, obj)
             affordance_decision = self.affordances.validate(obj, action)
@@ -253,6 +276,7 @@ class FuzzyObjectResolver:
                 "context_bonus": round(context_bonus, 4),
                 "risk_penalty": round(risk_penalty, 4),
                 "final_score": round(final_score, 4),
+                "unmatched_descriptor_count": len(unmatched_descriptors),
             }
             scored.append(
                 CandidateMatch(
@@ -262,6 +286,9 @@ class FuzzyObjectResolver:
                     confidence=final_score,
                     score_components=components,
                     affordance_decision=affordance_decision.to_dict(),
+                    distance=obj.distance,
+                    position=obj.position,
+                    unmatched_descriptors=unmatched_descriptors,
                     reason=self._candidate_reason(components),
                 )
             )
@@ -318,6 +345,35 @@ class FuzzyObjectResolver:
         return min(100.0, bonus)
 
     @staticmethod
+    def _unmatched_query_descriptors(
+        query: str,
+        obj: PerceivedObject,
+        *,
+        requested_affordances: set[str],
+    ) -> list[str]:
+        if requested_affordances:
+            return []
+
+        query_tokens = [token for token in query.split() if token and token not in QUERY_STOPWORDS]
+        if not query_tokens:
+            return []
+
+        labels = [obj.id, obj.display_name, obj.display_name.replace("_", " "), *obj.aliases]
+        label_tokens: set[str] = set()
+        for label in labels:
+            normalized_label = normalize_text(label).replace("_", " ")
+            label_tokens.update(token for token in normalized_label.split() if token)
+
+        unmatched: list[str] = []
+        for token in query_tokens:
+            if token in label_tokens:
+                continue
+            if any(fuzz.ratio(token, label_token) >= 82 for label_token in label_tokens):
+                continue
+            unmatched.append(token)
+        return unmatched
+
+    @staticmethod
     def _blocking_affordance_status(candidate: CandidateMatch) -> str | None:
         decision = candidate.affordance_decision
         if decision.get("allowed", True):
@@ -337,6 +393,21 @@ class FuzzyObjectResolver:
         return f"match por {strongest}"
 
     @staticmethod
+    def _candidate_correction(query: str, candidate: CandidateMatch) -> CandidateCorrection | None:
+        if not candidate.unmatched_descriptors:
+            return None
+
+        return CandidateCorrection(
+            requested=query,
+            suggested_id=candidate.target_id,
+            suggested_display_name=candidate.display_name,
+            legacy_nombre_objeto=candidate.legacy_nombre_objeto,
+            score=candidate.confidence,
+            requires_confirmation=True,
+            reason=f"descriptor_sin_respaldo: {', '.join(candidate.unmatched_descriptors)}",
+        )
+
+    @staticmethod
     def _resolution(
         *,
         status: str,
@@ -346,6 +417,7 @@ class FuzzyObjectResolver:
         match: CandidateMatch | None = None,
         confidence: float | None = None,
         candidates: list[CandidateMatch] | None = None,
+        candidate_correction: CandidateCorrection | None = None,
     ) -> MotorResolution:
         resolution = MotorResolution(
             status=status,  # type: ignore[arg-type]
@@ -355,6 +427,7 @@ class FuzzyObjectResolver:
             legacy_nombre_objeto=match.legacy_nombre_objeto if match else None,
             confidence=confidence if confidence is not None else (match.confidence if match else 0.0),
             candidates=candidates or [],
+            candidate_correction=candidate_correction,
             reason=reason,
             audit=audit,
         )

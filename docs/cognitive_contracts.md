@@ -613,8 +613,15 @@ Campos minimos esperados:
 | `legacy_nombre_objeto` | `str | None` | Nombre compatible con Unity cuando aplique. |
 | `confidence` | `float` | Score final normalizado. |
 | `candidates` | `list[CandidateMatch]` | Maximo 3 candidatos relevantes para ready/aclaracion. |
+| `candidate_correction` | `CandidateCorrection | None` | Sugerencia segura cuando el nombre pedido no existe exactamente pero hay un candidato plausible. Siempre requiere confirmacion antes de ejecutar. |
 | `reason` | `str` | Razon tecnica breve, no voz de Persona. |
 | `audit` | `dict` | Scores, thresholds, candidatos rechazados y reglas aplicadas. |
+
+`CandidateCorrection` se usa para auto-correccion de alucinaciones de objetivo:
+por ejemplo, si el usuario pide `arbol_grande` y solo existe `Tree_01` con alias
+`arbol`, Capa 1 puede sugerir `Tree_01` pero debe responder con
+`requires_clarification`. No se permite convertir una correccion candidata en
+accion fisica sin confirmacion explicita.
 
 ### Auditoria Obligatoria
 
@@ -633,7 +640,9 @@ Campos minimos:
 | `threshold_clarify` | Umbral de aclaracion aplicado. |
 | `score_components` | `name_score`, `alias_score`, `affordance_score`, `context_bonus`, `risk_penalty`, `final_score`. |
 | `selected_candidate` | Candidato elegido o `None`. |
+| `candidate_correction` | Correccion sugerida o `None`, con `requested`, `suggested_id`, `score` y `requires_confirmation`. |
 | `rejected_candidates` | Candidatos descartados con razon. |
+| `unmatched_descriptors` | Tokens de la solicitud que no estan respaldados por id, nombre o alias del candidato. |
 | `status_reason` | Regla que produjo `ready`, `requires_clarification`, `not_found`, `not_allowed` o `unsafe`. |
 
 Log recomendado:
