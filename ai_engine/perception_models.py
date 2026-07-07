@@ -33,6 +33,7 @@ ALLOWED_AFFORDANCES = {
     "descanso",
     "peligro",
     "recurso",
+    "nuevo",
     "clicable",
     "escribible",
     "arrastrable",

@@ -251,6 +251,7 @@ class MotorEngine:
         )
         if resolucion is not None:
             metadata = resolucion.to_metadata()
+            self._adjuntar_contexto_alias(metadata, contexto_motor, accion)
             if resolucion.status == "ready":
                 parametros = self._parametros_desde_resolucion(accion, mensaje, resolucion)
                 return {
@@ -392,6 +393,7 @@ class MotorEngine:
         )
         if resolucion is not None:
             metadata = resolucion.to_metadata()
+            self._adjuntar_contexto_alias(metadata, contexto_motor or {}, accion)
             if resolucion.status == "ready":
                 parametros["nombre_objeto"] = (
                     resolucion.legacy_nombre_objeto
@@ -525,6 +527,20 @@ class MotorEngine:
             if nombre not in nombres_unicos:
                 nombres_unicos.append(nombre)
         return nombres_unicos
+
+    @staticmethod
+    def _adjuntar_contexto_alias(
+        metadata: dict[str, Any],
+        contexto_motor: dict[str, Any],
+        accion: str,
+    ) -> None:
+        user_query = str(contexto_motor.get("user_query") or contexto_motor.get("mensaje_usuario") or "").strip()
+        if not user_query:
+            return
+        metadata["alias_learning"] = {
+            "user_query": user_query,
+            "action": accion,
+        }
 
     @staticmethod
     def _inferir_tipo_interaccion(mensaje: str) -> str:

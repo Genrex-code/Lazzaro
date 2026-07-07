@@ -9,6 +9,7 @@ from typing import List, Optional
 import uuid
 
 from ai_engine.identity_state import IdentityState
+from ai_engine.learned_alias_candidates import build_learned_alias_candidate
 from ai_engine.llm_generation_adapter import LLMGenerationAdapter
 from ai_engine.motor_engine import MotorEngine
 from ai_engine.oracle_client import OracleClient
@@ -16,6 +17,7 @@ from ai_engine.oracle_engine import OracleEngine
 from ai_engine.oracle_memory import OracleMemory
 from ai_engine.persona_engine import PersonaEngine
 from ai_engine.schemas import ActionResponse, OracleResult
+from ai_engine.subjective_effort import SubjectiveEffortCalculator
 from ai_engine.triage_router import TriageRouter
 from api.schemas import AccionSaliente, EstadoAgente, EventoEntrante, NotificacionSaliente
 from core.logger import get_logger
@@ -41,7 +43,9 @@ class Orchestrator:
         self.triage_router = TriageRouter()
         self.tool_policy = ToolPolicy()
         self.motor_engine = MotorEngine()
+        self._conectar_aliases_aprendidos()
         self.identity_state = IdentityState()
+        self.subjective_effort = SubjectiveEffortCalculator()
         self.persona_engine = PersonaEngine()
         self.llm_adapter = LLMGenerationAdapter(
             getattr(reasoning_engine, "ai_client", None),
@@ -53,8 +57,17 @@ class Orchestrator:
         oracle_settings = getattr(getattr(reasoning_engine, "ai_client", None), "settings", None)
         self.oracle_client = OracleClient(settings=oracle_settings)
         self._transacciones_procesadas: OrderedDict[str, AccionSaliente] = OrderedDict()
+        self._alias_candidates_pendientes: OrderedDict[str, dict] = OrderedDict()
         self._notificaciones: deque[NotificacionSaliente] = deque(maxlen=50)
         logger.info("Orchestrator inicializado.")
+
+    def _conectar_aliases_aprendidos(self) -> None:
+        proveedor = getattr(self.memory, "obtener_aliases_aprendidos", None)
+        if callable(proveedor):
+            self.motor_engine.fuzzy_resolver.learned_alias_provider = proveedor
+        proveedor_afectivo = getattr(self.memory, "obtener_memorias_afectivas_espaciales", None)
+        if callable(proveedor_afectivo):
+            self.motor_engine.fuzzy_resolver.affective_memory_provider = proveedor_afectivo
 
     def procesar_evento(self, evento: EventoEntrante) -> Optional[AccionSaliente]:
         """
@@ -108,6 +121,7 @@ class Orchestrator:
             estado_actual=estado_actual,
             es_interrupcion_critica=es_interrupcion_critica,
         )
+        self._registrar_alias_aprendido_si_corresponde(evento)
 
         herramientas: list[str] = []
         herramientas_detalle: dict[str, str] = {}
@@ -139,6 +153,7 @@ class Orchestrator:
                 herramientas_detalle=herramientas_detalle,
                 politica=politica,
                 tarea=tarea,
+                estado_actual=estado_actual,
             )
         elif self._triage_es_persona(triage_decision):
             action_response = self._resolver_ruta_persona(
@@ -176,9 +191,17 @@ class Orchestrator:
                 )
 
         action_response = self._sanitizar_action_response(action_response)
+        action_response = self._adjuntar_esfuerzo_subjetivo(action_response)
         accion_saliente = self._a_accion_saliente(action_response, politica)
+        self._registrar_alias_candidato_pendiente(action_response, accion_saliente)
 
-        resultado_memoria, detalles_resultado = self._gestionar_ejecucion(evento, accion_saliente)
+        resultado_memoria, detalles_resultado = self._gestionar_ejecucion(
+            evento,
+            accion_saliente,
+            action_response=action_response,
+        )
+        if resultado_memoria == "ok":
+            self._aprobar_alias_pendiente_por_id(accion_saliente.id_accion)
         self.memory.agregar_accion(
             accion=accion_saliente.nombre,
             resultado=resultado_memoria,
@@ -334,6 +357,110 @@ class Orchestrator:
             if valor:
                 return str(valor).strip()
         return ""
+
+    def _registrar_alias_candidato_pendiente(
+        self,
+        action_response: ActionResponse,
+        accion_saliente: AccionSaliente,
+    ) -> None:
+        metadata = action_response.metadata if isinstance(action_response.metadata, dict) else {}
+        resolution = metadata.get("motor_resolution") if isinstance(metadata.get("motor_resolution"), dict) else None
+        alias_learning = metadata.get("alias_learning") if isinstance(metadata.get("alias_learning"), dict) else {}
+        if not isinstance(resolution, dict) or resolution.get("status") != "ready":
+            return
+
+        user_query = str(alias_learning.get("user_query") or "").strip()
+        if not user_query:
+            return
+
+        pending_store = getattr(self, "_alias_candidates_pendientes", None)
+        if not isinstance(pending_store, OrderedDict):
+            self._alias_candidates_pendientes = OrderedDict()
+            pending_store = self._alias_candidates_pendientes
+
+        target_name = str(
+            action_response.parametros.get("nombre_objeto")
+            if isinstance(action_response.parametros, dict)
+            else ""
+        ).strip()
+        pending_store[accion_saliente.id_accion] = {
+            "id_accion": accion_saliente.id_accion,
+            "action": action_response.accion,
+            "target_name": target_name,
+            "user_query": user_query,
+            "motor_resolution": resolution,
+        }
+        while len(pending_store) > self.MAX_TRANSACCIONES_CACHE:
+            pending_store.popitem(last=False)
+
+    def _registrar_alias_aprendido_si_corresponde(self, evento: EventoEntrante) -> None:
+        if evento.tipo_evento != "resultado_accion":
+            return
+        if evento.detalles.get("exito") is not True:
+            return
+
+        pending = self._buscar_alias_pendiente_para_resultado(evento.detalles)
+        if pending is None:
+            return
+        self._persistir_alias_pendiente(pending)
+
+    def _aprobar_alias_pendiente_por_id(self, id_accion: str) -> None:
+        pending_store = getattr(self, "_alias_candidates_pendientes", None)
+        if not isinstance(pending_store, OrderedDict):
+            return
+        pending = pending_store.pop(id_accion, None)
+        if pending is not None:
+            self._persistir_alias_pendiente(pending)
+
+    def _buscar_alias_pendiente_para_resultado(self, detalles: dict) -> dict | None:
+        pending_store = getattr(self, "_alias_candidates_pendientes", None)
+        if not isinstance(pending_store, OrderedDict) or not pending_store:
+            return None
+
+        id_accion = str(
+            detalles.get("id_accion")
+            or detalles.get("accion_id")
+            or detalles.get("action_id")
+            or ""
+        ).strip()
+        if id_accion:
+            pending = pending_store.pop(id_accion, None)
+            if pending is not None:
+                return pending
+
+        accion = str(detalles.get("accion") or "").strip()
+        target = str(
+            detalles.get("nombre_objeto")
+            or detalles.get("objeto")
+            or detalles.get("target")
+            or detalles.get("object_id")
+            or ""
+        ).strip()
+        for key, pending in reversed(list(pending_store.items())):
+            if accion and pending.get("action") != accion:
+                continue
+            if target and target not in {pending.get("target_name"), pending.get("motor_resolution", {}).get("target_id")}:
+                continue
+            return pending_store.pop(key)
+        return None
+
+    def _persistir_alias_pendiente(self, pending: dict) -> None:
+        candidate = build_learned_alias_candidate(
+            user_query=str(pending.get("user_query") or ""),
+            resolution=pending.get("motor_resolution") if isinstance(pending.get("motor_resolution"), dict) else {},
+            action_success=True,
+            action=str(pending.get("action") or ""),
+        )
+        if candidate is None:
+            return
+
+        guardar_alias = getattr(self.memory, "guardar_alias_aprendido", None)
+        if not callable(guardar_alias):
+            return
+        try:
+            guardar_alias(candidate)
+        except Exception as e:
+            logger.error("Error guardando alias aprendido: %s", e, exc_info=True)
 
     @staticmethod
     def _accion_pasiva(razon: str | None = None) -> ActionResponse:
@@ -654,18 +781,21 @@ class Orchestrator:
         politica: str,
         tarea: dict | None,
         triage_decision: dict | None = None,
+        estado_actual: dict | None = None,
     ) -> ActionResponse:
         """Usa Capa 1 para resolver/validar acciones fisicas."""
         percepcion = self._extraer_percepcion_motor(evento, contexto_llm)
         mensaje = str(evento.detalles.get("mensaje", ""))
         triage_info = triage_decision if isinstance(triage_decision, dict) else {}
         intent = str(triage_info.get("intent") or "MOTOR_SIMPLE")
+        contexto_motor = self._contexto_motor_estado(mensaje, estado_actual)
 
         diagnostico_motor = self.motor_engine.diagnosticar_comando_usuario(
             mensaje,
             percepcion=percepcion,
             herramientas_disponibles=herramientas,
             intent=intent,
+            contexto_motor=contexto_motor,
         )
         if diagnostico_motor["estado"] == "lista":
             accion_motora = self.motor_engine.procesar_comando_motor(
@@ -673,6 +803,7 @@ class Orchestrator:
                 diagnostico_motor["parametros"],
                 percepcion=percepcion,
                 intent=intent,
+                contexto_motor=contexto_motor,
             )
             return self._action_response_desde_motor(
                 accion_motora,
@@ -710,6 +841,7 @@ class Orchestrator:
                 action_response.parametros,
                 percepcion=percepcion,
                 intent=intent,
+                contexto_motor=contexto_motor,
             )
             return self._action_response_desde_motor(
                 accion_validada,
@@ -744,6 +876,53 @@ class Orchestrator:
             if clave in evento.detalles:
                 percepcion[clave] = evento.detalles[clave]
         return percepcion
+
+    def _contexto_motor_estado(self, mensaje: str, estado_actual: dict | None = None) -> dict:
+        contexto: dict[str, float | str | dict] = {"user_query": mensaje}
+        estado: dict = dict(estado_actual) if isinstance(estado_actual, dict) else {}
+
+        identity_state = getattr(self, "identity_state", None)
+        obtener_estado = getattr(identity_state, "obtener_estado_completo", None)
+        if callable(obtener_estado):
+            try:
+                estado_identity = obtener_estado()
+                if isinstance(estado_identity, dict):
+                    estado.update({k: v for k, v in estado_identity.items() if k not in estado})
+            except Exception as e:
+                logger.debug("No se pudo leer IdentityState para contexto motor: %s", e)
+
+        energia = self._leer_ratio_estado(estado, "energia")
+        if energia is not None:
+            contexto["fatiga"] = round(max(0.0, min(1.0, 1.0 - energia)), 4)
+
+        estres = self._leer_ratio_estado(estado, "estres", "stress")
+        if estres is not None:
+            contexto["estres"] = round(estres, 4)
+
+        curiosidad = self._leer_ratio_estado(estado, "curiosidad", "curiosity")
+        if curiosidad is not None:
+            contexto["curiosidad"] = round(curiosidad, 4)
+
+        contexto["estado"] = {
+            key: value
+            for key, value in contexto.items()
+            if key in {"fatiga", "estres", "curiosidad"}
+        }
+        return contexto
+
+    @staticmethod
+    def _leer_ratio_estado(estado: dict, *claves: str) -> float | None:
+        for clave in claves:
+            if clave not in estado:
+                continue
+            try:
+                valor = float(estado[clave])
+            except (TypeError, ValueError):
+                continue
+            if valor > 1.0:
+                valor = valor / 100.0
+            return max(0.0, min(1.0, valor))
+        return None
 
     @staticmethod
     def _action_response_desde_motor(
@@ -1127,6 +1306,29 @@ class Orchestrator:
 
         return action_response
 
+    def _adjuntar_esfuerzo_subjetivo(self, action_response: ActionResponse) -> ActionResponse:
+        """Agrega contexto subjetivo sin afectar la validacion fisica."""
+        if action_response.accion == "none":
+            return action_response
+
+        try:
+            calculator = getattr(self, "subjective_effort", None) or SubjectiveEffortCalculator()
+            effort = calculator.calculate(
+                action_response.accion,
+                action_response.parametros,
+                metadata=action_response.metadata,
+                identity_state=getattr(self, "identity_state", None),
+            )
+            if effort is None:
+                return action_response
+
+            metadata = dict(action_response.metadata or {})
+            metadata["subjective_effort"] = effort.to_dict()
+            return action_response.model_copy(update={"metadata": metadata})
+        except Exception as e:
+            logger.error("Error calculando esfuerzo subjetivo: %s", e, exc_info=True)
+            return action_response
+
     def _a_accion_saliente(self, action_response: ActionResponse, politica: str) -> AccionSaliente:
         """Convierte la ActionResponse interna en el modelo de API."""
         requiere_confirmacion = False
@@ -1234,6 +1436,7 @@ class Orchestrator:
         self,
         evento: EventoEntrante,
         accion_saliente: AccionSaliente,
+        action_response: ActionResponse | None = None,
     ) -> tuple[str, dict | None]:
         if accion_saliente.nombre == "none":
             return "sin_accion", None
@@ -1241,32 +1444,55 @@ class Orchestrator:
         if accion_saliente.requiere_confirmacion:
             return (
                 "pendiente_confirmacion",
-                {
-                    "mensaje": "La accion requiere confirmacion antes de ejecutarse.",
-                    "error": None,
-                    "datos_extra": None,
-                },
+                self._adjuntar_esfuerzo_a_detalles(
+                    {
+                        "mensaje": "La accion requiere confirmacion antes de ejecutarse.",
+                        "error": None,
+                        "datos_extra": None,
+                    },
+                    action_response,
+                ),
             )
 
         if self._debe_ejecutar_localmente(evento):
             resultado_ejecucion = ActionExecutor.ejecutar(accion_saliente)
             return (
                 "ok" if resultado_ejecucion.exito else "error",
-                {
-                    "mensaje": resultado_ejecucion.mensaje,
-                    "error": resultado_ejecucion.error,
-                    "datos_extra": resultado_ejecucion.datos_extra,
-                },
+                self._adjuntar_esfuerzo_a_detalles(
+                    {
+                        "mensaje": resultado_ejecucion.mensaje,
+                        "error": resultado_ejecucion.error,
+                        "datos_extra": resultado_ejecucion.datos_extra,
+                    },
+                    action_response,
+                ),
             )
 
         return (
             "despachada",
-            {
-                "mensaje": f"Accion enviada al cliente '{evento.origen}' para su ejecucion.",
-                "error": None,
-                "datos_extra": None,
-            },
+            self._adjuntar_esfuerzo_a_detalles(
+                {
+                    "mensaje": f"Accion enviada al cliente '{evento.origen}' para su ejecucion.",
+                    "error": None,
+                    "datos_extra": None,
+                },
+                action_response,
+            ),
         )
+
+    @staticmethod
+    def _adjuntar_esfuerzo_a_detalles(
+        detalles: dict | None,
+        action_response: ActionResponse | None,
+    ) -> dict | None:
+        if action_response is None:
+            return detalles
+        effort = action_response.metadata.get("subjective_effort") if isinstance(action_response.metadata, dict) else None
+        if not isinstance(effort, dict):
+            return detalles
+        detalles_enriquecidos = dict(detalles or {})
+        detalles_enriquecidos["subjective_effort"] = effort
+        return detalles_enriquecidos
 
     @staticmethod
     def _debe_ejecutar_localmente(evento: EventoEntrante) -> bool:

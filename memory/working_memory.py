@@ -61,10 +61,28 @@ class WorkingMemory:
         lineas = ["Últimas acciones:"]
         for item in reversed(ultimas):  # más antiguo primero
             ts = item.timestamp.strftime("%H:%M:%S")
-            lineas.append(f"[{ts}] {item.accion} → {item.resultado}")
+            esfuerzo = self._resumen_esfuerzo(item.detalles)
+            sufijo = f" ({esfuerzo})" if esfuerzo else ""
+            lineas.append(f"[{ts}] {item.accion} → {item.resultado}{sufijo}")
         return "\n".join(lineas)
 
     def limpiar(self):
         """Vacía la memoria de trabajo."""
         self._buffer.clear()
         logger.debug("Working memory limpiada.")
+
+    @staticmethod
+    def _resumen_esfuerzo(detalles: dict | None) -> str:
+        if not isinstance(detalles, dict):
+            return ""
+        esfuerzo = detalles.get("subjective_effort")
+        if not isinstance(esfuerzo, dict):
+            return ""
+        etiqueta = str(esfuerzo.get("label") or "").strip()
+        score = esfuerzo.get("score")
+        if not etiqueta:
+            return ""
+        try:
+            return f"esfuerzo percibido: {etiqueta}, costo {float(score):0.2f}"
+        except (TypeError, ValueError):
+            return f"esfuerzo percibido: {etiqueta}"

@@ -7,6 +7,7 @@ resolucion auditable.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Iterable
 
 from thefuzz import fuzz
@@ -27,6 +28,15 @@ THRESHOLDS: dict[str, tuple[int, int]] = {
     "INTERACTION": (90, 72),
     "DESKTOP_FUTURE": (92, 80),
 }
+
+CONTEXT_BONUS_LIMIT = 10.0
+FATIGUE_CONTEXT_BONUS = 6.0
+CURIOSITY_CONTEXT_BONUS = 4.0
+STRESS_CONTEXT_BONUS = 4.0
+AFFECTIVE_CONTEXT_BONUS_LIMIT = 4.0
+
+POSITIVE_AFFECTS = {"alivio", "descanso", "calma", "seguridad", "refugio"}
+AVOIDANCE_AFFECTS = {"alerta", "peligro", "dolor", "miedo", "estres"}
 
 REFERENCE_TERMS = {
     "eso",
@@ -77,8 +87,15 @@ QUERY_STOPWORDS = {
 class FuzzyObjectResolver:
     """Resuelve objetos percibidos con scoring fuzzy auditable."""
 
-    def __init__(self, affordance_resolver: AffordanceResolver | None = None):
+    def __init__(
+        self,
+        affordance_resolver: AffordanceResolver | None = None,
+        learned_alias_provider: Callable[[list[str] | None], dict[str, list[str]]] | None = None,
+        affective_memory_provider: Callable[[list[PerceivedObject] | None], dict[str, list[dict[str, Any]]]] | None = None,
+    ):
         self.affordances = affordance_resolver or AffordanceResolver()
+        self.learned_alias_provider = learned_alias_provider
+        self.affective_memory_provider = affective_memory_provider
 
     def resolve(
         self,
@@ -94,6 +111,9 @@ class FuzzyObjectResolver:
         execute_threshold, clarify_threshold = THRESHOLDS[normalized_intent]
         normalized_query = self._normalize_query(query)
 
+        objects, learned_alias_hits = self._objects_with_learned_aliases(snapshot.objects)
+        affective_memory_hits = self._affective_hints_for_objects(objects)
+
         audit_base = {
             "query": str(query or ""),
             "normalized_query": normalized_query,
@@ -101,7 +121,10 @@ class FuzzyObjectResolver:
             "snapshot_id": snapshot.snapshot_id,
             "threshold_execute": execute_threshold,
             "threshold_clarify": clarify_threshold,
+            "context_bonus_limit": CONTEXT_BONUS_LIMIT,
             "unknown_affordances": list(snapshot.unknown_affordances),
+            "learned_alias_hits": learned_alias_hits,
+            "affective_memory_hits": affective_memory_hits,
         }
 
         if not normalized_query:
@@ -112,7 +135,7 @@ class FuzzyObjectResolver:
                 audit={**audit_base, "status_reason": "empty_query"},
             )
 
-        if not snapshot.objects:
+        if not objects:
             return self._resolution(
                 status="not_found",
                 action=action,
@@ -122,9 +145,10 @@ class FuzzyObjectResolver:
 
         matches = self._score_objects(
             normalized_query,
-            snapshot.objects,
+            objects,
             action=action,
             context=context or {},
+            affective_hints=affective_memory_hits,
         )
         candidates = matches[:3]
         best = matches[0] if matches else None
@@ -237,6 +261,7 @@ class FuzzyObjectResolver:
         *,
         action: str | None,
         context: dict[str, Any],
+        affective_hints: dict[str, list[dict[str, Any]]] | None = None,
     ) -> list[CandidateMatch]:
         requested_affordances = self.affordances.requested_from_query(normalized_query)
         scored: list[CandidateMatch] = []
@@ -259,7 +284,13 @@ class FuzzyObjectResolver:
                 name_score = max(name_score, affordance_score)
                 alias_score = max(alias_score, affordance_score)
 
-            context_bonus = self._context_bonus(obj, context)
+            matching_affective_hints = self._matching_affective_hints(obj, affective_hints or {})
+            context_bonus, context_components = self._context_bonus_components(
+                obj,
+                context,
+                action=action,
+                affective_hints=matching_affective_hints,
+            )
             risk_penalty = affordance_decision.risk_penalty
             final_score = (
                 name_score * 0.50
@@ -274,6 +305,8 @@ class FuzzyObjectResolver:
                 "alias_score": round(alias_score, 4),
                 "affordance_score": round(affordance_score, 4),
                 "context_bonus": round(context_bonus, 4),
+                "state_context_bonus": round(context_components["state_context_bonus"], 4),
+                "affective_bonus": round(context_components["affective_bonus"], 4),
                 "risk_penalty": round(risk_penalty, 4),
                 "final_score": round(final_score, 4),
                 "unmatched_descriptor_count": len(unmatched_descriptors),
@@ -289,11 +322,76 @@ class FuzzyObjectResolver:
                     distance=obj.distance,
                     position=obj.position,
                     unmatched_descriptors=unmatched_descriptors,
+                    known_aliases=list(obj.aliases),
                     reason=self._candidate_reason(components),
                 )
             )
 
         return sorted(scored, key=lambda candidate: candidate.confidence, reverse=True)
+
+    def _affective_hints_for_objects(
+        self,
+        objects: list[PerceivedObject],
+    ) -> dict[str, list[dict[str, Any]]]:
+        provider = self.affective_memory_provider
+        if not callable(provider) or not objects:
+            return {}
+        try:
+            hints = provider(objects)
+        except Exception as exc:
+            logger.warning("Proveedor de memoria afectiva espacial fallo: %s", exc, exc_info=True)
+            return {}
+        return hints if isinstance(hints, dict) else {}
+
+    def _objects_with_learned_aliases(
+        self,
+        objects: list[PerceivedObject],
+    ) -> tuple[list[PerceivedObject], dict[str, list[str]]]:
+        provider = self.learned_alias_provider
+        if not callable(provider) or not objects:
+            return objects, {}
+
+        object_ids = [obj.id for obj in objects]
+        try:
+            learned_aliases = provider(object_ids)
+        except Exception as exc:
+            logger.warning("Proveedor de aliases aprendidos fallo: %s", exc, exc_info=True)
+            return objects, {}
+        if not isinstance(learned_aliases, dict):
+            return objects, {}
+
+        enriched: list[PerceivedObject] = []
+        hits: dict[str, list[str]] = {}
+        for obj in objects:
+            aliases = list(obj.aliases)
+            for key in (obj.id, obj.display_name):
+                raw_aliases = learned_aliases.get(key)
+                if not isinstance(raw_aliases, list):
+                    continue
+                for alias in raw_aliases:
+                    alias_text = str(alias or "").strip()
+                    if alias_text and alias_text not in aliases:
+                        aliases.append(alias_text)
+                        hits.setdefault(obj.id, []).append(alias_text)
+
+            if aliases == obj.aliases:
+                enriched.append(obj)
+                continue
+
+            enriched.append(
+                PerceivedObject(
+                    id=obj.id,
+                    display_name=obj.display_name,
+                    aliases=aliases,
+                    position=obj.position,
+                    screen_position=obj.screen_position,
+                    distance=obj.distance,
+                    affordances=list(obj.affordances),
+                    source=obj.source,
+                    confidence=obj.confidence,
+                )
+            )
+        return enriched, hits
 
     @staticmethod
     def _coerce_snapshot(
@@ -333,16 +431,79 @@ class FuzzyObjectResolver:
 
     @staticmethod
     def _context_bonus(obj: PerceivedObject, context: dict[str, Any]) -> float:
-        bonus = 0.0
+        bonus, _components = FuzzyObjectResolver._context_bonus_components(obj, context)
+        return bonus
+
+    @staticmethod
+    def _context_bonus_components(
+        obj: PerceivedObject,
+        context: dict[str, Any],
+        *,
+        action: str | None = None,
+        affective_hints: list[dict[str, Any]] | None = None,
+    ) -> tuple[float, dict[str, float]]:
+        state_bonus = 0.0
         affordances = set(obj.affordances)
-        fatigue = _safe_float(context.get("fatiga", context.get("cansancio", 0.0)))
-        curiosity = _safe_float(context.get("curiosidad", 0.0))
+        fatigue = _context_ratio(context, "fatiga", "cansancio")
+        curiosity = _context_ratio(context, "curiosidad", "curiosity")
+        stress = _context_ratio(context, "estres", "stress")
 
         if fatigue > 0.75 and {"da_sombra", "cubre", "descanso"} & affordances:
-            bonus += 60.0
-        if curiosity > 0.70 and "recurso" in affordances:
-            bonus += 40.0
-        return min(100.0, bonus)
+            state_bonus += FATIGUE_CONTEXT_BONUS
+        if curiosity > 0.70 and "nuevo" in affordances:
+            state_bonus += CURIOSITY_CONTEXT_BONUS
+        if stress > 0.70 and {"peligro", "obstaculo", "bloquea_paso"} & affordances:
+            state_bonus += STRESS_CONTEXT_BONUS
+
+        affective_bonus = FuzzyObjectResolver._affective_context_bonus(
+            affective_hints or [],
+            action=action,
+        )
+        total = min(CONTEXT_BONUS_LIMIT, state_bonus + affective_bonus)
+        return total, {
+            "state_context_bonus": min(CONTEXT_BONUS_LIMIT, state_bonus),
+            "affective_bonus": affective_bonus,
+        }
+
+    @staticmethod
+    def _affective_context_bonus(
+        hints: list[dict[str, Any]],
+        *,
+        action: str | None,
+    ) -> float:
+        bonus = 0.0
+        for hint in hints:
+            if not isinstance(hint, dict) or hint.get("confirmed") is False:
+                continue
+            affect = normalize_text(hint.get("affect")).replace(" ", "_")
+            weight = _normalize_ratio(_safe_float(hint.get("weight", 0.0)))
+            if affect in POSITIVE_AFFECTS:
+                bonus += weight * AFFECTIVE_CONTEXT_BONUS_LIMIT
+            elif affect in AVOIDANCE_AFFECTS and action == "alejarse_de_objeto":
+                bonus += weight * AFFECTIVE_CONTEXT_BONUS_LIMIT
+        return min(AFFECTIVE_CONTEXT_BONUS_LIMIT, bonus)
+
+    @staticmethod
+    def _matching_affective_hints(
+        obj: PerceivedObject,
+        hints: dict[str, list[dict[str, Any]]],
+    ) -> list[dict[str, Any]]:
+        matches: list[dict[str, Any]] = []
+        keys = {obj.id, obj.display_name}
+        for value in [obj.id, obj.display_name, *obj.aliases]:
+            normalized = normalize_text(value).replace("-", "_").replace(" ", "_")
+            if not normalized:
+                continue
+            keys.add(f"class:{normalized}")
+            for token in normalized.split("_"):
+                if token:
+                    keys.add(f"class:{token}")
+
+        for key in keys:
+            entries = hints.get(key)
+            if isinstance(entries, list):
+                matches.extend(entry for entry in entries if isinstance(entry, dict))
+        return matches
 
     @staticmethod
     def _unmatched_query_descriptors(
@@ -451,3 +612,25 @@ def _safe_float(value: Any) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _context_ratio(context: dict[str, Any], *keys: str) -> float:
+    for key in keys:
+        value = _safe_float(context.get(key))
+        if value:
+            return _normalize_ratio(value)
+
+    nested = context.get("estado") or context.get("estado_interno") or context.get("identity_state")
+    if isinstance(nested, dict):
+        for key in keys:
+            value = _safe_float(nested.get(key))
+            if value:
+                return _normalize_ratio(value)
+    return 0.0
+
+
+def _normalize_ratio(value: float) -> float:
+    numeric = float(value)
+    if numeric > 1.0:
+        numeric = numeric / 100.0
+    return max(0.0, min(1.0, numeric))

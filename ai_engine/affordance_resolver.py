@@ -42,6 +42,7 @@ AFFORDANCE_QUERY_TERMS: dict[str, set[str]] = {
     "descanso": {"descansar", "descanso", "reposar"},
     "peligro": {"peligro", "peligroso", "amenaza"},
     "recurso": {"recurso", "material", "suministro"},
+    "nuevo": {"nuevo", "nueva", "desconocido", "desconocida", "curioso", "curiosa", "interesante"},
     "clicable": {"clic", "click", "presiona", "boton"},
     "escribible": {"escribe", "campo", "texto"},
 }

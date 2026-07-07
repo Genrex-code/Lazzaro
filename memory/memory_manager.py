@@ -9,6 +9,7 @@ from hashlib import sha1
 import re
 from typing import Any, Optional
 
+from ai_engine.learned_alias_candidates import LearnedAliasCandidate, alias_key
 from core.logger import get_logger
 from memory.chroma_client import ChromaClient
 from memory.conversation_memory import ConversationMemory
@@ -72,6 +73,8 @@ class MemoryManager:
         self.revision_consolidacion_cada = max(5, min(10, consolidacion_umbral))
         self._observaciones_desde_revision = 0
         self._hechos_conversacionales_guardados: set[str] = set()
+        self._alias_aprendidos_guardados: set[str] = set()
+        self._memorias_afectivas_guardadas: set[str] = set()
         logger.info("MemoryManager inicializado correctamente.")
 
     def guardar_experiencia(
@@ -135,6 +138,248 @@ class MemoryManager:
         except Exception as e:
             logger.error("Error al guardar regla: %s", e, exc_info=True)
             return None
+
+    def guardar_alias_aprendido(
+        self,
+        candidato: LearnedAliasCandidate | dict[str, Any],
+    ) -> Optional[str]:
+        """Aprueba y persiste un alias aprendido si no existe ya."""
+        candidate = (
+            candidato
+            if isinstance(candidato, LearnedAliasCandidate)
+            else LearnedAliasCandidate.from_dict(candidato)
+        )
+        if candidate is None:
+            return None
+
+        key = alias_key(candidate.object_id, candidate.human_concept)
+        if key in self._alias_aprendidos_guardados:
+            logger.debug("Alias aprendido duplicado en cache: %s", key)
+            return None
+        if self._alias_aprendido_ya_persistido(candidate):
+            self._alias_aprendidos_guardados.add(key)
+            logger.debug("Alias aprendido ya existia en memoria semantica: %s", key)
+            return None
+
+        regla = (
+            f"Alias aprendido: '{candidate.human_concept}' se refiere a "
+            f"'{candidate.object_id}'."
+        )
+        metadata = {
+            "object_id": candidate.object_id,
+            "human_concept": candidate.human_concept,
+            "confidence": candidate.confidence,
+            "source": candidate.source,
+            "evidence": candidate.evidence,
+            "action": candidate.action or "",
+            "target_display_name": candidate.target_display_name or "",
+            "legacy_nombre_objeto": candidate.legacy_nombre_objeto or "",
+            "approved": True,
+        }
+        recuerdo_id = self.guardar_regla(
+            regla=regla,
+            tipo_evento="alias_aprendido",
+            valencia=0.1,
+            impacto_emocional=0.35,
+            origen=candidate.source,
+            extra=metadata,
+        )
+        if recuerdo_id:
+            self._alias_aprendidos_guardados.add(key)
+        return recuerdo_id
+
+    def obtener_aliases_aprendidos(
+        self,
+        object_ids: list[str] | None = None,
+        limite: int = 200,
+    ) -> dict[str, list[str]]:
+        """Lee aliases aprendidos aprobados para uso rapido del resolver fuzzy."""
+        try:
+            where = self.client.combinar_where(
+                {"tipo_evento": "alias_aprendido"},
+                {"tipo": "semantico"},
+            )
+            registros = self.client.listar(where=where, limite=limite)
+            if not registros:
+                return {}
+
+            allowed = set(object_ids or [])
+            metadatas = registros.get("metadatas") or []
+            aliases: dict[str, list[str]] = {}
+            for meta in metadatas:
+                if not isinstance(meta, dict):
+                    continue
+                object_id = str(meta.get("object_id") or "").strip()
+                human_concept = str(meta.get("human_concept") or "").strip()
+                approved = meta.get("approved", True)
+                if not object_id or not human_concept or approved is False:
+                    continue
+                if allowed and object_id not in allowed:
+                    continue
+                bucket = aliases.setdefault(object_id, [])
+                if human_concept not in bucket:
+                    bucket.append(human_concept)
+                    self._alias_aprendidos_guardados.add(alias_key(object_id, human_concept))
+            return aliases
+        except Exception as e:
+            logger.error("Error al obtener aliases aprendidos: %s", e, exc_info=True)
+            return {}
+
+    def _alias_aprendido_ya_persistido(self, candidate: LearnedAliasCandidate) -> bool:
+        aliases = self.obtener_aliases_aprendidos([candidate.object_id])
+        conceptos = aliases.get(candidate.object_id, [])
+        normalized_key = alias_key(candidate.object_id, candidate.human_concept)
+        return any(alias_key(candidate.object_id, concepto) == normalized_key for concepto in conceptos)
+
+    def guardar_memoria_afectiva_espacial(
+        self,
+        *,
+        object_id: str | None = None,
+        object_class: str = "",
+        affect: str,
+        weight: float,
+        source: str = "event",
+        confirmed: bool = True,
+    ) -> Optional[str]:
+        """Guarda asociacion afectiva espacial como metadata, nunca como comando."""
+        normalized_object_id = str(object_id or "").strip()
+        normalized_object_class = _normalize_memory_token(object_class)
+        normalized_affect = _normalize_memory_token(affect)
+        normalized_source = _normalize_memory_token(source) or "event"
+        clamped_weight = _clamp_float(weight, 0.0, 1.0)
+
+        if not normalized_object_id and not normalized_object_class:
+            logger.warning("Memoria afectiva espacial sin object_id ni object_class.")
+            return None
+        if not normalized_affect:
+            logger.warning("Memoria afectiva espacial sin affect.")
+            return None
+
+        key = _affective_memory_key(
+            normalized_object_id,
+            normalized_object_class,
+            normalized_affect,
+            normalized_source,
+        )
+        if key in self._memorias_afectivas_guardadas:
+            logger.debug("Memoria afectiva espacial duplicada en cache: %s", key)
+            return None
+        if self._memoria_afectiva_ya_persistida(
+            object_id=normalized_object_id,
+            object_class=normalized_object_class,
+            affect=normalized_affect,
+            source=normalized_source,
+        ):
+            self._memorias_afectivas_guardadas.add(key)
+            logger.debug("Memoria afectiva espacial ya existia: %s", key)
+            return None
+
+        subject = normalized_object_id or normalized_object_class
+        regla = (
+            f"Memoria afectiva espacial: '{subject}' se asocia con "
+            f"'{normalized_affect}' (peso {clamped_weight:.2f})."
+        )
+        metadata = {
+            "object_id": normalized_object_id,
+            "object_class": normalized_object_class,
+            "affect": normalized_affect,
+            "weight": clamped_weight,
+            "source": normalized_source,
+            "confirmed": bool(confirmed),
+        }
+        recuerdo_id = self.guardar_regla(
+            regla=regla,
+            tipo_evento="memoria_afectiva_espacial",
+            valencia=_affective_valence(normalized_affect),
+            impacto_emocional=max(0.2, clamped_weight),
+            origen=normalized_source,
+            extra=metadata,
+        )
+        if recuerdo_id:
+            self._memorias_afectivas_guardadas.add(key)
+        return recuerdo_id
+
+    def obtener_memorias_afectivas_espaciales(
+        self,
+        object_refs: list[Any] | None = None,
+        limite: int = 200,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Lee asociaciones afectivas aprobadas para sesgo acotado del resolver."""
+        try:
+            allowed_ids, allowed_classes = _object_refs_to_filters(object_refs)
+            where = self.client.combinar_where(
+                {"tipo_evento": "memoria_afectiva_espacial"},
+                {"tipo": "semantico"},
+            )
+            registros = self.client.listar(where=where, limite=limite)
+            if not registros:
+                return {}
+
+            metadatas = registros.get("metadatas") or []
+            hints: dict[str, list[dict[str, Any]]] = {}
+            for meta in metadatas:
+                if not isinstance(meta, dict):
+                    continue
+                object_id = str(meta.get("object_id") or "").strip()
+                object_class = _normalize_memory_token(meta.get("object_class"))
+                affect = _normalize_memory_token(meta.get("affect"))
+                source = _normalize_memory_token(meta.get("source")) or "event"
+                confirmed = bool(meta.get("confirmed", True))
+                weight = _clamp_float(meta.get("weight", 0.0), 0.0, 1.0)
+                if not affect or not confirmed or weight <= 0.0:
+                    continue
+
+                key = ""
+                if object_id:
+                    if allowed_ids and object_id not in allowed_ids:
+                        continue
+                    key = object_id
+                elif object_class:
+                    if allowed_classes and object_class not in allowed_classes:
+                        continue
+                    key = f"class:{object_class}"
+                if not key:
+                    continue
+
+                hint = {
+                    "object_id": object_id,
+                    "object_class": object_class,
+                    "affect": affect,
+                    "weight": weight,
+                    "source": source,
+                    "confirmed": confirmed,
+                }
+                bucket = hints.setdefault(key, [])
+                if hint not in bucket:
+                    bucket.append(hint)
+                    self._memorias_afectivas_guardadas.add(
+                        _affective_memory_key(object_id, object_class, affect, source)
+                    )
+            return hints
+        except Exception as e:
+            logger.error("Error al obtener memorias afectivas espaciales: %s", e, exc_info=True)
+            return {}
+
+    def _memoria_afectiva_ya_persistida(
+        self,
+        *,
+        object_id: str,
+        object_class: str,
+        affect: str,
+        source: str,
+    ) -> bool:
+        hints = self.obtener_memorias_afectivas_espaciales(None)
+        target_key = _affective_memory_key(object_id, object_class, affect, source)
+        for entries in hints.values():
+            for entry in entries:
+                if _affective_memory_key(
+                    str(entry.get("object_id") or "").strip(),
+                    _normalize_memory_token(entry.get("object_class")),
+                    _normalize_memory_token(entry.get("affect")),
+                    _normalize_memory_token(entry.get("source")) or "event",
+                ) == target_key:
+                    return True
+        return False
 
     def buscar_recuerdos(
         self,
@@ -860,3 +1105,72 @@ class MemoryManager:
             f"de baja prioridad; el tipo mas frecuente fue '{tipo_principal}' ({frecuencia} veces). "
             f"Muestras representativas: {' | '.join(muestras)}"
         )
+
+
+def _normalize_memory_token(value: object) -> str:
+    text = str(value or "").strip().lower()
+    text = re.sub(r"[\s\-]+", "_", text)
+    text = re.sub(r"[^a-z0-9_]+", "", text)
+    return text.strip("_")
+
+
+def _clamp_float(value: object, minimum: float, maximum: float) -> float:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        numeric = minimum
+    return max(minimum, min(maximum, numeric))
+
+
+def _affective_memory_key(object_id: str, object_class: str, affect: str, source: str) -> str:
+    return "::".join(
+        [
+            str(object_id or "").strip(),
+            _normalize_memory_token(object_class),
+            _normalize_memory_token(affect),
+            _normalize_memory_token(source) or "event",
+        ]
+    )
+
+
+def _object_refs_to_filters(object_refs: list[Any] | None) -> tuple[set[str], set[str]]:
+    ids: set[str] = set()
+    classes: set[str] = set()
+    for ref in object_refs or []:
+        if isinstance(ref, str):
+            ids.add(ref)
+            classes.update(_class_tokens_from_text(ref))
+            continue
+
+        object_id = str(getattr(ref, "id", "") or "").strip()
+        if object_id:
+            ids.add(object_id)
+            classes.update(_class_tokens_from_text(object_id))
+
+        display_name = str(getattr(ref, "display_name", "") or "").strip()
+        if display_name:
+            classes.update(_class_tokens_from_text(display_name))
+
+        aliases = getattr(ref, "aliases", [])
+        if isinstance(aliases, list):
+            for alias in aliases:
+                classes.update(_class_tokens_from_text(alias))
+    return ids, classes
+
+
+def _class_tokens_from_text(value: object) -> set[str]:
+    normalized = _normalize_memory_token(value)
+    if not normalized:
+        return set()
+    tokens = {normalized}
+    tokens.update(token for token in normalized.split("_") if token)
+    return tokens
+
+
+def _affective_valence(affect: str) -> float:
+    normalized = _normalize_memory_token(affect)
+    if normalized in {"alivio", "descanso", "calma", "seguridad", "refugio"}:
+        return 0.4
+    if normalized in {"alerta", "peligro", "dolor", "miedo", "estres"}:
+        return -0.4
+    return 0.0

@@ -651,6 +651,111 @@ Log recomendado:
 FUZZ_DECISION query="roca" intent=MOTOR_SIMPLE status=requires_clarification best=Rock_01 score=77 candidates=[Rock_01:77, Rock_02:74]
 ```
 
+### SubjectiveEffort
+
+El esfuerzo subjetivo es contexto interno, no guardarrail fisico. Capa 1 puede
+calcularlo despues de validar una accion, pero no puede usarlo para decidir si
+una ruta existe, si un objeto esta permitido o si Unity debe ejecutar.
+
+Formula inicial:
+
+```text
+esfuerzo_percibido = costo_base_accion * distancia_factor * (1 + fatiga * 0.8) * (1 + estres * 0.4) - familiaridad_bonus
+```
+
+Campos minimos:
+
+| Campo | Tipo | Descripcion |
+| --- | --- | --- |
+| `score` | `float` | Costo subjetivo calculado. |
+| `label` | `str` | `bajo`, `medio`, `alto` o `critico`. |
+| `base_action_cost` | `float` | Costo base por accion fisica. |
+| `distance_factor` | `float` | Distancia, duracion o magnitud estimada. |
+| `fatigue` | `float` | Fatiga normalizada 0..1 derivada de energia/BOLOGIA. |
+| `stress` | `float` | Estres normalizado 0..1. |
+| `familiarity_bonus` | `float` | Reduccion por familiaridad conocida, si existe. |
+| `physical_validation_impact` | `bool` | Siempre `False` en Fase 7. |
+
+Transporte esperado: `ActionResponse.metadata.subjective_effort` y, si la
+accion se registra en memoria de trabajo, `detalles.subjective_effort` como
+contexto suave para Persona/memoria.
+
+### LearnedAliasCandidate
+
+El diccionario evolutivo no autoriza a Capa 1 a escribir en ChromaDB. Capa 1
+solo puede emitir un candidato de alias aprendido; Core y `MemoryManager`
+deciden si se aprueba y persiste como memoria semantica.
+
+Ejemplo:
+
+```text
+LearnedAliasCandidate(object_id="Flowers_01_LOD0", human_concept="flor", confidence=0.94, source="fuzzy_match", evidence="usuario dijo flor y accion fue exitosa")
+```
+
+Reglas:
+
+- Solo se genera si la accion fisica asociada fue exitosa.
+- Solo se genera si el score de match lexical usado para validar el target es
+  `>= 92`.
+- No duplica aliases ya conocidos para el mismo objeto.
+- La persistencia usa `tipo_evento="alias_aprendido"` y queda bajo control de
+  `MemoryManager`.
+- El resolver fuzzy puede consultar aliases aprendidos como lectura rapida
+  antes del scoring pesado, pero no puede guardar nada.
+
+Campos minimos:
+
+| Campo | Tipo | Descripcion |
+| --- | --- | --- |
+| `object_id` | `str` | ID interno del objeto percibido. |
+| `human_concept` | `str` | Nombre humano aprendido, normalizado. |
+| `confidence` | `float` | Confianza 0..1 del candidato. |
+| `source` | `str` | Origen del candidato, por ejemplo `fuzzy_match`. |
+| `evidence` | `str` | Razon auditable: usuario, accion y resultado. |
+| `action` | `str | None` | Accion fisica cuyo exito respaldo el alias. |
+| `approved` | `bool` | `False` al emitirse; `MemoryManager` decide persistencia. |
+
+### SpatialAffectiveMemory
+
+La memoria afectiva espacial registra asociaciones emocionales o corporales con
+objetos/lugares, pero no emite comandos. En Fase 10 solo puede actuar como
+metadata y como lectura acotada para scoring perceptivo.
+
+Metadata sugerida:
+
+```json
+{
+  "object_class": "tree",
+  "affect": "alivio",
+  "weight": 0.8,
+  "source": "rest_event",
+  "confirmed": true
+}
+```
+
+Reglas:
+
+- Se persiste como memoria semantica con
+  `tipo_evento="memoria_afectiva_espacial"`.
+- `MemoryManager` guarda la asociacion; Capa 1 solo puede leerla como provider.
+- El bonus afectivo participa dentro de `context_bonus` y nunca puede superar
+  `CONTEXT_BONUS_LIMIT`.
+- Sin una politica de autonomia futura, memoria afectiva solo puede sugerir o
+  sesgar levemente candidatos cercanos; no puede activar caminatas autonomas.
+- Si se necesita sugerir una accion por memoria afectiva, la salida publica debe
+  pasar por Persona como sugerencia verbal, no como comando fisico.
+
+Campos minimos:
+
+| Campo | Tipo | Descripcion |
+| --- | --- | --- |
+| `object_id` | `str | None` | Objeto concreto si se conoce. |
+| `object_class` | `str` | Clase/concepto del objeto, por ejemplo `tree`. |
+| `affect` | `str` | Asociacion: `alivio`, `descanso`, `alerta`, etc. |
+| `weight` | `float` | Peso 0..1 de la asociacion. |
+| `source` | `str` | Origen, por ejemplo `rest_event` o `pain_event`. |
+| `confirmed` | `bool` | Si la asociacion fue confirmada por evento real. |
+
 ### Scoring Fuzzy
 
 `thefuzz` queda autorizado para el matching de nombres y aliases. No debe correr
@@ -663,6 +768,22 @@ Formula inicial:
 ```text
 final_score = name_score * 0.50 + alias_score * 0.20 + affordance_score * 0.20 + context_bonus * 0.10 - risk_penalty
 ```
+
+`context_bonus` es un sesgo subjetivo acotado, no una fuente de verdad. En Fase
+9 su valor maximo es `10.0` antes del peso `* 0.10`; por tanto solo puede mover
+ligeramente candidatos cercanos, nunca imponerse sobre nombre, alias,
+affordance, ambiguedad o seguridad.
+
+Reglas iniciales:
+
+- `fatiga > 0.75` favorece objetos con `da_sombra`, `cubre` o `descanso` con
+  un bonus pequeno.
+- `curiosidad > 0.70` favorece objetos con `nuevo`.
+- `estres > 0.70` resalta objetos con `peligro`, `obstaculo` o `bloquea_paso`.
+- La memoria afectiva espacial puede aportar un bonus pequeno dentro del mismo
+  limite, nunca por encima de `context_bonus`.
+- La suma total se recorta a `10.0`.
+- Este sesgo no puede crear acciones autonomas ni decidir que una ruta existe.
 
 El score final no basta por si solo: si hay riesgo fisico, affordance ausente o
 ambiguedad estrecha, el estado debe ser conservador.
@@ -719,7 +840,7 @@ Affordances permitidas iniciales:
 | --- | --- |
 | Movimiento | `obstaculo`, `transitable`, `bloquea_paso`, `punto_refugio` |
 | Interaccion | `mirar`, `tocar`, `agarrable`, `empujable`, `activable`, `inspeccionable` |
-| Utilidad | `da_sombra`, `cubre`, `ilumina`, `descanso`, `peligro`, `recurso` |
+| Utilidad | `da_sombra`, `cubre`, `ilumina`, `descanso`, `peligro`, `recurso`, `nuevo` |
 | Escritorio futuro | `clicable`, `escribible`, `arrastrable`, `ventana`, `boton`, `campo_texto` |
 
 `AffordanceResolver` valida si una accion aplica al objeto seleccionado. Ejemplos:

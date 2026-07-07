@@ -23,6 +23,7 @@ class CandidateMatch:
     distance: float | None = None
     position: dict[str, float] | None = None
     unmatched_descriptors: list[str] = field(default_factory=list)
+    known_aliases: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -35,6 +36,7 @@ class CandidateMatch:
             "distance": self.distance,
             "position": dict(self.position) if self.position is not None else None,
             "unmatched_descriptors": list(self.unmatched_descriptors),
+            "known_aliases": list(self.known_aliases),
             "reason": self.reason,
         }
 
