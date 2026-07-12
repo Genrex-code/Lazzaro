@@ -72,6 +72,17 @@ class BehaviorCore:
         self.task_context = None
         logger.info("Tarea finalizada y contexto liberado.")
 
+    def cancelar_tarea(self, motivo: str = "") -> dict | None:
+        """Libera el contexto de tarea sin disparar razonamiento adicional."""
+        if self.task_context is None:
+            logger.info("Cancelacion solicitada, pero no habia tarea activa.")
+            return None
+
+        resumen = self.task_context.obtener_resumen()
+        self.task_context = None
+        logger.info("Tarea cancelada por solicitud externa. Motivo: %s", motivo or "sin motivo")
+        return resumen
+
     def procesar_evento(self, tipo_evento: str, detalles: dict | None = None) -> dict:
         """
         Recibe un evento externo y actualiza todo el sistema.

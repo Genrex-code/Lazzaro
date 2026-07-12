@@ -46,6 +46,25 @@ class GirarAvatarParams(BaseModel):
     )
 
 
+class CancelarTareaParams(BaseModel):
+    motivo: str = Field(
+        "Solicitud explicita del usuario.",
+        description="Motivo humano-legible de la cancelacion.",
+    )
+    cancelar_movimiento: bool = Field(
+        True,
+        description="Si es true, Unity debe detener cualquier movimiento activo.",
+    )
+    cancelar_cola: bool = Field(
+        True,
+        description="Si es true, Unity debe limpiar la fila de tareas pendientes.",
+    )
+    texto_confirmacion: str = Field(
+        "De acuerdo, cancelo la tarea actual.",
+        description="Texto breve que Unity puede mostrar como confirmacion pasiva.",
+    )
+
+
 @ToolRegistry.register(
     name="navegar_a_objeto",
     description=(
@@ -100,3 +119,16 @@ def alejarse_de_objeto(params: AlejarseDeObjetoParams) -> str:
 )
 def girar_avatar(params: GirarAvatarParams) -> str:
     return f"[Movimiento] Orden de girar {params.grados} grados enviada a Unity."
+
+
+@ToolRegistry.register(
+    name="cancelar_tarea",
+    description=(
+        "Ordena a Unity detener el movimiento activo y limpiar la cola de subtareas. "
+        "Usa esta herramienta solo cuando el usuario pida cancelar, detener o abandonar una tarea."
+    ),
+    params_schema=CancelarTareaParams,
+    requires_confirmation=False,
+)
+def cancelar_tarea(params: CancelarTareaParams) -> str:
+    return f"[Control] Cancelacion de tarea enviada a Unity. Motivo: {params.motivo}"

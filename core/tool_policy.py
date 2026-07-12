@@ -15,6 +15,7 @@ class ToolPolicy:
         "navegar_a_posicion",
         "alejarse_de_objeto",
         "girar_avatar",
+        "cancelar_tarea",
         "interactuar_objeto_3d",
         "agarrar_objeto",
         "soltar_objeto",

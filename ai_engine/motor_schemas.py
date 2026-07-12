@@ -72,6 +72,16 @@ class ApplyForceParams(StrictParams):
     fuerza: float = Field(..., gt=0.0, le=100.0, description="Magnitud de la fuerza.")
 
 
+class CancelTaskParams(StrictParams):
+    motivo: str = Field("Solicitud explicita del usuario.", description="Motivo de la cancelacion.")
+    cancelar_movimiento: bool = Field(True, description="Detener movimiento activo en Unity.")
+    cancelar_cola: bool = Field(True, description="Limpiar cola de subtareas en Unity.")
+    texto_confirmacion: str = Field(
+        "De acuerdo, cancelo la tarea actual.",
+        description="Texto breve de confirmacion opcional.",
+    )
+
+
 ACTION_SCHEMA_MAP = {
     "navegar_a_objeto": NavigateToObjectParams,
     "navegar_a_posicion": NavigateToPositionParams,
@@ -81,6 +91,7 @@ ACTION_SCHEMA_MAP = {
     "alejarse_de_objeto": MoveAwayParams,
     "girar_avatar": RotateAvatarParams,
     "aplicar_fuerza": ApplyForceParams,
+    "cancelar_tarea": CancelTaskParams,
 }
 
 
@@ -99,6 +110,7 @@ class MotorAction(BaseModel):
         "alejarse_de_objeto",
         "girar_avatar",
         "aplicar_fuerza",
+        "cancelar_tarea",
     ] = Field(..., description="Accion fisica registrada o none.")
     parametros: dict = Field(
         default_factory=dict,

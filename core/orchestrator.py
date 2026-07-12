@@ -5,7 +5,9 @@ Coordina el flujo completo: evento -> estado interno -> memoria -> IA -> accion.
 
 from collections import OrderedDict, deque
 from datetime import datetime
+import re
 from typing import List, Optional
+import unicodedata
 import uuid
 
 from ai_engine.identity_state import IdentityState
@@ -133,6 +135,8 @@ class Orchestrator:
 
         if es_interrupcion_critica:
             action_response = self._resolver_interrupcion_critica(evento)
+        elif self._usuario_pide_cancelar_tarea(evento):
+            action_response = self._resolver_cancelacion_tarea_usuario(evento)
         elif self._triage_debe_cortar_flujo(triage_decision):
             razon_triage = str(
                 triage_decision.get("reason")
@@ -347,6 +351,33 @@ class Orchestrator:
             if valor:
                 return str(valor).strip()
         return ""
+
+    @classmethod
+    def _usuario_pide_cancelar_tarea(cls, evento: EventoEntrante) -> bool:
+        if evento.tipo_evento != "comando_usuario":
+            return False
+
+        mensaje = cls._normalizar_texto_comando(cls._extraer_mensaje_usuario(evento))
+        if not mensaje:
+            return False
+
+        patrones_cancelacion = (
+            r"\b(cancela|cancelar|cancele|canceles)\b.*\b(tarea|tareas|subtarea|subtareas|cola|pendiente|pendientes|movimiento|accion|acciones|secuencia|orden|ordenes|todo)\b",
+            r"\b(detente|deten|alto|parate)\b(\s|$)",
+            r"\b(para)\b.*\b(ya|tarea|tareas|movimiento|accion|acciones|secuencia|todo)\b",
+            r"\b(deja\s+de|no\s+sigas|interrumpe|interrumpir|abandona|descarta)\b.*\b(tarea|tareas|moverte|caminar|movimiento|accion|acciones|secuencia|cola)\b",
+            r"\b(limpia|borra|vacia)\b.*\b(cola|tareas|pendientes)\b",
+            r"\b(cancela|cancelar|detente|alto)\b\s*$",
+        )
+        return any(re.search(patron, mensaje) for patron in patrones_cancelacion)
+
+    @staticmethod
+    def _normalizar_texto_comando(texto: str) -> str:
+        normalizado = unicodedata.normalize("NFD", texto or "")
+        normalizado = "".join(caracter for caracter in normalizado if unicodedata.category(caracter) != "Mn")
+        normalizado = normalizado.lower()
+        normalizado = re.sub(r"\s+", " ", normalizado)
+        return normalizado.strip()
 
     @staticmethod
     def _extraer_texto_hablar(parametros: dict) -> str:
@@ -1207,6 +1238,36 @@ class Orchestrator:
             "constelacion": self.behavior.obtener_constelacion(),
             "resumen": self.behavior.obtener_constelacion_resumen(),
         }
+
+    def _resolver_cancelacion_tarea_usuario(self, evento: EventoEntrante) -> ActionResponse:
+        """Detiene la tarea activa sin consultar al LLM cuando el usuario lo pide."""
+        mensaje_usuario = self._extraer_mensaje_usuario(evento)
+        cancelar_tarea = getattr(self.behavior, "cancelar_tarea", None)
+        tarea_cancelada = None
+        if callable(cancelar_tarea):
+            try:
+                tarea_cancelada = cancelar_tarea("Solicitud explicita del usuario.")
+            except Exception as e:
+                logger.error("Error cancelando tarea activa en BehaviorCore: %s", e, exc_info=True)
+
+        return ActionResponse(
+            pensamiento="El usuario pidio cancelar la tarea actual. Debo detener cuerpo, cola y contexto activo.",
+            accion="cancelar_tarea",
+            parametros={
+                "motivo": "Solicitud explicita del usuario.",
+                "cancelar_movimiento": True,
+                "cancelar_cola": True,
+                "texto_confirmacion": "De acuerdo, cancelo la tarea actual.",
+            },
+            razon="Cancelacion solicitada por el usuario; se evita llamar al LLM y se prioriza detener actividad.",
+            valido=True,
+            emocion_facial="Fcl_ALL_Neutral",
+            metadata={
+                "task_cancelled_by_user": True,
+                "mensaje_usuario": mensaje_usuario,
+                "tarea_cancelada": tarea_cancelada,
+            },
+        )
 
     def _resolver_interrupcion_critica(self, evento: EventoEntrante) -> ActionResponse:
         """Genera una accion inmediata y segura ante dolor fisico o colision fuerte."""

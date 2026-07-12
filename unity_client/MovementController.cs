@@ -6,111 +6,76 @@ using UnityEngine.AI;
 [RequireComponent(typeof(NavMeshAgent))]
 [RequireComponent(typeof(Animator))]
 [RequireComponent(typeof(PerceptionSystem))]
+[RequireComponent(typeof(Rigidbody))]
 public class MovementController : MonoBehaviour
 {
     public bool IsMoving { get; private set; } = false;
     public Action<bool, string> OnMovimientoCompletado;
+    public float velocidadDeseada = 3.5f;
 
     private NavMeshAgent navAgent;
     private Animator animator;
     private PerceptionSystem percepcion;
     private Coroutine rutinaMovimiento;
+    private Rigidbody rb;
 
     void Awake()
     {
         navAgent = GetComponent<NavMeshAgent>();
         animator = GetComponent<Animator>();
         percepcion = GetComponent<PerceptionSystem>();
+        rb = GetComponent<Rigidbody>();
 
-        navAgent.updateRotation = true;
+        rb.freezeRotation = true;
+        rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
+
+        navAgent.updatePosition = false;
+        navAgent.updateRotation = false;
         navAgent.stoppingDistance = Mathf.Max(0.1f, navAgent.stoppingDistance);
     }
 
     public void NavegarAObjeto(string nombreObjeto)
     {
-        if (IsMoving)
+        if (!PuedeNavegar(out string mensajeError))
         {
-            OnMovimientoCompletado?.Invoke(
-                false,
-                "Se recibio una nueva orden de navegacion mientras otra seguia en curso."
-            );
+            RechazarMovimiento(mensajeError);
             return;
         }
 
         Collider objetivo = percepcion.BuscarObjeto(nombreObjeto);
         if (objetivo == null)
         {
-            OnMovimientoCompletado?.Invoke(false, $"No pude encontrar el objeto '{nombreObjeto}'.");
-            return;
-        }
-
-        if (!navAgent.isOnNavMesh)
-        {
-            OnMovimientoCompletado?.Invoke(false, "Mi cuerpo no esta colocado sobre un NavMesh valido.");
+            RechazarMovimiento($"No pude encontrar el objeto '{nombreObjeto}'.");
             return;
         }
 
         Vector3 destino = objetivo.ClosestPoint(transform.position);
-        if (!NavMesh.SamplePosition(destino, out NavMeshHit navHit, 2f, NavMesh.AllAreas))
-        {
-            OnMovimientoCompletado?.Invoke(false, $"No encontre una ruta navegable hacia '{objetivo.name}'.");
-            return;
-        }
-
-        if (rutinaMovimiento != null)
-        {
-            StopCoroutine(rutinaMovimiento);
-        }
-
-        rutinaMovimiento = StartCoroutine(NavegarHastaDestino(objetivo.name, navHit.position));
+        IniciarNavegacionA(destino, objetivo.name);
     }
 
     public void NavegarAPosicion(Vector3 destino, string etiquetaDestino = "destino")
     {
-        if (IsMoving)
+        if (!PuedeNavegar(out string mensajeError))
         {
-            OnMovimientoCompletado?.Invoke(
-                false,
-                "Se recibio una nueva orden de navegacion mientras otra seguia en curso."
-            );
+            RechazarMovimiento(mensajeError);
             return;
         }
 
-        if (!navAgent.isOnNavMesh)
-        {
-            OnMovimientoCompletado?.Invoke(false, "Mi cuerpo no esta colocado sobre un NavMesh valido.");
-            return;
-        }
-
-        if (!NavMesh.SamplePosition(destino, out NavMeshHit navHit, 2f, NavMesh.AllAreas))
-        {
-            OnMovimientoCompletado?.Invoke(false, $"No encontre una ruta navegable hacia '{etiquetaDestino}'.");
-            return;
-        }
-
-        if (rutinaMovimiento != null)
-        {
-            StopCoroutine(rutinaMovimiento);
-        }
-
-        rutinaMovimiento = StartCoroutine(NavegarHastaDestino(etiquetaDestino, navHit.position));
+        IniciarNavegacionA(destino, etiquetaDestino);
     }
 
     public void AlejarseDeObjeto(string nombreObjeto, float distancia)
     {
-        if (IsMoving)
+        if (!PuedeNavegar(out string mensajeError))
         {
-            OnMovimientoCompletado?.Invoke(
-                false,
-                "Se recibio una nueva orden de navegacion mientras otra seguia en curso."
-            );
+            RechazarMovimiento(mensajeError);
             return;
         }
 
         Collider objetivo = percepcion.BuscarObjeto(nombreObjeto);
         if (objetivo == null)
         {
-            OnMovimientoCompletado?.Invoke(false, $"No pude encontrar el objeto '{nombreObjeto}'.");
+            RechazarMovimiento($"No pude encontrar el objeto '{nombreObjeto}'.");
             return;
         }
 
@@ -124,33 +89,89 @@ public class MovementController : MonoBehaviour
         }
 
         Vector3 destino = transform.position + direccionEscape.normalized * Mathf.Clamp(distancia, 0.5f, 5f);
-        NavegarAPosicion(destino, $"alejarme de {objetivo.name}");
+        IniciarNavegacionA(destino, $"alejarme de {objetivo.name}");
     }
 
     public void GirarAvatar(float grados)
     {
-        if (IsMoving)
+        if (!PuedeEjecutarOrden("rotacion", out string mensajeError))
         {
-            OnMovimientoCompletado?.Invoke(
-                false,
-                "Se recibio una nueva orden de rotacion mientras otra seguia en curso."
-            );
+            RechazarMovimiento(mensajeError);
             return;
         }
 
         float gradosClamped = Mathf.Clamp(grados, -360f, 360f);
         if (Mathf.Abs(gradosClamped) < 1f)
         {
-            OnMovimientoCompletado?.Invoke(false, "La rotacion solicitada es demasiado pequena.");
+            RechazarMovimiento("La rotacion solicitada es demasiado pequena.");
             return;
         }
 
+        IniciarRutinaMovimiento(GirarHastaAngulo(gradosClamped));
+    }
+
+    public void FrenarMovimiento()
+    {
         if (rutinaMovimiento != null)
         {
             StopCoroutine(rutinaMovimiento);
         }
 
-        rutinaMovimiento = StartCoroutine(GirarHastaAngulo(gradosClamped));
+        DetenerMovimientoActual();
+    }
+
+    private bool PuedeNavegar(out string mensajeError)
+    {
+        if (!PuedeEjecutarOrden("navegacion", out mensajeError))
+        {
+            return false;
+        }
+
+        if (!navAgent.isOnNavMesh)
+        {
+            mensajeError = "Mi cuerpo no esta colocado sobre un NavMesh valido.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool PuedeEjecutarOrden(string tipoOrden, out string mensajeError)
+    {
+        if (IsMoving)
+        {
+            mensajeError = $"Se recibio una nueva orden de {tipoOrden} mientras otra seguia en curso.";
+            return false;
+        }
+
+        mensajeError = "";
+        return true;
+    }
+
+    private void RechazarMovimiento(string mensaje)
+    {
+        OnMovimientoCompletado?.Invoke(false, mensaje);
+    }
+
+    private void IniciarNavegacionA(Vector3 destino, string etiquetaDestino)
+    {
+        if (!NavMesh.SamplePosition(destino, out NavMeshHit navHit, 2f, NavMesh.AllAreas))
+        {
+            RechazarMovimiento($"No encontre una ruta navegable hacia '{etiquetaDestino}'.");
+            return;
+        }
+
+        IniciarRutinaMovimiento(NavegarHastaDestino(etiquetaDestino, navHit.position));
+    }
+
+    private void IniciarRutinaMovimiento(IEnumerator rutina)
+    {
+        if (rutinaMovimiento != null)
+        {
+            StopCoroutine(rutinaMovimiento);
+        }
+
+        rutinaMovimiento = StartCoroutine(rutina);
     }
 
     private IEnumerator NavegarHastaDestino(string nombreObjeto, Vector3 destino)
@@ -158,31 +179,46 @@ public class MovementController : MonoBehaviour
         IsMoving = true;
         animator.SetBool("isWalking", true);
 
+        navAgent.nextPosition = transform.position;
         navAgent.isStopped = false;
         navAgent.SetDestination(destino);
 
-        yield return null;
+        yield return new WaitForFixedUpdate();
 
         float tiempoAtascado = 0f;
 
-        while (navAgent.pathPending || navAgent.remainingDistance > navAgent.stoppingDistance)
+        while (DistanciaHorizontal(transform.position, destino) > navAgent.stoppingDistance)
         {
+            navAgent.nextPosition = transform.position;
+
             if (!navAgent.pathPending && navAgent.pathStatus == NavMeshPathStatus.PathInvalid)
             {
-                FrenarMovimiento();
+                DetenerMovimientoActual();
                 OnMovimientoCompletado?.Invoke(false, $"La ruta hacia '{nombreObjeto}' no es valida.");
                 yield break;
             }
 
-            if (!navAgent.pathPending && navAgent.velocity.magnitude < 0.1f)
+            Vector3 direccion = navAgent.steeringTarget - transform.position;
+            direccion.y = 0f;
+
+            if (direccion.sqrMagnitude > 0.01f)
             {
-                tiempoAtascado += Time.deltaTime;
+                AplicarMovimientoFisico(direccion.normalized);
+            }
+            else
+            {
+                DetenerVelocidadHorizontal();
+            }
+
+            if (!navAgent.pathPending && VelocidadHorizontal().magnitude < 0.2f)
+            {
+                tiempoAtascado += Time.fixedDeltaTime;
                 if (tiempoAtascado > 2.0f)
                 {
-                    FrenarMovimiento();
+                    DetenerMovimientoActual();
                     OnMovimientoCompletado?.Invoke(
                         false,
-                        $"Me atasque intentando llegar a '{nombreObjeto}'."
+                        $"Me atasque fisicamente intentando llegar a '{nombreObjeto}'."
                     );
                     yield break;
                 }
@@ -192,10 +228,10 @@ public class MovementController : MonoBehaviour
                 tiempoAtascado = 0f;
             }
 
-            yield return null;
+            yield return new WaitForFixedUpdate();
         }
 
-        FrenarMovimiento();
+        DetenerMovimientoActual();
         OnMovimientoCompletado?.Invoke(true, $"Llegue cerca de '{nombreObjeto}'.");
     }
 
@@ -203,14 +239,9 @@ public class MovementController : MonoBehaviour
     {
         IsMoving = true;
         animator.SetBool("isWalking", false);
+        DetenerRutaNavMesh();
 
-        if (navAgent != null && navAgent.isOnNavMesh)
-        {
-            navAgent.ResetPath();
-            navAgent.isStopped = true;
-        }
-
-        Quaternion rotacionInicial = transform.rotation;
+        Quaternion rotacionInicial = rb.rotation;
         Quaternion rotacionDestino = Quaternion.Euler(
             0f,
             transform.eulerAngles.y + grados,
@@ -221,31 +252,67 @@ public class MovementController : MonoBehaviour
 
         while (tiempo < duracion)
         {
-            tiempo += Time.deltaTime;
+            tiempo += Time.fixedDeltaTime;
             float progreso = Mathf.Clamp01(tiempo / duracion);
-            transform.rotation = Quaternion.Slerp(rotacionInicial, rotacionDestino, progreso);
-            yield return null;
+            rb.MoveRotation(Quaternion.Slerp(rotacionInicial, rotacionDestino, progreso));
+            yield return new WaitForFixedUpdate();
         }
 
-        transform.rotation = rotacionDestino;
-        FrenarMovimiento();
+        rb.MoveRotation(rotacionDestino);
+        DetenerMovimientoActual();
         OnMovimientoCompletado?.Invoke(true, $"Gire {grados:0.#} grados.");
     }
 
-    public void FrenarMovimiento()
+    private void AplicarMovimientoFisico(Vector3 direccion)
     {
-        if (navAgent != null && navAgent.isOnNavMesh)
-        {
-            navAgent.ResetPath();
-            navAgent.isStopped = true;
-        }
+        Vector3 nuevaVelocidad = direccion * velocidadDeseada;
+        rb.velocity = new Vector3(nuevaVelocidad.x, rb.velocity.y, nuevaVelocidad.z);
+
+        Quaternion rotacionDestino = Quaternion.LookRotation(direccion);
+        rb.MoveRotation(Quaternion.Slerp(rb.rotation, rotacionDestino, Time.fixedDeltaTime * 10f));
+    }
+
+    private void DetenerMovimientoActual()
+    {
+        DetenerRutaNavMesh();
 
         if (animator != null)
         {
             animator.SetBool("isWalking", false);
         }
 
+        DetenerVelocidadHorizontal();
         IsMoving = false;
         rutinaMovimiento = null;
+    }
+
+    private void DetenerRutaNavMesh()
+    {
+        if (navAgent != null && navAgent.isOnNavMesh)
+        {
+            navAgent.ResetPath();
+            navAgent.isStopped = true;
+            navAgent.nextPosition = transform.position;
+        }
+    }
+
+    private void DetenerVelocidadHorizontal()
+    {
+        if (rb != null)
+        {
+            rb.velocity = new Vector3(0f, rb.velocity.y, 0f);
+        }
+    }
+
+    private Vector3 VelocidadHorizontal()
+    {
+        return rb == null ? Vector3.zero : new Vector3(rb.velocity.x, 0f, rb.velocity.z);
+    }
+
+    private static float DistanciaHorizontal(Vector3 a, Vector3 b)
+    {
+        a.y = 0f;
+        b.y = 0f;
+        return Vector3.Distance(a, b);
     }
 }

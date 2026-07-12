@@ -11,6 +11,7 @@ using TMPro;    // Corregido para UI
 [RequireComponent(typeof(ApiClient))]
 [RequireComponent(typeof(PerceptionSystem))]
 [RequireComponent(typeof(MovementController))]
+[RequireComponent(typeof(SomatoSensorySystem))]
 public class LazzaroAgent : MonoBehaviour
 {
     private ApiClient api;
@@ -26,7 +27,7 @@ public class LazzaroAgent : MonoBehaviour
     private bool ultimoMovimientoExitoso = false;
     private string ultimoResultadoMovimiento = "";
     private string ultimoObjetoNavegacion = "ninguno";
-    private string ultimaAccionMovimiento = "navegar_a_objeto";
+    public string UltimaAccionMovimiento { get; private set; } = "navegar_a_objeto";
     private string tareaUsuarioActual = "";
     private Dictionary<string, object> ultimosParametrosMovimiento = new Dictionary<string, object>();
     private const float DistanciaMaximaInteraccion = 2.0f;
@@ -428,7 +429,8 @@ public class LazzaroAgent : MonoBehaviour
         string objetoGolpeado,
         string direccionEscape,
         float distanciaEscape,
-        string accionFallida
+        string accionFallida,
+        Dictionary<string, object> detallesExtra = null
     )
     {
         CancelarFilaTareasUsuario("Interrupcion por dolor fisico.");
@@ -441,6 +443,8 @@ public class LazzaroAgent : MonoBehaviour
         detalles["velocidad_escape"] = "caminar";
         detalles["accion"] = accionFallida;
         detalles["exito"] = false;
+
+        AgregarDetallesExtra(detalles, detallesExtra);
 
         EnviarEvento("alerta_dolor_fisico", detalles, objetoGolpeado, true);
     }
@@ -458,13 +462,7 @@ public class LazzaroAgent : MonoBehaviour
         detalles["exito"] = exito;
         detalles["mensaje_resultado"] = mensaje;
 
-        if (detallesExtra != null)
-        {
-            foreach (KeyValuePair<string, object> par in detallesExtra)
-            {
-                detalles[par.Key] = par.Value;
-            }
-        }
+        AgregarDetallesExtra(detalles, detallesExtra);
 
         EnviarEvento("resultado_accion", detalles, objetoInvolucrado);
         CompletarTareaUsuarioActual(exito, mensaje);
@@ -551,6 +549,9 @@ public class LazzaroAgent : MonoBehaviour
             case "girar_avatar":
                 EjecutarGirarAvatar(respuesta.accion.parametros);
                 break;
+            case "cancelar_tarea":
+                EjecutarCancelarTarea(respuesta.accion.parametros);
+                break;
             case "interactuar_objeto_3d":
                 EjecutarInteraccion(respuesta.accion.parametros);
                 break;
@@ -575,6 +576,44 @@ public class LazzaroAgent : MonoBehaviour
                 );
                 break;
         }
+    }
+
+    private void EjecutarCancelarTarea(JObject parametros)
+    {
+        string motivo = parametros?["motivo"]?.ToString() ?? "Solicitud explicita del usuario.";
+        bool cancelarMovimiento = parametros?["cancelar_movimiento"]?.Value<bool>() ?? true;
+        bool cancelarCola = parametros?["cancelar_cola"]?.Value<bool>() ?? true;
+        string textoConfirmacion = parametros?["texto_confirmacion"]?.ToString() ?? "De acuerdo, cancelo la tarea actual.";
+
+        if (cancelarMovimiento && movimiento != null)
+        {
+            movimiento.FrenarMovimiento();
+            movimientoTerminadoPendiente = false;
+            ultimoMovimientoExitoso = false;
+            ultimoResultadoMovimiento = "Movimiento cancelado por solicitud del usuario.";
+            ultimoObjetoNavegacion = "ninguno";
+            UltimaAccionMovimiento = "cancelar_tarea";
+            ultimosParametrosMovimiento = new Dictionary<string, object>
+            {
+                { "motivo", motivo }
+            };
+        }
+
+        if (cancelarCola)
+        {
+            CancelarFilaTareasUsuario(motivo);
+        }
+
+        if (textoVozUI != null && !string.IsNullOrWhiteSpace(textoConfirmacion))
+        {
+            textoVozUI.text = $"[Dice:]\n{textoConfirmacion}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(textoConfirmacion))
+        {
+            Debug.Log($"[VOZ LAZZARO]: {textoConfirmacion}");
+        }
+        Debug.Log($"Tarea cancelada por usuario. {motivo}");
     }
 
     private static string ConstruirManualEspacial()
@@ -609,7 +648,7 @@ REGLAS FISICAS Y DE ENTORNO:
         }
 
         ultimoObjetoNavegacion = objeto;
-        ultimaAccionMovimiento = "navegar_a_objeto";
+        UltimaAccionMovimiento = "navegar_a_objeto";
         ultimosParametrosMovimiento = new Dictionary<string, object>
         {
             { "nombre_objeto", objeto },
@@ -635,7 +674,7 @@ REGLAS FISICAS Y DE ENTORNO:
 
         Vector3 destino = new Vector3(x, y, z);
         ultimoObjetoNavegacion = $"posicion({x:0.##}, {y:0.##}, {z:0.##})";
-        ultimaAccionMovimiento = "navegar_a_posicion";
+        UltimaAccionMovimiento = "navegar_a_posicion";
         ultimosParametrosMovimiento = new Dictionary<string, object>
         {
             { "x", Math.Round(x, 2) },
@@ -662,7 +701,7 @@ REGLAS FISICAS Y DE ENTORNO:
         }
 
         ultimoObjetoNavegacion = objeto;
-        ultimaAccionMovimiento = "alejarse_de_objeto";
+        UltimaAccionMovimiento = "alejarse_de_objeto";
         ultimosParametrosMovimiento = new Dictionary<string, object>
         {
             { "nombre_objeto", objeto },
@@ -696,7 +735,7 @@ REGLAS FISICAS Y DE ENTORNO:
         }
 
         ultimoObjetoNavegacion = "rotacion";
-        ultimaAccionMovimiento = "girar_avatar";
+        UltimaAccionMovimiento = "girar_avatar";
         ultimosParametrosMovimiento = new Dictionary<string, object>
         {
             { "grados", Math.Round(grados, 2) },
@@ -721,7 +760,7 @@ REGLAS FISICAS Y DE ENTORNO:
         }
 
         ReportarResultadoAccion(
-            ultimaAccionMovimiento,
+            UltimaAccionMovimiento,
             exito,
             mensaje,
             detallesMovimiento,
@@ -906,60 +945,20 @@ REGLAS FISICAS Y DE ENTORNO:
 
         return true;
     }
-    [Header("Sistema Nervioso (BOLOGIA)")]
-    [Tooltip("Fuerza minima de impacto para considerar que le dolio el madraso")]
-    public float umnbralDeDolor = 0.5f;
-    //nuevo
-    private float tiempoUltimoDolor = -10f;
-    // Unity llama automaticamente a este metodo cada ves que el capsule collider choca con algo 
-    void OnCollisionEnter(Collision choque)
+
+    private static void AgregarDetallesExtra(
+        Dictionary<string, object> detalles,
+        Dictionary<string, object> detallesExtra
+    )
     {
-        // 1. Filtar el piso o terreno para que no le duela existir ( aunque me gustaria un poco considerando como me anda tratando usualmente)
-        if (choque.gameObject.name.Contains("Plane") || choque.gameObject.name.Contains("Ground")) return;
-
-        // NUEVO: Ignorar plantas por nombre (filtro de seguridad)
-        if (choque.gameObject.name.Contains("Flower") || choque.gameObject.name.Contains("Grass")) return;
-
-        // NUEVO: Si la acaban de golpear hace menos de 2 segundos, ignorar (Periodo de gracia)
-        if (Time.time - tiempoUltimoDolor < 5.0f) return;
-
-        // 2. medir la fuerza del trancaso
-        float fuerzaDelGolpe = choque.relativeVelocity.magnitude;
-
-        //3. Evaluar si el golpe cruzo su tolerancia al dolor
-        if ( fuerzaDelGolpe > umnbralDeDolor)
+        if (detalles == null || detallesExtra == null)
         {
-            // NUEVO: Registrar en qué momento le dolió para activar el cooldown
-            tiempoUltimoDolor = Time.time;
-            
-            string nombreObjeto = choque.gameObject.name;
-            Debug.LogWarning ($"[DOLOR] Lazzaro se pego con '{nombreObjeto}' con fuerza de {fuerzaDelGolpe} jasjasjsa que tonota");
-            // 4. Frenar el Movimiento correctamente (Resetea IsMoving, Animator y NavMesh)
-            if (movimiento != null)
-            {
-                movimiento.FrenarMovimiento();
-                // jasjas le pondra un pobre tonota pero al menos podra huir despues
-            }
-            //5. Calcular hacia donde debe saltar para huir del golpe ( direccion opuesta al impacto)
-            Vector3 direccionGolpe = (transform.position - choque.contacts[0].point).normalized;
-            // Traducir el vector a lenguaje natural para Python
-string dirEscapeSTR = "atras"; 
-if (Mathf.Abs(direccionGolpe.x) > Mathf.Abs(direccionGolpe.z)) {
-    dirEscapeSTR = direccionGolpe.x > 0 ? "derecha" : "izquierda";
-} else {
-    dirEscapeSTR = direccionGolpe.z > 0 ? "adelante" : "atras";
-}
+            return;
+        }
 
-            //6. LLAMAR A LA FUNCION DE DOLOR AL PITON O PAITON O COMO SE ESCRIBA d:
-            string causa = $"!ay! Acabo de chocar violentamente contra {nombreObjeto}. Me dolio mucho :c ."; 
-            //   pe
-            ReportarDolor(
-                causaDelDolor: causa,
-                objetoGolpeado: nombreObjeto,
-                direccionEscape : dirEscapeSTR,
-                distanciaEscape: 2.0f,
-                accionFallida: ultimaAccionMovimiento //variable que ya tego en el script quien sabe donde 
-            );
+        foreach (KeyValuePair<string, object> par in detallesExtra)
+        {
+            detalles[par.Key] = par.Value;
         }
     }
 }
