@@ -162,6 +162,28 @@ class ChromaClient:
                 logger.error("Error al agregar documentos: %s", e)
                 return False
 
+    def actualizar_metadatos(
+        self,
+        ids: list[str],
+        metadatos: list[dict[str, Any]],
+    ) -> bool:
+        """Actualiza metadata escalar sin reescribir documentos ni embeddings."""
+        collection = self._collection
+        if collection is None:
+            logger.warning("Intento de actualizar ChromaDB sin conexion.")
+            return False
+        if len(ids) != len(metadatos):
+            logger.error("IDs y metadatos deben tener la misma longitud.")
+            return False
+        with self._lock:
+            try:
+                collection.update(ids=ids, metadatas=metadatos)
+                logger.debug("Actualizada metadata de %d documentos.", len(ids))
+                return True
+            except Exception as e:
+                logger.error("Error al actualizar metadata: %s", e)
+                return False
+
     def buscar(
         self,
         consulta: str,

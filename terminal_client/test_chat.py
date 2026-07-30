@@ -1,0 +1,1099 @@
+from __future__ import annotations
+
+from collections import OrderedDict, deque
+from concurrent.futures import ThreadPoolExecutor
+import json
+import sys
+from pathlib import Path
+import threading
+import time
+import uuid
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+import httpx
+
+
+if __package__ in (None, ""):
+    project_root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(project_root))
+
+from ai_engine.schemas import ActionResponse
+from ai_engine.persona_engine import PersonaEngine
+from api.routes import router
+from api.schemas import AccionSaliente, EventoEntrante
+from core.orchestrator import Orchestrator
+from core.tool_policy import ToolPolicy
+from memory.memory_manager import ManualConversationSaveResult
+from terminal_client.chat import (
+    HELP_TEXT,
+    TerminalChatClient,
+    TerminalChatError,
+    ejecutar_chat,
+)
+
+
+def assert_true(condicion: bool, mensaje: str) -> None:
+    if not condicion:
+        raise AssertionError(mensaje)
+
+
+def _evento_terminal(mensaje: str = "hola") -> EventoEntrante:
+    return EventoEntrante(
+        origen="terminal",
+        tipo_evento="comando_usuario",
+        id_transaccion=f"terminal-{abs(hash(mensaje))}",
+        detalles={"mensaje": mensaje, "solicita_decision": True},
+    )
+
+
+def test_cliente_envia_contrato_terminal_y_solo_devuelve_texto_publico() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        payload = json.loads(request.content)
+        assert_true(request.url.path == "/api/v1/comando", "Debe usar /api/v1/comando.")
+        assert_true(payload["origen"] == "terminal", "Debe declarar origen terminal.")
+        assert_true(payload["detalles"]["modo_conversacion"] is True, "Debe marcar modo conversacion.")
+        assert_true(
+            payload["detalles"]["mensaje"] == "hola  Lazzaro\n¿como estas? :3",
+            "Debe preservar formato interno y recortar solo los extremos.",
+        )
+        uuid.UUID(payload["id_transaccion"])
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "mensaje": "Accion generada correctamente.",
+                "accion": {
+                    "id_accion": "accion-chat",
+                    "nombre": "hablar",
+                    "parametros": {
+                        "texto_a_comunicar": "\u001b]0;TITULO_INYECTADO\u0007\u001b[31mHola, Perro.\u001b[0m"
+                    },
+                    "razonamiento": "Respuesta social.",
+                    "pensamiento_privado": "Esto no debe mostrarse.",
+                    "requiere_confirmacion": False,
+                    "parametros_descripcion": [],
+                    "emocion_facial": "Fcl_ALL_Joy",
+                },
+            },
+        )
+
+    http_client = httpx.Client(
+        transport=httpx.MockTransport(handler),
+        base_url="http://lazzaro.test",
+    )
+    client = TerminalChatClient(http_client=http_client)
+    try:
+        texto = client.enviar_mensaje("  hola  Lazzaro\n¿como estas? :3  ")
+    finally:
+        http_client.close()
+
+    assert_true(texto == "Hola, Perro.", "Solo debe devolver texto_a_comunicar.")
+    assert_true(len(requests) == 1, "Debe producir una sola solicitud.")
+
+
+def test_cliente_genera_un_uuid_distinto_por_turno() -> None:
+    ids: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        ids.append(payload["id_transaccion"])
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "accion": {
+                    "nombre": "hablar",
+                    "parametros": {"texto_a_comunicar": "Turno recibido."},
+                },
+            },
+        )
+
+    http_client = httpx.Client(
+        transport=httpx.MockTransport(handler),
+        base_url="http://lazzaro.test",
+    )
+    client = TerminalChatClient(http_client=http_client)
+    try:
+        client.enviar_mensaje("primer turno")
+        client.enviar_mensaje("segundo turno")
+    finally:
+        http_client.close()
+
+    assert_true(len(set(ids)) == 2, "Cada turno debe tener un UUID diferente.")
+    for id_transaccion in ids:
+        uuid.UUID(id_transaccion)
+
+
+def test_cliente_bloquea_respuesta_no_conversacional() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "accion": {
+                    "id_accion": "accion-motora",
+                    "nombre": "navegar_a_objeto",
+                    "parametros": {"nombre_objeto": "Cube"},
+                },
+            },
+        )
+
+    http_client = httpx.Client(
+        transport=httpx.MockTransport(handler),
+        base_url="http://lazzaro.test",
+    )
+    client = TerminalChatClient(http_client=http_client)
+    try:
+        try:
+            client.enviar_mensaje("ve al cubo")
+        except TerminalChatError as exc:
+            assert_true("bloqueo" in str(exc), "Debe explicar que bloqueo la accion.")
+        else:
+            raise AssertionError("Una accion motora nunca debe aceptarse en terminal.")
+    finally:
+        http_client.close()
+
+
+def test_cliente_no_expone_detalles_internos_de_http_500() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            500,
+            json={"mensaje": "Error interno: MARCADOR_SECRETO_DEL_BACKEND"},
+        )
+
+    http_client = httpx.Client(
+        transport=httpx.MockTransport(handler),
+        base_url="http://lazzaro.test",
+    )
+    client = TerminalChatClient(http_client=http_client)
+    try:
+        try:
+            client.enviar_mensaje("hola")
+        except TerminalChatError as exc:
+            detalle = str(exc)
+            assert_true("HTTP 500" in detalle, "Debe conservar el diagnostico HTTP.")
+            assert_true(
+                "MARCADOR_SECRETO" not in detalle,
+                "No debe imprimir el detalle interno del backend.",
+            )
+        else:
+            raise AssertionError("Un HTTP 500 debe producir un error recuperable.")
+    finally:
+        http_client.close()
+
+
+def test_repl_se_recupera_de_fallos_de_conexion_y_timeout() -> None:
+    numero_solicitud = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal numero_solicitud
+        numero_solicitud += 1
+        if numero_solicitud == 1:
+            raise httpx.ConnectError("conexion rechazada", request=request)
+        if numero_solicitud == 2:
+            raise httpx.ReadTimeout("timeout", request=request)
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "accion": {
+                    "nombre": "hablar",
+                    "parametros": {"texto_a_comunicar": "Ya pude responder."},
+                },
+            },
+        )
+
+    entradas = iter(["primer intento", "segundo intento", "tercer intento", "/salir"])
+    salidas: list[str] = []
+    http_client = httpx.Client(
+        transport=httpx.MockTransport(handler),
+        base_url="http://lazzaro.test",
+    )
+    client = TerminalChatClient(http_client=http_client)
+    try:
+        codigo = ejecutar_chat(
+            client,
+            input_fn=lambda prompt: next(entradas),
+            output_fn=salidas.append,
+        )
+    finally:
+        http_client.close()
+
+    assert_true(codigo == 0, "Los errores de red no deben derribar el REPL.")
+    assert_true(
+        len([linea for linea in salidas if linea.startswith("[error]")]) == 2,
+        "Debe informar conexion y timeout como errores recuperables.",
+    )
+    assert_true(
+        "Lazzaro > Ya pude responder." in salidas,
+        "Debe aceptar un turno posterior cuando el backend se recupera.",
+    )
+
+
+def test_cliente_rechaza_respuestas_malformadas() -> None:
+    respuestas = iter(
+        [
+            httpx.Response(200, content=b"{json roto"),
+            httpx.Response(200, json={"status": "ok", "accion": None}),
+            httpx.Response(
+                200,
+                json={"status": "ok", "accion": {"nombre": "hablar", "parametros": []}},
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "status": "ok",
+                    "accion": {
+                        "nombre": "hablar",
+                        "parametros": {"texto_a_comunicar": None},
+                    },
+                },
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "status": "ok",
+                    "accion": {
+                        "nombre": "hablar",
+                        "parametros": {"texto_a_comunicar": 123},
+                    },
+                },
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "accion": {
+                        "nombre": "hablar",
+                        "parametros": {"texto_a_comunicar": "Falta status."},
+                    },
+                },
+            ),
+        ]
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return next(respuestas)
+
+    http_client = httpx.Client(
+        transport=httpx.MockTransport(handler),
+        base_url="http://lazzaro.test",
+    )
+    client = TerminalChatClient(http_client=http_client)
+    errores = 0
+    try:
+        for indice in range(6):
+            try:
+                client.enviar_mensaje(f"turno invalido {indice}")
+            except TerminalChatError:
+                errores += 1
+    finally:
+        http_client.close()
+
+    assert_true(errores == 6, "Debe rechazar cada forma de respuesta fuera del contrato.")
+
+
+def test_comandos_locales_no_se_envian_como_conversacion() -> None:
+    metodos: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        metodos.append(f"{request.method} {request.url.path}")
+        if request.url.path == "/api/v1/estado":
+            return httpx.Response(
+                200,
+                json={
+                    "energia": 72,
+                    "estres": 8,
+                    "confianza": 61,
+                    "motivacion": 80,
+                    "foco": 75,
+                    "tarea_actual": None,
+                    "dopamina": 61,
+                    "personalidad": {},
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "accion": {
+                    "id_accion": "accion-chat",
+                    "nombre": "hablar",
+                    "parametros": {"texto_a_comunicar": "Aqui estoy."},
+                    "razonamiento": "MARCADOR_PRIVADO_RAZON",
+                    "pensamiento_privado": "MARCADOR_PRIVADO_PENSAMIENTO",
+                },
+            },
+        )
+
+    entradas = iter(["   ", " /AYUDA ", "/desconocido", " /ESTADO ", "hola", "/salir"])
+    salidas: list[str] = []
+    http_client = httpx.Client(
+        transport=httpx.MockTransport(handler),
+        base_url="http://lazzaro.test",
+    )
+    client = TerminalChatClient(http_client=http_client)
+    try:
+        codigo = ejecutar_chat(
+            client,
+            input_fn=lambda prompt: next(entradas),
+            output_fn=salidas.append,
+        )
+    finally:
+        http_client.close()
+
+    assert_true(codigo == 0, "El REPL debe cerrar correctamente.")
+    assert_true(HELP_TEXT in salidas, "/ayuda debe resolverse localmente.")
+    assert_true(
+        metodos == ["GET /api/v1/estado", "POST /api/v1/comando"],
+        "Solo /estado y el mensaje normal deben tocar el backend.",
+    )
+    assert_true(
+        any(linea == "Lazzaro > Aqui estoy." for linea in salidas),
+        "Debe imprimir la respuesta publica.",
+    )
+    salida_completa = "\n".join(salidas)
+    assert_true(
+        "MARCADOR_PRIVADO" not in salida_completa,
+        "El REPL nunca debe mostrar razonamiento ni pensamiento privado.",
+    )
+
+
+def test_repl_cierra_limpio_si_se_interrumpe_una_solicitud() -> None:
+    class InterruptClient:
+        @staticmethod
+        def enviar_mensaje(mensaje: str) -> str:
+            raise KeyboardInterrupt
+
+    entradas = iter(["hola"])
+    salidas: list[str] = []
+    codigo = ejecutar_chat(
+        InterruptClient(),
+        input_fn=lambda prompt: next(entradas),
+        output_fn=salidas.append,
+    )
+
+    assert_true(codigo == 0, "Ctrl+C durante una solicitud debe cerrar sin traceback.")
+    assert_true(salidas[-1] == "\nCerrando chat.", "Debe informar el cierre limpio.")
+
+    class InterruptStatusClient:
+        @staticmethod
+        def obtener_estado() -> dict:
+            raise KeyboardInterrupt
+
+    salidas_estado: list[str] = []
+    codigo_estado = ejecutar_chat(
+        InterruptStatusClient(),
+        input_fn=lambda prompt: "/estado",
+        output_fn=salidas_estado.append,
+    )
+    assert_true(codigo_estado == 0, "Ctrl+C durante /estado debe cerrar limpiamente.")
+
+    def eof_input(prompt: str) -> str:
+        raise EOFError
+
+    salidas_eof: list[str] = []
+    codigo_eof = ejecutar_chat(
+        InterruptClient(),
+        input_fn=eof_input,
+        output_fn=salidas_eof.append,
+    )
+    assert_true(codigo_eof == 0, "EOF debe cerrar sin traceback.")
+
+
+def test_api_comando_acepta_terminal_y_fuerza_evento_conversacional() -> None:
+    class FakeOrchestrator:
+        def __init__(self):
+            self.eventos: list[EventoEntrante] = []
+
+        def procesar_evento(self, evento: EventoEntrante) -> AccionSaliente:
+            self.eventos.append(evento)
+            return AccionSaliente(
+                id_accion="api-terminal",
+                nombre="hablar",
+                parametros={"texto_a_comunicar": "Contrato aceptado."},
+            )
+
+    fake = FakeOrchestrator()
+    app = FastAPI()
+    app.state.orchestrator = fake
+    app.include_router(router)
+
+    with TestClient(app) as api_client:
+        response = api_client.post(
+            "/api/v1/comando",
+            json={
+                "origen": "terminal",
+                "tipo_evento": "actualizacion_estado",
+                "id_transaccion": "api-terminal-1",
+                "detalles": {"mensaje": "hola"},
+            },
+        )
+
+    assert_true(response.status_code == 200, "La API debe aceptar el origen terminal.")
+    assert_true(len(fake.eventos) == 1, "La API debe entregar un solo evento al orquestador.")
+    assert_true(
+        fake.eventos[0].tipo_evento == "comando_usuario",
+        "/comando debe forzar el contrato conversacional.",
+    )
+    assert_true(fake.eventos[0].origen == "terminal", "Debe conservar el origen terminal.")
+
+
+class _FakeBehavior:
+    def procesar_evento(self, tipo_evento: str, detalles: dict) -> dict:
+        return {
+            "estado": {},
+            "narrativa": "",
+            "contexto_llm": {},
+            "tarea": None,
+            "policy_activa": "exploradora",
+            "es_interrupcion_critica": False,
+            "tipo_memoria": tipo_evento,
+            "percepcion_resumida": "",
+        }
+
+
+class _FakeMemory:
+    def __init__(self):
+        self.experiencias: list[dict] = []
+        self.acciones: list[dict] = []
+        self.turnos: list[dict] = []
+        self.ram_publica: list[tuple[str, str]] = [
+            ("Hablamos del cactus azul.", "Lo recuerdo en la RAM actual."),
+            ("También mencionamos un faro.", "El faro sigue en el segundo turno."),
+        ]
+        self.consolidaciones = 0
+        self.guardados_manuales: list[str] = []
+        self.resultados_guardado_manual: deque[ManualConversationSaveResult] = deque()
+        self.guardado_manual_delay = 0.0
+
+    def obtener_contexto_memoria(self, **kwargs) -> str:
+        return ""
+
+    def obtener_contexto_conversacional(self, n: int = 6) -> str:
+        return ""
+
+    def obtener_contexto_relacional(self, **kwargs) -> str:
+        return ""
+
+    def obtener_ultimas_acciones(self) -> str:
+        return ""
+
+    def guardar_experiencia(self, **kwargs) -> None:
+        self.experiencias.append(kwargs)
+
+    def agregar_accion(self, **kwargs) -> None:
+        self.acciones.append(kwargs)
+
+    def registrar_turno_conversacional(self, **kwargs) -> None:
+        self.turnos.append(kwargs)
+
+    def consolidar_memorias_si_hace_falta(self) -> None:
+        self.consolidaciones += 1
+
+    def guardar_fotografia_conversacional(
+        self,
+        id_transaccion: str,
+    ) -> ManualConversationSaveResult:
+        if self.guardado_manual_delay:
+            time.sleep(self.guardado_manual_delay)
+        self.guardados_manuales.append(id_transaccion)
+        if self.resultados_guardado_manual:
+            return self.resultados_guardado_manual.popleft()
+        if not self.ram_publica:
+            return ManualConversationSaveResult(status="empty")
+        return ManualConversationSaveResult(
+            status="saved",
+            memory_id="manual-memory-test",
+            fingerprint="manual-fingerprint-test",
+            turn_count=len(self.ram_publica),
+        )
+
+
+class _FakeRegistry:
+    def __init__(self):
+        self.descripciones_solicitadas: list[list[str]] = []
+
+    @staticmethod
+    def listar_nombres() -> list[str]:
+        return ["hablar", "navegar_a_objeto", "cancelar_tarea"]
+
+    def describir_herramientas(self, nombres: list[str]) -> dict[str, str]:
+        self.descripciones_solicitadas.append(list(nombres))
+        return {nombre: nombre for nombre in nombres}
+
+    @staticmethod
+    def get_tool(nombre: str) -> dict | None:
+        if nombre in {"hablar", "navegar_a_objeto", "cancelar_tarea"}:
+            return {"requires_confirmation": False}
+        return None
+
+
+class _FakeTriage:
+    def __init__(self, route: str, intent: str | None = None):
+        self.route = route
+        self.intent = intent
+
+    def route_event(self, evento: dict, estado_agente: dict) -> dict:
+        return {
+            "intent": self.intent or f"TEST_{self.route.upper()}",
+            "route": self.route,
+            "confidence": 0.99,
+            "requires_memory": self.route in {"persona", "oracle"},
+            "requires_oracle": self.route == "oracle",
+            "reason": "Decision de prueba.",
+        }
+
+
+class _FakeIdentity:
+    def __init__(self):
+        self.eventos: list[dict] = []
+
+    def registrar_evento(self, **kwargs) -> None:
+        self.eventos.append(kwargs)
+
+    @staticmethod
+    def inyectar_en_prompt() -> str:
+        return "Estado de prueba."
+
+
+class _BombReasoning:
+    @staticmethod
+    def process(**kwargs):
+        raise AssertionError("El fallback general no debe ejecutarse para terminal.")
+
+
+def _orquestador_aislado(
+    route: str,
+    intent: str | None = None,
+) -> tuple[Orchestrator, dict[str, int]]:
+    orchestrator = object.__new__(Orchestrator)
+    orchestrator.behavior = _FakeBehavior()
+    orchestrator.memory = _FakeMemory()
+    orchestrator.reasoning = _BombReasoning()
+    orchestrator.tool_registry = _FakeRegistry()
+    orchestrator.triage_router = _FakeTriage(route, intent=intent)
+    orchestrator.tool_policy = ToolPolicy()
+    orchestrator.identity_state = _FakeIdentity()
+    orchestrator._transacciones_procesadas = OrderedDict()
+    orchestrator._guardados_conversacionales_pendientes = OrderedDict()
+    orchestrator._alias_candidates_pendientes = OrderedDict()
+    orchestrator._notificaciones = deque(maxlen=50)
+    orchestrator._transacciones_lock_guard = threading.Lock()
+    orchestrator._transacciones_locks = {}
+
+    llamadas = {"persona": 0, "oracle": 0, "motor": 0, "cancelacion": 0}
+
+    def resolver_persona(**kwargs) -> ActionResponse:
+        llamadas["persona"] += 1
+        return ActionResponse(
+            pensamiento="Respuesta privada de prueba.",
+            accion="hablar",
+            parametros={"texto_a_comunicar": "Solo estoy conversando."},
+            razon="Ruta Persona.",
+        )
+
+    def resolver_oracle(**kwargs) -> ActionResponse:
+        llamadas["oracle"] += 1
+        return ActionResponse(
+            pensamiento="Conocimiento privado de prueba.",
+            accion="hablar",
+            parametros={"texto_a_comunicar": "Respuesta tecnica conversada."},
+            razon="Ruta Oracle verbalizada.",
+        )
+
+    def resolver_motor(**kwargs) -> ActionResponse:
+        llamadas["motor"] += 1
+        raise AssertionError("La ruta motora no debe ejecutarse para terminal.")
+
+    def resolver_cancelacion(*args, **kwargs) -> ActionResponse:
+        llamadas["cancelacion"] += 1
+        raise AssertionError("Terminal no debe activar la cancelacion de tareas.")
+
+    orchestrator._resolver_ruta_persona = resolver_persona
+    orchestrator._resolver_ruta_oracle = resolver_oracle
+    orchestrator._resolver_ruta_motor = resolver_motor
+    orchestrator._resolver_cancelacion_tarea_usuario = resolver_cancelacion
+    return orchestrator, llamadas
+
+
+def test_flujo_terminal_reconduce_motor_y_no_cancela_tareas() -> None:
+    orchestrator, llamadas = _orquestador_aislado("motor")
+
+    accion = orchestrator.procesar_evento(_evento_terminal("detente"))
+
+    assert_true(accion is not None and accion.nombre == "hablar", "Terminal debe terminar en hablar.")
+    assert_true(llamadas["persona"] == 1, "La frase motora debe llegar a Persona.")
+    assert_true(llamadas["motor"] == 0, "No debe entrar a MotorEngine.")
+    assert_true(llamadas["cancelacion"] == 0, "No debe cancelar la tarea activa.")
+    assert_true(
+        orchestrator.tool_registry.descripciones_solicitadas == [["hablar"]],
+        "El flujo completo solo debe ofrecer la herramienta hablar.",
+    )
+    assert_true(
+        orchestrator.memory.turnos[0]["route"] == "persona",
+        "La RAM debe registrar la ruta efectiva Persona.",
+    )
+    assert_true(
+        orchestrator.memory.turnos[0]["metadata"]["origen"] == "terminal",
+        "La RAM debe conservar el origen terminal.",
+    )
+
+
+def test_flujo_terminal_conserva_oracle_y_verbaliza() -> None:
+    orchestrator, llamadas = _orquestador_aislado("oracle")
+
+    accion = orchestrator.procesar_evento(_evento_terminal("explica este error de arquitectura"))
+
+    assert_true(accion is not None and accion.nombre == "hablar", "Oracle debe terminar verbalizado.")
+    assert_true(llamadas["oracle"] == 1, "El terminal debe conservar la ruta Oracle.")
+    assert_true(llamadas["motor"] == 0, "Oracle no debe desviarse al motor.")
+
+
+def test_orchestrator_reconduce_motor_y_blinda_la_salida() -> None:
+    evento = _evento_terminal("usa el cubo")
+    decision = {
+        "intent": "MOTOR_SIMPLE",
+        "route": "motor",
+        "confidence": 0.9,
+        "requires_memory": False,
+        "requires_oracle": False,
+        "reason": "Clasificacion motora.",
+    }
+
+    adaptada = Orchestrator._adaptar_triage_para_terminal(evento, decision)
+    assert_true(adaptada["route"] == "persona", "Terminal debe reconducir motor a Persona.")
+    assert_true(adaptada["requires_memory"] is True, "Persona debe conservar acceso a memoria.")
+    assert_true(
+        adaptada["terminal_original_route"] == "motor",
+        "Debe conservar la ruta original para auditoria.",
+    )
+
+    respuesta_motora = ActionResponse(
+        pensamiento="Intento fisico.",
+        accion="navegar_a_objeto",
+        parametros={"nombre_objeto": "Cube"},
+        razon="Prueba.",
+    )
+    blindada = Orchestrator._blindar_salida_terminal(evento, respuesta_motora)
+    assert_true(blindada.accion == "hablar", "La barrera final debe producir hablar.")
+    assert_true(
+        blindada.metadata["terminal_action_blocked"] == "navegar_a_objeto",
+        "Debe auditar la accion bloqueada.",
+    )
+
+    orchestrator = object.__new__(Orchestrator)
+    orchestrator.tool_registry = _FakeRegistry()
+    hablar_invalido = ActionResponse(
+        pensamiento="Respuesta fallida.",
+        accion="hablar",
+        parametros={},
+        valido=False,
+        error="Contrato social invalido.",
+    )
+    sanitizada = orchestrator._sanitizar_action_response(hablar_invalido)
+    reblindada = orchestrator._blindar_salida_terminal(evento, sanitizada)
+    assert_true(
+        reblindada.accion == "hablar",
+        "El firewall posterior a sanitizacion tambien debe terminar en hablar.",
+    )
+
+
+def test_oracle_se_conserva_y_tool_policy_solo_expone_hablar() -> None:
+    evento = _evento_terminal("explicame este error")
+    oracle = {
+        "intent": "ORACLE_QUERY",
+        "route": "oracle",
+        "confidence": 0.95,
+        "requires_memory": True,
+        "requires_oracle": True,
+        "reason": "Consulta tecnica.",
+    }
+    adaptada = Orchestrator._adaptar_triage_para_terminal(evento, oracle)
+    assert_true(adaptada["route"] == "oracle", "Terminal debe conservar acceso al Oraculo.")
+
+    herramientas = ToolPolicy().seleccionar(
+        ["hablar", "navegar_a_objeto", "escribir_teclado"],
+        origen="terminal",
+        route="motor",
+    )
+    assert_true(herramientas == ["hablar"], "Terminal solo debe exponer hablar en toda ruta.")
+
+
+def test_terminal_no_activa_descanso_ni_consolidacion() -> None:
+    orchestrator = object.__new__(Orchestrator)
+    orchestrator.memory = _FakeMemory()
+    orchestrator.identity_state = _FakeIdentity()
+    respuesta = ActionResponse(
+        pensamiento="",
+        accion="hablar",
+        parametros={"texto_a_comunicar": "Podemos hablar sobre dormir."},
+    )
+
+    orchestrator._registrar_estado_identidad(
+        _evento_terminal("descansa y duerme un poco"),
+        {"route": "persona", "intent": "TEST"},
+        respuesta,
+    )
+
+    evento_unity = EventoEntrante(
+        origen="unity",
+        tipo_evento="comando_usuario",
+        id_transaccion="unity-descanso",
+        detalles={"mensaje": "descansa y duerme un poco"},
+    )
+    orchestrator._registrar_estado_identidad(
+        evento_unity,
+        {"route": "persona", "intent": "TEST"},
+        respuesta,
+    )
+
+    assert_true(
+        orchestrator.memory.consolidaciones == 1,
+        "Solo Unity debe conservar el efecto de descanso existente.",
+    )
+    assert_true(
+        orchestrator.identity_state.eventos[0]["es_descanso"] is False,
+        "Terminal no debe regenerar la biologia ni consolidar.",
+    )
+    assert_true(
+        orchestrator.identity_state.eventos[1]["es_descanso"] is True,
+        "El comportamiento previo de descanso en Unity debe mantenerse.",
+    )
+
+    control_guardado = ActionResponse(
+        pensamiento="",
+        accion="hablar",
+        parametros={"texto_a_comunicar": "No pude guardar esta vez."},
+        metadata={
+            "manual_memory_save_control": True,
+            "manual_memory_save_status": "error",
+        },
+    )
+    orchestrator._registrar_estado_identidad(
+        EventoEntrante(
+            origen="unity",
+            tipo_evento="comando_usuario",
+            id_transaccion="unity-save-sleep-word",
+            detalles={"mensaje": "duerme y guarda nuestra charla"},
+        ),
+        {"route": "persona", "intent": "CONVERSATION_SAVE"},
+        control_guardado,
+    )
+    assert_true(
+        orchestrator.memory.consolidaciones == 1,
+        "El control de guardado nunca debe parecer descanso, tampoco desde Unity.",
+    )
+    assert_true(
+        orchestrator.identity_state.eventos[-1]["es_descanso"] is False,
+        "La metadata de control debe bloquear regeneración biológica.",
+    )
+
+
+def test_terminal_guarda_ram_como_conversacion_y_no_registra_el_control() -> None:
+    orchestrator, llamadas = _orquestador_aislado(
+        "persona",
+        intent="CONVERSATION_SAVE",
+    )
+    evento = _evento_terminal("guarda lo que hemos hablado")
+
+    accion = orchestrator.procesar_evento(evento)
+    accion_retry = orchestrator.procesar_evento(evento)
+
+    assert_true(accion is not None and accion.nombre == "hablar", "Debe confirmar hablando.")
+    assert_true(
+        accion.parametros["texto_a_comunicar"] == "Está bien, lo recordaré para después.",
+        "Persona debe confirmar únicamente después del guardado.",
+    )
+    assert_true(accion_retry is not None, "El retry debe devolver la respuesta cacheada.")
+    assert_true(
+        accion_retry.id_accion == accion.id_accion,
+        "La misma transacción debe devolver exactamente la acción cacheada.",
+    )
+    assert_true(
+        orchestrator.memory.guardados_manuales == [evento.id_transaccion],
+        "El retry exitoso no debe escribir dos veces.",
+    )
+    assert_true(
+        orchestrator.memory.turnos == [],
+        "La solicitud y confirmación de control no deben alterar la RAM.",
+    )
+    assert_true(
+        len(orchestrator.memory.ram_publica) == 2,
+        "La fotografía no debe vaciar la RAM pública simulada.",
+    )
+    assert_true(
+        orchestrator.tool_registry.descripciones_solicitadas == [],
+        "El guardado no debe exponerse como herramienta.",
+    )
+    assert_true(llamadas["persona"] == 0, "No debe pedir al LLM que decida si el guardado ocurrió.")
+    assert_true(orchestrator.memory.consolidaciones == 0, "No debe activar consolidación.")
+    assert_true(
+        orchestrator.identity_state.eventos[0]["es_descanso"] is False,
+        "El guardado manual no debe regenerar la biología.",
+    )
+
+
+def test_terminal_reintenta_un_guardado_fallido_sin_exito_falso() -> None:
+    orchestrator, _ = _orquestador_aislado(
+        "persona",
+        intent="CONVERSATION_SAVE",
+    )
+    orchestrator.memory.resultados_guardado_manual.extend(
+        (
+            ManualConversationSaveResult(
+                status="error",
+                error="fallo transitorio",
+                turn_count=2,
+            ),
+            ManualConversationSaveResult(
+                status="saved",
+                memory_id="manual-after-retry",
+                fingerprint="manual-after-retry-fingerprint",
+                turn_count=2,
+            ),
+        )
+    )
+    evento = _evento_terminal("guarda lo que tengas en ram en tu mente")
+
+    primera = orchestrator.procesar_evento(evento)
+    segunda = orchestrator.procesar_evento(evento)
+
+    assert_true(
+        primera is not None and "No pude guardar" in primera.parametros["texto_a_comunicar"],
+        "Un fallo real nunca debe producir confirmación positiva.",
+    )
+    assert_true(
+        segunda is not None
+        and segunda.parametros["texto_a_comunicar"] == "Está bien, lo recordaré para después.",
+        "El mismo ID debe poder recuperarse cuando la persistencia vuelve.",
+    )
+    assert_true(
+        orchestrator.memory.guardados_manuales == [
+            evento.id_transaccion,
+            evento.id_transaccion,
+        ],
+        "La respuesta de error no debe bloquear el retry de la misma transacción.",
+    )
+    assert_true(
+        evento.id_transaccion in orchestrator._transacciones_procesadas,
+        "Solo el resultado exitoso debe quedar cacheado.",
+    )
+    assert_true(
+        len(orchestrator.memory.experiencias) == 1,
+        "El retry manual no debe volver a persistir el evento genérico.",
+    )
+    assert_true(
+        len(orchestrator.memory.acciones) == 1,
+        "El retry manual no debe duplicar la memoria operativa.",
+    )
+    assert_true(
+        len(orchestrator.identity_state.eventos) == 1,
+        "El retry manual no debe mutar dos veces el estado de identidad.",
+    )
+    assert_true(orchestrator.memory.turnos == [], "Los intentos de control no deben entrar en RAM.")
+
+
+def test_terminal_informa_ram_vacia_y_guardado_ya_existente() -> None:
+    empty_orchestrator, _ = _orquestador_aislado(
+        "persona",
+        intent="CONVERSATION_SAVE",
+    )
+    empty_orchestrator.memory.ram_publica = []
+    empty = empty_orchestrator.procesar_evento(
+        _evento_terminal("guarda lo que hemos hablado")
+    )
+    assert_true(
+        empty is not None
+        and "no tengo una conversación reciente" in empty.parametros["texto_a_comunicar"],
+        "RAM vacía debe producir una explicación, nunca éxito.",
+    )
+
+    existing_orchestrator, _ = _orquestador_aislado(
+        "persona",
+        intent="CONVERSATION_SAVE",
+    )
+    existing_orchestrator.memory.resultados_guardado_manual.append(
+        ManualConversationSaveResult(
+            status="already_saved",
+            memory_id="existing-memory",
+            fingerprint="existing-fingerprint",
+            turn_count=2,
+        )
+    )
+    existing = existing_orchestrator.procesar_evento(
+        _evento_terminal("guarda lo que tengas en ram en tu mente")
+    )
+    assert_true(
+        existing is not None
+        and "ya estaba guardado" in existing.parametros["texto_a_comunicar"],
+        "Una huella existente debe confirmarse sin afirmar una nueva escritura.",
+    )
+
+
+def test_retries_simultaneos_comparten_una_sola_transaccion() -> None:
+    orchestrator, _ = _orquestador_aislado(
+        "persona",
+        intent="CONVERSATION_SAVE",
+    )
+    evento = _evento_terminal("guarda lo que hemos hablado")
+    guardado_iniciado = threading.Event()
+    liberar_guardado = threading.Event()
+    guardar_original = orchestrator.memory.guardar_fotografia_conversacional
+
+    def guardar_bloqueado(id_transaccion: str) -> ManualConversationSaveResult:
+        guardado_iniciado.set()
+        assert_true(
+            liberar_guardado.wait(timeout=2),
+            "La prueba debe liberar la primera escritura.",
+        )
+        return guardar_original(id_transaccion)
+
+    class _TrackingRLock:
+        def __init__(self):
+            self._lock = threading.RLock()
+            self._attempt_guard = threading.Lock()
+            self._attempts = 0
+            self.second_attempt = threading.Event()
+
+        def __enter__(self):
+            with self._attempt_guard:
+                self._attempts += 1
+                if self._attempts >= 2:
+                    self.second_attempt.set()
+            self._lock.acquire()
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            self._lock.release()
+            return False
+
+    transaction_lock = _TrackingRLock()
+    orchestrator.memory.guardar_fotografia_conversacional = guardar_bloqueado
+    orchestrator._transacciones_locks[evento.id_transaccion] = {
+        "lock": transaction_lock,
+        "users": 0,
+    }
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(orchestrator.procesar_evento, evento)
+        assert_true(
+            guardado_iniciado.wait(timeout=2),
+            "La primera solicitud debe estar dentro de la escritura manual.",
+        )
+        second = executor.submit(orchestrator.procesar_evento, evento)
+        assert_true(
+            transaction_lock.second_attempt.wait(timeout=2),
+            "La segunda solicitud debe solaparse y esperar el lock del mismo ID.",
+        )
+        liberar_guardado.set()
+        futures = [first, second]
+        acciones = [future.result(timeout=2) for future in futures]
+
+    assert_true(
+        all(accion is not None and accion.nombre == "hablar" for accion in acciones),
+        "Ambos callers deben recibir una respuesta conversacional.",
+    )
+    assert_true(
+        acciones[0].id_accion == acciones[1].id_accion,
+        "Los retries solapados deben compartir la acción cacheada.",
+    )
+    assert_true(
+        orchestrator.memory.guardados_manuales == [evento.id_transaccion],
+        "La misma transacción concurrente debe escribir una sola vez.",
+    )
+    assert_true(len(orchestrator.memory.experiencias) == 1, "No debe duplicar el evento.")
+    assert_true(len(orchestrator.memory.acciones) == 1, "No debe duplicar memoria operativa.")
+    assert_true(len(orchestrator.identity_state.eventos) == 1, "No debe duplicar identidad.")
+
+
+def test_persona_recibe_la_restriccion_de_canal_terminal() -> None:
+    evento = _evento_terminal("ve al cubo")
+    restriccion = Orchestrator._restriccion_canal_persona(evento)
+    mensajes = PersonaEngine().preparar_interaccion(
+        mensaje_usuario="ve al cubo",
+        estado_biologico=_FakeIdentity(),
+        restriccion_canal=restriccion,
+    )
+    system_prompt = mensajes[0]["content"]
+
+    assert_true("RESTRICCION DEL CANAL ACTUAL" in system_prompt, "Debe identificar el canal.")
+    assert_true("sin cuerpo disponible" in system_prompt, "Persona debe conocer el limite fisico.")
+    assert_true(
+        "no afirmes que la ejecutaste" in system_prompt,
+        "Persona no debe fingir que materializo una accion.",
+    )
+
+
+def test_unity_conserva_su_flujo_motor_y_cancelacion() -> None:
+    evento = EventoEntrante(
+        origen="unity",
+        tipo_evento="comando_usuario",
+        id_transaccion="unity-regression",
+        detalles={"mensaje": "detente"},
+    )
+    decision = {
+        "intent": "MOTOR_SIMPLE",
+        "route": "motor",
+        "requires_memory": False,
+        "requires_oracle": False,
+    }
+    respuesta = ActionResponse(
+        pensamiento="",
+        accion="navegar_a_objeto",
+        parametros={"nombre_objeto": "Cube"},
+    )
+
+    assert_true(
+        Orchestrator._adaptar_triage_para_terminal(evento, decision)["route"] == "motor",
+        "Unity debe conservar la ruta motora.",
+    )
+    assert_true(
+        Orchestrator._blindar_salida_terminal(evento, respuesta).accion == "navegar_a_objeto",
+        "El firewall terminal no debe modificar salidas de Unity.",
+    )
+    assert_true(
+        Orchestrator._usuario_pide_cancelar_tarea(evento) is True,
+        "Unity debe conservar su atajo de cancelacion.",
+    )
+    herramientas = ToolPolicy().seleccionar(
+        ["hablar", "navegar_a_objeto", "escribir_teclado"],
+        origen="unity",
+        route="motor",
+    )
+    assert_true(
+        herramientas == ["hablar", "navegar_a_objeto"],
+        "Unity debe conservar voz y herramientas fisicas seguras.",
+    )
+
+
+def main() -> None:
+    print("=== INICIANDO PRUEBA DEL CHAT TERMINAL ===\n")
+    test_cliente_envia_contrato_terminal_y_solo_devuelve_texto_publico()
+    test_cliente_genera_un_uuid_distinto_por_turno()
+    test_cliente_bloquea_respuesta_no_conversacional()
+    test_cliente_no_expone_detalles_internos_de_http_500()
+    test_repl_se_recupera_de_fallos_de_conexion_y_timeout()
+    test_cliente_rechaza_respuestas_malformadas()
+    test_comandos_locales_no_se_envian_como_conversacion()
+    test_repl_cierra_limpio_si_se_interrumpe_una_solicitud()
+    test_api_comando_acepta_terminal_y_fuerza_evento_conversacional()
+    test_flujo_terminal_reconduce_motor_y_no_cancela_tareas()
+    test_flujo_terminal_conserva_oracle_y_verbaliza()
+    test_orchestrator_reconduce_motor_y_blinda_la_salida()
+    test_oracle_se_conserva_y_tool_policy_solo_expone_hablar()
+    test_terminal_no_activa_descanso_ni_consolidacion()
+    test_terminal_guarda_ram_como_conversacion_y_no_registra_el_control()
+    test_terminal_reintenta_un_guardado_fallido_sin_exito_falso()
+    test_terminal_informa_ram_vacia_y_guardado_ya_existente()
+    test_retries_simultaneos_comparten_una_sola_transaccion()
+    test_persona_recibe_la_restriccion_de_canal_terminal()
+    test_unity_conserva_su_flujo_motor_y_cancelacion()
+    print("[OK] test_chat paso: terminal conversa sin ejecutar acciones fisicas.")
+
+
+if __name__ == "__main__":
+    main()

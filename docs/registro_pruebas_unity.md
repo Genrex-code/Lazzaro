@@ -1,4 +1,4 @@
-# Registro De Pruebas Unity-Python
+# Registro De Pruebas Unity/Terminal-Python
 
 Nota: las entradas anteriores a 2026-06-27 describen comportamiento historico.
 El contrato vigente del Oraculo es frio: `OracleResult -> Persona -> hablar`.
@@ -570,3 +570,212 @@ El contrato vigente del Oraculo es frio: `OracleResult -> Persona -> hablar`.
   ambiguas pueden no detectarse hasta mejorar Capa 0 o entrenar clasificador.
 - Falta Fase 5: prueba manual en Unity con sesion larga, reinicio y cambios de
   apodo/preferencia.
+
+## 2026-07-28/29 - Entregable 1: Chat Conversacional En Terminal
+
+### Objetivo
+
+- Hablar con Lazzaro sin depender de la interfaz de Unity.
+- Reutilizar el backend, memoria, Persona y Oracle existentes.
+- Mantener Unity como cuerpo y entorno de pruebas.
+- Limitar el nuevo frontend estrictamente a conversación.
+
+### Decisiones De Alcance
+
+- El cliente se usa con Unity completamente cerrado.
+- No se separa `TaskContext` en esta fase.
+- No se crea otro Orchestrator, MemoryManager ni endpoint.
+- El guardado manual de RAM conversacional queda para el segundo entregable.
+- Los únicos comandos locales son `/ayuda`, `/estado` y `/salir`.
+
+### Cambios Aplicados
+
+- Se agregó `terminal_client/` con entrada `python -m terminal_client`.
+- `EventoEntrante` acepta `origen="terminal"`.
+- El cliente usa `POST /api/v1/comando` y un UUID distinto por turno.
+- Triage conserva Persona/Oracle y reconduce Motor, NOOP, INTERNAL o rutas
+  inválidas a Persona.
+- `ToolPolicy` solo expone `hablar` a terminal.
+- El atajo de cancelación se omite para este origen.
+- Las frases de descanso no activan consolidación ni regeneración biológica.
+- Persona recibe la restricción de que el canal no tiene cuerpo disponible,
+  incluso al verbalizar Oracle y durante retry.
+- El firewall conversacional se aplica antes y después de sanitizar la salida.
+- El cliente imprime únicamente `texto_a_comunicar`, exige contrato rígido y
+  elimina secuencias ANSI.
+- Errores de red/HTTP/JSON se muestran como `[error]` y el REPL continúa.
+- `Ctrl+C` y EOF cierran limpiamente.
+
+### Pruebas Ejecutadas
+
+```powershell
+python -m compileall -q terminal_client ai_engine core api tools config main.py
+python terminal_client\test_chat.py
+python ai_engine\test_persona.py
+python ai_engine\test_oracle.py
+python ai_engine\test_triage_routing.py
+python ai_engine\test_motor_guardrails.py
+python ai_engine\test_conversation_memory.py
+```
+
+También se invocaron directamente las cinco pruebas de
+`ai_engine/test_task_cancellation.py`.
+
+Resultados:
+
+- contrato HTTP terminal: OK;
+- Motor a Persona y salida `hablar`: OK;
+- Oracle conservado y verbalizado: OK;
+- `detente` sin cancelación desde terminal: OK;
+- `descansa` sin consolidación desde terminal: OK;
+- política limitada a `hablar`: OK;
+- privacidad de pensamiento/razonamiento: OK;
+- errores recuperables y cierre limpio: OK;
+- regresiones Persona, Motor, memoria y cancelación Unity: OK.
+
+La suite terminal usa dobles y no requiere abrir ChromaDB ni llamar a un LLM
+real. No incluye todavía una prueba automatizada de 20 turnos consecutivos; esa
+comprobación queda dentro de la prueba de campo.
+
+### Estado De Prueba De Campo
+
+El usuario inició la prueba de campo el 2026-07-28. Al actualizar esta bitácora
+todavía no se había comunicado el resultado, por lo que no se marca como
+aprobada ni fallida.
+
+Datos que faltan registrar:
+
+- tiempo de arranque y primera respuesta;
+- conversación social de 20 turnos consecutivos;
+- consulta Oracle;
+- frase motora que solo produzca conversación;
+- comportamiento real de `/estado` y `/salir`;
+- errores observados en cliente o backend.
+
+### Riesgos Pendientes
+
+- Cada mensaje terminal todavía puede reemplazar la tarea visible en
+  `TaskContext`.
+- El backend escucha en `0.0.0.0:8000` sin autenticación.
+- Los proveedores y fallbacks remotos pueden recibir contenido conversacional.
+- La RAM completa se pierde al reiniciar el backend.
+- El guardado manual de RAM aún no estaba implementado en este entregable; el
+  Entregable 2 siguiente cierra ese punto.
+
+## 2026-07-29 - Entregable 2: Guardado Manual De RAM Conversacional
+
+### Objetivo
+
+- Permitir que Lazzaro guarde lo hablado mediante una frase natural.
+- Persistir solo la proyección pública de la RAM actual.
+- Mantener intactos el cliente de solo conversación, la RAM y el consolidador
+  observacional.
+- Confirmar éxito únicamente después de que Chroma lo confirme.
+
+### Contrato Aprobado
+
+Frases base:
+
+```text
+guarda lo que hemos hablado
+guarda lo que tengas en ram en tu mente
+```
+
+- No existe `/guardar`.
+- Se normalizan mayúsculas, acentos, puntuación y espacios.
+- El intent es `CONVERSATION_SAVE` y la route declarada es `persona`.
+- El artefacto Random Forest actual no contiene esa clase; variantes por ML
+  quedan para un reentrenamiento posterior.
+- Terminal es el canal principal, pero cualquier `comando_usuario` válido puede
+  entrar a la rama, incluido Unity.
+
+### Cambios Aplicados
+
+- `TriageRouter` reconoce las dos frases antes del modelo.
+- El Orchestrator resuelve el intent sin lectura vectorial, tools ni LLM.
+- `ConversationMemory` expone un snapshot público, atómico e inmutable.
+- El snapshot contiene como máximo 12 pares, con 700 caracteres por lado.
+- Solo Usuario, Lazzaro y timestamp pasan a persistencia.
+- `MemoryManager` crea una regla semántica
+  `memoria_conversacional_manual` con transcripción, índice compacto, cantidad,
+  rango UTC y huella SHA-256.
+- Chroma puede actualizar metadata para asociar recibos de otras transacciones
+  a la misma fotografía.
+- La idempotencia distingue encontrado, ausente y error; una consulta incierta
+  falla cerrado.
+- Si la asociación de metadata no queda confirmada, se devuelve error
+  reintentable en vez de éxito falso.
+- Un retry conserva el snapshot del primer intento aunque lleguen turnos
+  posteriores y reintenta solo la escritura.
+- Los retries simultáneos del mismo ID se serializan.
+- La solicitud y su confirmación no entran en la RAM.
+- El control no activa descanso, regeneración ni consolidación desde terminal o
+  Unity.
+
+### Respuestas Públicas
+
+| Estado | Comportamiento |
+|---|---|
+| `saved` | `Está bien, lo recordaré para después.` |
+| `already_saved` | Informa que ya estaba guardado y evita duplicarlo. |
+| `empty` | Informa que no hay conversación reciente para guardar. |
+| `error` | Informa el fallo y no declara éxito. |
+
+### Pruebas Ejecutadas
+
+```powershell
+python ai_engine\test_manual_memory_save.py
+python ai_engine\test_triage_routing.py
+python terminal_client\test_chat.py
+python -m compileall -q terminal_client ai_engine core memory api tools telescopio config main.py
+```
+
+También se ejecutó la regresión completa:
+
+- 17 scripts autoejecutables de `ai_engine/test_*.py`: OK;
+- cinco funciones de `test_task_cancellation.py`: OK;
+- suite terminal: OK;
+- `git diff --check`: OK.
+
+Cobertura específica:
+
+- privacidad de campos internos: OK;
+- RAM completa intacta: OK;
+- orden y rango temporal: OK;
+- RAM vacía: OK;
+- fallos de lectura y escritura: OK;
+- commit confirmado seguido de timeout/`False`: OK;
+- deduplicación por transacción y huella: OK;
+- fallo y retry de asociación de metadata: OK;
+- snapshot estable entre fallo y retry: OK;
+- misma transacción concurrente: OK;
+- separación del consolidador y descanso: OK;
+- base Chroma real temporal, cierre y reapertura: OK.
+
+La prueba Chroma usa `TemporaryDirectory` y no modifica `lazzaro_data/`.
+
+### Estado De Prueba De Campo
+
+Pendiente. Debe comprobarse con el backend y proveedor reales:
+
+1. conversar varios turnos;
+2. usar cada frase base;
+3. confirmar que la conversación continúa en RAM;
+4. reiniciar el backend;
+5. preguntar de forma natural por un dato canario guardado;
+6. observar logs, latencia y posibles errores.
+
+### Riesgos Pendientes
+
+- La RAM no se repuebla al reiniciar; la fotografía vive como memoria semántica
+  recuperable.
+- El contexto largo visible para Persona sigue limitado a 600 caracteres y no
+  garantiza exponer cualquier detalle interior de un turno largo.
+- Un intento que nunca se escribió solo conserva su snapshot mientras vive el
+  proceso.
+- Tras reiniciar, la unidad semántica no se duplica, pero el cache del Core y
+  los efectos episódicos del comando no son durables.
+- Los locks cubren el mismo ID, no concurrencia general entre múltiples IDs,
+  clientes, procesos o workers.
+- Cada fotografía conserva hasta 128 hashes de transacción y su búsqueda es
+  lineal.

@@ -138,9 +138,8 @@ async def enviar_comando_directo(
     orchestrator = Depends(get_orchestrator),
 ):
     """
-    Permite a un administrador o al sandbox enviar un comando textual directo
-    al agente (por ejemplo, 'abrir chrome', 'escribir informe').
-    Se procesa igual que un evento, pero con tipo_evento='comando_usuario'.
+    Recibe texto directo desde clientes administrativos, sandbox o terminal.
+    Se procesa como `comando_usuario`; el origen determina la politica efectiva.
     """
     # Forzamos el tipo de evento para que el core lo interprete como orden directa
     comando.tipo_evento = "comando_usuario"

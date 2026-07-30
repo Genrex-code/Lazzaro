@@ -9,6 +9,14 @@ import unicodedata
 from .intent_types import IntentType
 
 
+MANUAL_CONVERSATION_SAVE_PHRASES = frozenset(
+    {
+        "guarda lo que hemos hablado",
+        "guarda lo que tengas en ram en tu mente",
+    }
+)
+
+
 @dataclass
 class RoutingRule:
     """
@@ -267,6 +275,20 @@ def match_guardrail_intent(texto: str) -> IntentType:
         return IntentType.SOCIAL
 
     return IntentType.UNKNOWN
+
+
+def match_manual_conversation_save(texto: str) -> bool:
+    """
+    Reconoce la base determinista de frases aprobadas para persistir toda la RAM.
+
+    La comparación tolera mayúsculas, acentos, puntuación y espacios, pero no
+    convierte solicitudes genéricas de MEMORY_UPDATE en un guardado completo.
+    Un Random Forest reentrenado sí puede ampliar esta intención por separado.
+    """
+    texto_normalizado = RoutingRule._normalizar(texto)
+    texto_normalizado = re.sub(r"[^a-z0-9]+", " ", texto_normalizado)
+    texto_normalizado = re.sub(r"\s+", " ", texto_normalizado).strip()
+    return texto_normalizado in MANUAL_CONVERSATION_SAVE_PHRASES
 
 
 def match_intent_by_keywords(texto: str) -> IntentType:

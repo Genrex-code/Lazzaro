@@ -21,7 +21,11 @@ except ImportError:  # El fallback heuristico debe seguir vivo sin dependencias 
     joblib = None
 
 from .intent_types import INTENT_TO_ROUTE, IntentType, normalize_intent, route_for_intent
-from .routing_rules import match_guardrail_intent, match_intent_by_keywords
+from .routing_rules import (
+    match_guardrail_intent,
+    match_intent_by_keywords,
+    match_manual_conversation_save,
+)
 
 # hoy perdio el america asi que que hoy pierde la niña 
 logger = logging.getLogger(__name__)
@@ -137,6 +141,14 @@ class TriageRouter:
                     route="noop",
                     confidence=1.0,
                     reason="Comando vacío. Ignorado."
+                )
+
+            if match_manual_conversation_save(texto_usuario):
+                return self._build_response(
+                    intent=IntentType.CONVERSATION_SAVE.value,
+                    route=route_for_intent(IntentType.CONVERSATION_SAVE).value,
+                    confidence=1.0,
+                    reason="Solicitud explícita de guardar la RAM conversacional.",
                 )
 
             guardrail_intent = normalize_intent(match_guardrail_intent(texto_usuario))

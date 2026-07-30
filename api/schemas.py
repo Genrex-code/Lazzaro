@@ -16,7 +16,7 @@ class EventoEntrante(BaseModel):
     Campos minimos requeridos y un payload flexible segun el tipo de evento.
     """
 
-    origen: Literal["roblox", "unity", "sandbox", "otro"] = Field(
+    origen: Literal["roblox", "unity", "sandbox", "terminal", "otro"] = Field(
         ...,
         description="Fuente del evento. Permite filtrar o cambiar comportamiento si es necesario.",
     )

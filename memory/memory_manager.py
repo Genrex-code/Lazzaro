@@ -3,16 +3,19 @@ memory_manager.py - Fachada principal del sistema de memoria de LAZZARO.
 Orquesta todos los subsistemas y expone una API simple para el resto del agente.
 """
 
-from collections import Counter
-from datetime import datetime, timedelta
-from hashlib import sha1
+from collections import Counter, OrderedDict
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from hashlib import sha1, sha256
+import json
 import re
-from typing import Any, Optional
+import threading
+from typing import Any, Literal, Optional
 
 from ai_engine.learned_alias_candidates import LearnedAliasCandidate, alias_key
 from core.logger import get_logger
 from memory.chroma_client import ChromaClient
-from memory.conversation_memory import ConversationMemory
+from memory.conversation_memory import ConversationMemory, PublicConversationTurn
 from memory.episodic_memory import EpisodicMemoryStore
 from memory.memory_decay import MemoryDecay
 from memory.memory_encoder import MemoryEncoder
@@ -24,6 +27,32 @@ from memory.semantic_memory import SemanticMemoryStore
 from memory.working_memory import WorkingMemory
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class ManualConversationSaveResult:
+    """Resultado explícito del guardado durable de una fotografía conversacional."""
+
+    status: Literal["saved", "already_saved", "empty", "error"]
+    memory_id: Optional[str] = None
+    fingerprint: str = ""
+    turn_count: int = 0
+    started_at: str = ""
+    ended_at: str = ""
+    error: Optional[str] = None
+
+    @property
+    def persisted(self) -> bool:
+        return self.status in {"saved", "already_saved"}
+
+
+@dataclass(frozen=True)
+class _ManualConversationLookup:
+    """Resultado triestado para no confundir ausencia con fallo de lectura."""
+
+    status: Literal["found", "missing", "error"]
+    record: Optional[tuple[str, dict[str, Any]]] = None
+    error: Optional[str] = None
 
 
 class MemoryManager:
@@ -47,6 +76,12 @@ class MemoryManager:
         "loop_detectado",
         "sobrecarga",
     }
+    MANUAL_SAVE_MAX_TURNS = 12
+    MANUAL_SAVE_MAX_TEXT_CHARS = 700
+    MANUAL_SAVE_MAX_DOCUMENT_CHARS = 20_000
+    MANUAL_SAVE_DIGEST_CHARS = 470
+    MANUAL_SAVE_MAX_TRANSACTION_HASHES = 128
+    MANUAL_SAVE_MAX_PENDING_SNAPSHOTS = 2000
 
     def __init__(
         self,
@@ -75,6 +110,11 @@ class MemoryManager:
         self._hechos_conversacionales_guardados: set[str] = set()
         self._alias_aprendidos_guardados: set[str] = set()
         self._memorias_afectivas_guardadas: set[str] = set()
+        self._guardado_conversacional_lock = threading.RLock()
+        self._fotografias_conversacionales_pendientes: OrderedDict[
+            str,
+            tuple[PublicConversationTurn, ...],
+        ] = OrderedDict()
         logger.info("MemoryManager inicializado correctamente.")
 
     def guardar_experiencia(
@@ -498,6 +538,432 @@ class MemoryManager:
     def obtener_contexto_conversacional(self, n: int = 6) -> str:
         """Devuelve los ultimos turnos conversacionales para continuidad inmediata."""
         return self.conversation_memory.resumen(n=n)
+
+    def guardar_fotografia_conversacional(
+        self,
+        id_transaccion: str,
+    ) -> ManualConversationSaveResult:
+        """
+        Persiste una copia pública de toda la RAM sin vaciarla ni consolidarla.
+
+        La transacción y la huella se verifican en Chroma para conservar
+        idempotencia después de reinicios, no solo durante el proceso actual.
+        """
+        transaccion = str(id_transaccion or "").strip()
+        if not transaccion:
+            return ManualConversationSaveResult(
+                status="error",
+                error="El guardado manual requiere un id_transaccion.",
+            )
+
+        lock = getattr(self, "_guardado_conversacional_lock", None)
+        if lock is None:
+            lock = threading.RLock()
+            self._guardado_conversacional_lock = lock
+
+        with lock:
+            snapshot = self._obtener_o_capturar_fotografia_pendiente(transaccion)
+            existente_transaccion = self._buscar_guardado_por_transaccion(transaccion)
+            if existente_transaccion.status == "error":
+                return ManualConversationSaveResult(
+                    status="error",
+                    error=existente_transaccion.error
+                    or "No se pudo comprobar la idempotencia del guardado.",
+                )
+            if existente_transaccion.status == "found" and existente_transaccion.record:
+                self._olvidar_fotografia_pendiente(transaccion)
+                return self._resultado_guardado_existente(existente_transaccion.record)
+
+            if not snapshot:
+                self._olvidar_fotografia_pendiente(transaccion)
+                return ManualConversationSaveResult(status="empty")
+
+            fingerprint = self._huella_fotografia_conversacional(snapshot)
+            existente_huella = self._buscar_guardado_conversacional(
+                "huella_guardado_conversacional",
+                fingerprint,
+            )
+            if existente_huella.status == "error":
+                return ManualConversationSaveResult(
+                    status="error",
+                    fingerprint=fingerprint,
+                    turn_count=len(snapshot),
+                    error=existente_huella.error
+                    or "No se pudo comprobar si la conversación ya estaba guardada.",
+                )
+            if existente_huella.status == "found" and existente_huella.record:
+                resultado_existente = self._resultado_guardado_existente(
+                    existente_huella.record,
+                    fallback_fingerprint=fingerprint,
+                    fallback_turn_count=len(snapshot),
+                )
+                recibo_asociado = self._asociar_transaccion_a_guardado(
+                    existente_huella.record,
+                    transaccion,
+                )
+                if not recibo_asociado:
+                    return ManualConversationSaveResult(
+                        status="error",
+                        memory_id=resultado_existente.memory_id,
+                        fingerprint=resultado_existente.fingerprint,
+                        turn_count=resultado_existente.turn_count,
+                        started_at=resultado_existente.started_at,
+                        ended_at=resultado_existente.ended_at,
+                        error=(
+                            "La conversación ya existe, pero Chroma no confirmó "
+                            "el recibo durable de esta transacción."
+                        ),
+                    )
+                self._olvidar_fotografia_pendiente(transaccion)
+                return resultado_existente
+
+            documento = self._documento_fotografia_conversacional(snapshot)
+            inicio = self._timestamp_utc(snapshot[0].timestamp)
+            fin = self._timestamp_utc(snapshot[-1].timestamp)
+            if len(documento) > self.MANUAL_SAVE_MAX_DOCUMENT_CHARS:
+                return ManualConversationSaveResult(
+                    status="error",
+                    fingerprint=fingerprint,
+                    turn_count=len(snapshot),
+                    started_at=inicio,
+                    ended_at=fin,
+                    error=(
+                        "La fotografía conversacional excede el límite "
+                        f"de {self.MANUAL_SAVE_MAX_DOCUMENT_CHARS} caracteres."
+                    ),
+                )
+
+            error_guardado: Optional[str] = None
+            memory_id: Optional[str] = None
+            transaction_hash = self._huella_transaccion_guardado(transaccion)
+
+            try:
+                memory_id = self.guardar_regla(
+                    regla=documento,
+                    tipo_evento="memoria_conversacional_manual",
+                    valencia=0.25,
+                    impacto_emocional=0.8,
+                    origen="guardado_manual_conversacion",
+                    extra={
+                        "version_esquema": 1,
+                        "fuente": "guardado_manual_ram_conversacional",
+                        "huella_guardado_conversacional": fingerprint,
+                        "id_transaccion_guardado": transaccion,
+                        "transacciones_guardado_hashes": transaction_hash,
+                        "cantidad_turnos": len(snapshot),
+                        "inicio_utc": inicio,
+                        "fin_utc": fin,
+                    },
+                )
+            except Exception as exc:
+                error_guardado = str(exc)
+                logger.error(
+                    "Error inesperado guardando fotografia conversacional: %s",
+                    exc,
+                    exc_info=True,
+                )
+
+            if memory_id:
+                self._olvidar_fotografia_pendiente(transaccion)
+                return ManualConversationSaveResult(
+                    status="saved",
+                    memory_id=memory_id,
+                    fingerprint=fingerprint,
+                    turn_count=len(snapshot),
+                    started_at=inicio,
+                    ended_at=fin,
+                )
+
+            # Cubre una escritura confirmada por el backend seguida de timeout/error.
+            existente_despues = self._buscar_guardado_conversacional(
+                "huella_guardado_conversacional",
+                fingerprint,
+            )
+            if existente_despues.status == "found" and existente_despues.record:
+                self._olvidar_fotografia_pendiente(transaccion)
+                return self._resultado_guardado_existente(
+                    existente_despues.record,
+                    fallback_fingerprint=fingerprint,
+                    fallback_turn_count=len(snapshot),
+                )
+            if existente_despues.status == "error" and not error_guardado:
+                error_guardado = existente_despues.error
+
+            return ManualConversationSaveResult(
+                status="error",
+                fingerprint=fingerprint,
+                turn_count=len(snapshot),
+                started_at=inicio,
+                ended_at=fin,
+                error=error_guardado or "La memoria persistente no confirmó la escritura.",
+            )
+
+    def _obtener_o_capturar_fotografia_pendiente(
+        self,
+        id_transaccion: str,
+    ) -> tuple[PublicConversationTurn, ...]:
+        """Fija el snapshot del primer intento para que un retry no capture turnos nuevos."""
+        pendientes = getattr(self, "_fotografias_conversacionales_pendientes", None)
+        if not isinstance(pendientes, OrderedDict):
+            pendientes = OrderedDict()
+            self._fotografias_conversacionales_pendientes = pendientes
+
+        if id_transaccion in pendientes:
+            pendientes.move_to_end(id_transaccion)
+            return pendientes[id_transaccion]
+
+        snapshot = self.conversation_memory.snapshot_publico(
+            max_turns=self.MANUAL_SAVE_MAX_TURNS,
+            max_text_chars=self.MANUAL_SAVE_MAX_TEXT_CHARS,
+        )
+        pendientes[id_transaccion] = snapshot
+        pendientes.move_to_end(id_transaccion)
+        while len(pendientes) > self.MANUAL_SAVE_MAX_PENDING_SNAPSHOTS:
+            pendientes.popitem(last=False)
+        return snapshot
+
+    def _olvidar_fotografia_pendiente(self, id_transaccion: str) -> None:
+        pendientes = getattr(self, "_fotografias_conversacionales_pendientes", None)
+        if isinstance(pendientes, OrderedDict):
+            pendientes.pop(id_transaccion, None)
+
+    def _buscar_guardado_conversacional(
+        self,
+        clave: str,
+        valor: str,
+    ) -> _ManualConversationLookup:
+        """Busca una memoria manual por metadata escalar compatible con Chroma."""
+        client = getattr(self, "client", None)
+        listar = getattr(client, "listar", None)
+        if not callable(listar):
+            return _ManualConversationLookup(
+                status="error",
+                error="El backend de memoria no permite consultar guardados existentes.",
+            )
+
+        try:
+            registros = listar(where={clave: valor}, limite=1)
+        except Exception as exc:
+            logger.warning("No se pudo comprobar guardado conversacional existente: %s", exc)
+            return _ManualConversationLookup(status="error", error=str(exc))
+
+        if registros is None:
+            return _ManualConversationLookup(
+                status="error",
+                error="Chroma no confirmó la consulta de idempotencia.",
+            )
+        ids = registros.get("ids") or []
+        metadatas = registros.get("metadatas") or []
+        if not ids:
+            return _ManualConversationLookup(status="missing")
+        metadata = metadatas[0] if metadatas and isinstance(metadatas[0], dict) else {}
+        return _ManualConversationLookup(
+            status="found",
+            record=(str(ids[0]), dict(metadata)),
+        )
+
+    def _buscar_guardado_por_transaccion(
+        self,
+        id_transaccion: str,
+    ) -> _ManualConversationLookup:
+        exacto = self._buscar_guardado_conversacional(
+            "id_transaccion_guardado",
+            id_transaccion,
+        )
+        if exacto.status != "missing":
+            return exacto
+
+        client = getattr(self, "client", None)
+        listar = getattr(client, "listar", None)
+        if not callable(listar):
+            return _ManualConversationLookup(
+                status="error",
+                error="El backend no permite consultar recibos de transacción.",
+            )
+        try:
+            registros = listar(where={"tipo_evento": "memoria_conversacional_manual"})
+        except Exception as exc:
+            logger.warning("No se pudieron consultar recibos de guardado: %s", exc)
+            return _ManualConversationLookup(status="error", error=str(exc))
+        if registros is None:
+            return _ManualConversationLookup(
+                status="error",
+                error="Chroma no confirmó la consulta de recibos de guardado.",
+            )
+
+        ids = registros.get("ids") or []
+        metadatas = registros.get("metadatas") or []
+        transaction_hash = self._huella_transaccion_guardado(id_transaccion)
+        for index, memory_id in enumerate(ids):
+            metadata = (
+                metadatas[index]
+                if index < len(metadatas) and isinstance(metadatas[index], dict)
+                else {}
+            )
+            hashes = {
+                item
+                for item in str(metadata.get("transacciones_guardado_hashes") or "").split(",")
+                if item
+            }
+            if transaction_hash in hashes:
+                return _ManualConversationLookup(
+                    status="found",
+                    record=(str(memory_id), dict(metadata)),
+                )
+        return _ManualConversationLookup(status="missing")
+
+    def _asociar_transaccion_a_guardado(
+        self,
+        registro: tuple[str, dict[str, Any]],
+        id_transaccion: str,
+    ) -> bool:
+        """Añade un recibo hash al mismo recuerdo, sin crear otra unidad semántica."""
+        memory_id, metadata = registro
+        transaction_hash = self._huella_transaccion_guardado(id_transaccion)
+        hashes = [
+            item
+            for item in str(metadata.get("transacciones_guardado_hashes") or "").split(",")
+            if item
+        ]
+        if transaction_hash in hashes:
+            return True
+
+        hashes.append(transaction_hash)
+        if len(hashes) > self.MANUAL_SAVE_MAX_TRANSACTION_HASHES:
+            hashes = [hashes[0], *hashes[-(self.MANUAL_SAVE_MAX_TRANSACTION_HASHES - 1) :]]
+
+        actualizar = getattr(getattr(self, "client", None), "actualizar_metadatos", None)
+        if not callable(actualizar):
+            logger.warning("El backend no permite asociar el nuevo recibo de transacción.")
+            return False
+
+        metadata_actualizada = dict(metadata)
+        metadata_actualizada["transacciones_guardado_hashes"] = ",".join(hashes)
+        try:
+            return bool(
+                actualizar(
+                    ids=[memory_id],
+                    metadatos=[metadata_actualizada],
+                )
+            )
+        except Exception as exc:
+            logger.warning("No se pudo asociar recibo de transacción al guardado: %s", exc)
+            return False
+
+    @staticmethod
+    def _huella_transaccion_guardado(id_transaccion: str) -> str:
+        return sha256(str(id_transaccion or "").strip().encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _resultado_guardado_existente(
+        registro: tuple[str, dict[str, Any]],
+        *,
+        fallback_fingerprint: str = "",
+        fallback_turn_count: int = 0,
+    ) -> ManualConversationSaveResult:
+        memory_id, metadata = registro
+        try:
+            turn_count = int(metadata.get("cantidad_turnos", fallback_turn_count))
+        except (TypeError, ValueError):
+            turn_count = fallback_turn_count
+        return ManualConversationSaveResult(
+            status="already_saved",
+            memory_id=memory_id,
+            fingerprint=str(
+                metadata.get("huella_guardado_conversacional")
+                or fallback_fingerprint
+            ),
+            turn_count=turn_count,
+            started_at=str(metadata.get("inicio_utc") or ""),
+            ended_at=str(metadata.get("fin_utc") or ""),
+        )
+
+    @classmethod
+    def _huella_fotografia_conversacional(
+        cls,
+        snapshot: tuple[PublicConversationTurn, ...],
+    ) -> str:
+        payload = {
+            "version_esquema": 1,
+            "turnos": [
+                {
+                    "timestamp_utc": cls._timestamp_utc(turno.timestamp),
+                    "usuario": turno.usuario,
+                    "lazzaro": turno.lazzaro,
+                }
+                for turno in snapshot
+            ],
+        }
+        canonico = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return sha256(canonico.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def _documento_fotografia_conversacional(
+        cls,
+        snapshot: tuple[PublicConversationTurn, ...],
+    ) -> str:
+        inicio = cls._timestamp_utc(snapshot[0].timestamp)
+        fin = cls._timestamp_utc(snapshot[-1].timestamp)
+        resumen_compacto = cls._resumen_compacto_fotografia(snapshot)
+        lineas = [
+            "MEMORIA CONVERSACIONAL GUARDADA POR SOLICITUD DEL USUARIO",
+            "INDICE COMPACTO DE TODOS LOS TURNOS:",
+            resumen_compacto,
+            f"Periodo UTC: {inicio} - {fin}",
+            f"Intercambios publicos: {len(snapshot)}",
+            "TRANSCRIPCION PUBLICA:",
+        ]
+        for indice, turno in enumerate(snapshot, start=1):
+            timestamp = cls._timestamp_utc(turno.timestamp)
+            if turno.usuario:
+                lineas.append(f"[{indice}][{timestamp}] Usuario: {turno.usuario}")
+            if turno.lazzaro:
+                lineas.append(f"[{indice}][{timestamp}] Lazzaro: {turno.lazzaro}")
+        return "\n".join(lineas)
+
+    @classmethod
+    def _resumen_compacto_fotografia(
+        cls,
+        snapshot: tuple[PublicConversationTurn, ...],
+    ) -> str:
+        """Representa todos los turnos dentro del prefijo que Persona sí recibe."""
+        separador = " | "
+        presupuesto = cls.MANUAL_SAVE_DIGEST_CHARS
+        por_turno = max(
+            16,
+            (presupuesto - len(separador) * max(0, len(snapshot) - 1))
+            // max(1, len(snapshot)),
+        )
+        fragmentos = []
+        for indice, turno in enumerate(snapshot, start=1):
+            texto = f"T{indice} U:{turno.usuario} L:{turno.lazzaro}"
+            fragmentos.append(cls._compactar_extremos(texto, por_turno))
+        resumen = separador.join(fragmentos)
+        return cls._compactar_extremos(resumen, presupuesto)
+
+    @staticmethod
+    def _compactar_extremos(texto: str, limite: int) -> str:
+        limpio = " ".join(str(texto or "").split())
+        if len(limpio) <= limite:
+            return limpio
+        if limite <= 7:
+            return limpio[:limite]
+        izquierda = (limite - 3) // 2
+        derecha = limite - 3 - izquierda
+        return f"{limpio[:izquierda]}...{limpio[-derecha:]}"
+
+    @staticmethod
+    def _timestamp_utc(timestamp: datetime) -> str:
+        if timestamp.tzinfo is None:
+            timestamp_utc = timestamp.replace(tzinfo=timezone.utc)
+        else:
+            timestamp_utc = timestamp.astimezone(timezone.utc)
+        return timestamp_utc.isoformat(timespec="microseconds").replace("+00:00", "Z")
 
     def _registrar_hechos_conversacionales(
         self,

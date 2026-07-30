@@ -3,6 +3,10 @@
 Fecha del escaneo: 2026-07-06
 Workspace: `C:\Users\JAIRO\Entidades\Lazzaro`
 
+> Documento histórico. Conserva el estado observado el 2026-07-06 y no debe
+> interpretarse como fotografía vigente. La actualización actual está en
+> [`estado_actual_proyecto_2026-07-29.md`](estado_actual_proyecto_2026-07-29.md).
+
 ## Veredicto ejecutivo
 
 El backend Python y la integracion de Capa 1 quedan en estado OK desde Codex:

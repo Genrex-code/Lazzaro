@@ -14,6 +14,7 @@ class IntentType(str, Enum):
     PERCEPTION = "PERCEPTION"       # Consultas sobre el entorno visual ("que ves?")
     MEMORY_QUERY = "MEMORY_QUERY"   # Consultas sobre el pasado o identidad
     MEMORY_UPDATE = "MEMORY_UPDATE" # Peticiones explicitas de recordar algo
+    CONVERSATION_SAVE = "CONVERSATION_SAVE" # Guardado manual de toda la RAM conversacional
     CORE_SYSTEM = "CORE_SYSTEM"     # Descanso, sistema, dolor fisico, inicio de simulacion
     ORACLE_QUERY = "ORACLE_QUERY"   # Preguntas profundas, internet, datos externos
     INTERNAL = "INTERNAL"           # Eventos internos (resultados de acciones)
@@ -38,6 +39,7 @@ INTENT_TO_ROUTE = {
     IntentType.PERCEPTION: Route.MOTOR,
     IntentType.MEMORY_QUERY: Route.PERSONA,
     IntentType.MEMORY_UPDATE: Route.PERSONA,
+    IntentType.CONVERSATION_SAVE: Route.PERSONA,
     IntentType.CORE_SYSTEM: Route.PERSONA,
     IntentType.ORACLE_QUERY: Route.ORACLE,
     IntentType.INTERNAL: Route.INTERNAL,

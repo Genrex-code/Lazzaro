@@ -24,6 +24,7 @@ class ToolPolicy:
     }
     SPEECH_TOOLS = {"hablar"}
     WORLD_CLIENTS = {"unity", "roblox"}
+    CONVERSATIONAL_CLIENTS = {"terminal"}
 
     def seleccionar(
         self,
@@ -36,6 +37,9 @@ class ToolPolicy:
         disponibles = list(herramientas or [])
         route_norm = str(route or "").strip().lower()
         origen_norm = str(origen or "").strip().lower()
+
+        if origen_norm in self.CONVERSATIONAL_CLIENTS:
+            return self._filtrar(disponibles, self.SPEECH_TOOLS)
 
         if route_norm in {"persona", "oracle"}:
             return self._filtrar(disponibles, self.SPEECH_TOOLS)

@@ -1,10 +1,10 @@
 # Cognitive Contracts - TCM Lazzaro
 
-Fecha de referencia: 2026-06-27
+Fecha de referencia: 2026-07-29
 
-Este documento describe los contratos entre capas del TCM de Lazzaro
-(`Triage Cognitive Multipaca`): que recibe cada capa, que devuelve, que
-espera del resto del sistema, y que limites no debe cruzar.
+Este documento describe los contratos entre capas del sistema cognitivo
+multicapa de Lazzaro: que recibe cada capa, que devuelve, que espera del resto
+del sistema y que limites no debe cruzar.
 
 La intencion es que este archivo funcione como mapa de integracion. Si una
 capa cambia, primero debe actualizarse su contrato aqui y despues el codigo.
@@ -15,23 +15,30 @@ Las capas cooperan, pero ninguna se salta al Core.
 
 El Core es la frontera de seguridad, continuidad, memoria, permisos y
 normalizacion. Ninguna capa debe ejecutar herramientas criticas por su cuenta,
-mutar estado global sin pasar por el orquestador, o hablar directamente con
-Unity sin pasar por el contrato `RespuestaAPI`.
+mutar estado global sin pasar por el orquestador, o hablar directamente con un
+cliente sin pasar por el contrato `RespuestaAPI`.
 
-Regla de voz publica: solo Persona puede producir voz social final. Oraculo
-produce conocimiento interno frio (`OracleResult`) y el Core debe pasarlo por
-Persona antes de devolver cualquier `hablar` a Unity.
+Regla de voz publica: Persona produce la voz social normal. Oraculo genera
+conocimiento interno frio (`OracleResult`) y el Core debe pasarlo por Persona
+antes de devolverlo. El Core solo puede sintetizar `hablar` como fallback o
+barrera de seguridad. El guardado manual usa una excepción acotada: Persona
+verbaliza determinísticamente un estado de memoria ya confirmado, sin LLM.
 
 ## Vista General
 
 ```mermaid
 flowchart TD
-    Unity["Unity Client\nLazzaroAgent.cs"] --> API["API FastAPI\n/api/v1/evento"]
+    Unity["Unity Client\nLazzaroAgent.cs"] --> API["API FastAPI\n/api/v1/evento | /api/v1/comando"]
+    Terminal["Terminal Client\npython -m terminal_client"] --> API
     API --> Core["Core Orchestrator\ncore/orchestrator.py"]
     Core --> Behavior["BehaviorCore\nestado, tarea, percepcion"]
     Behavior --> Core
     Core --> Triage["Capa 0: TriageRouter\nruta e intencion"]
-    Triage --> Core
+    Triage --> Effective["Core adapta terminal:\nPersona/Oracle; resto a Persona"]
+    Effective --> Core
+    Triage -->|"CONVERSATION_SAVE"| ManualSave["Guardado manual\nsnapshot público e idempotente"]
+    ManualSave --> SemanticSave["SemanticMemory\nmemoria_conversacional_manual"]
+    ManualSave --> Core
 
     Core --> MemoryWrite["Memory write\nguardar_experiencia"]
     MemoryWrite --> Chroma["ChromaDB\nexperiencias"]
@@ -61,27 +68,30 @@ flowchart TD
     Core --> Policy["ToolPolicy\nherramientas permitidas"]
     Core --> Registry["ToolRegistry\ncontratos de herramientas"]
     Core --> Exec{"Destino accion"}
-    Exec -->|"unity/roblox"| APIResp["RespuestaAPI\naccion saliente"]
-    Exec -->|"sandbox/otro"| ActionExecutor["ActionExecutor\nherramientas locales"]
+    Exec -->|"unity/roblox/terminal/otro"| APIResp["RespuestaAPI\naccion opcional"]
+    Exec -->|"sandbox"| ActionExecutor["ActionExecutor\nherramientas locales"]
+    ActionExecutor --> APIResp
     Exec -->|"none/hablar"| APIResp
     APIResp --> Unity
+    APIResp --> Terminal
 ```
 
 ## Vocabulario Comun
 
 ### EventoEntrante
 
-Contrato externo recibido por la API desde Unity, sandbox u otro cliente.
+Contrato externo recibido por la API desde Unity, terminal, sandbox u otro
+cliente.
 
 Archivo fuente: `api/schemas.py`
 
 | Campo | Tipo | Obligatorio | Descripcion |
 | --- | --- | --- | --- |
-| `origen` | `roblox`, `unity`, `sandbox`, `otro` | Si | Cliente que genera el evento. |
+| `origen` | `roblox`, `unity`, `sandbox`, `terminal`, `otro` | Si | Cliente que genera el evento. |
 | `tipo_evento` | `str` | Si | Tipo semantico del evento: `comando_usuario`, `actualizacion_estado`, `resultado_accion`, etc. |
 | `id_transaccion` | `str` | Si | Idempotencia. Si se repite, el orquestador debe devolver la respuesta cacheada. |
 | `timestamp` | `datetime` | No | Hora del evento. Si falta, se genera en servidor. |
-| `objeto_involucrado` | `str` | No | Objeto principal asociado. Default: `ningun`. |
+| `objeto_involucrado` | `str` | No | Objeto principal asociado. Default: `ninguno`. |
 | `detalles` | `dict` | No | Payload flexible del cliente. |
 
 Campos frecuentes dentro de `detalles`:
@@ -99,7 +109,7 @@ Campos frecuentes dentro de `detalles`:
 | `accion` | `str` | Accion reportada en `resultado_accion`. |
 | `exito` | `bool` | Resultado de accion ejecutada por el cliente. |
 | `mensaje_resultado` | `str` | Explicacion del resultado. |
-| `direccion_escape` | `dict` | Direccion sugerida por Unity ante dolor/choque. |
+| `direccion_escape` | `str` | Direccion sugerida por Unity ante dolor/choque. |
 | `distancia_escape` | `float` | Distancia de escape ante interrupcion critica. |
 
 ### RespuestaAPI
@@ -110,17 +120,19 @@ Archivo fuente: `api/schemas.py`
 
 | Campo | Tipo | Descripcion |
 | --- | --- | --- |
-| `status` | `str` | Estado de la respuesta. Normalmente `ok` o error controlado. |
+| `status` | `ok`, `error` o `pendiente` | Estado de la respuesta. |
 | `mensaje` | `str` | Mensaje resumen para el cliente. |
-| `id_transaccion` | `str` | Id de transaccion original. |
-| `accion` | `AccionSaliente` | Accion normalizada para Unity/sandbox. |
-| `timestamp` | `datetime` | Hora de respuesta del servidor. |
+| `id_transaccion` | `Optional[str]` | Id de transaccion original si existe. |
+| `accion` | `Optional[AccionSaliente]` | Accion normalizada opcional para el cliente. |
+| `timestamp_servidor` | `datetime` | Hora de respuesta del servidor. |
 
 ### AccionSaliente
 
-Contrato externo que Unity sabe interpretar.
+Contrato externo que los clientes reciben. Unity interpreta las acciones
+fisicas; terminal solo acepta `hablar`.
 
-Archivo fuente: `api/schemas.py` y `unity_client/DTOs.cs`
+Archivo fuente: `api/schemas.py`, `unity_client/DTOs.cs` y
+`terminal_client/chat.py`.
 
 | Campo | Tipo | Descripcion |
 | --- | --- | --- |
@@ -130,7 +142,7 @@ Archivo fuente: `api/schemas.py` y `unity_client/DTOs.cs`
 | `razonamiento` | `str` | Explicacion visible/tecnica corta. |
 | `pensamiento_privado` | `str` | Pensamiento interno para depuracion o UI privada. |
 | `requiere_confirmacion` | `bool` | Si debe pedir permiso antes de ejecutar. |
-| `parametros_descripcion` | `str` | Descripcion legible de parametros, si aplica. |
+| `parametros_descripcion` | `list[ParametroHerramienta]` | Descripcion estructurada de parametros, si aplica. |
 | `emocion_facial` | `str` | Blend shape o emocion para VRM. |
 
 ### ActionResponse
@@ -147,8 +159,8 @@ Archivo fuente: `ai_engine/schemas.py`
 | `parametros` | `dict` | Parametros ya interpretados. |
 | `razon` | `str` | Razon de la decision. |
 | `valido` | `bool` | Si la accion es confiable. |
-| `error` | `str | None` | Error controlado. No debe romper el flujo. |
-| `emocion_facial` | `str | None` | Expresion facial sugerida. |
+| `error` | `Optional[str]` | Error controlado. No debe romper el flujo. |
+| `emocion_facial` | `str` | Expresion facial sugerida. |
 | `metadata` | `dict` | Metadata interna opcional, por ejemplo auditoria motora. No debe ser voz publica. |
 
 Invariante importante: cualquier salida invalida, accion desconocida o payload
@@ -216,15 +228,17 @@ Una decision de triage con `intent`, `route`, `confidence`, `requires_memory`,
 | `actualizacion_estado` | `noop` |
 | `resultado_accion` | `internal` |
 | `comando_usuario` social: `hola`, `como te llamas` | `persona` |
+| `guarda lo que hemos hablado` | `persona`, intent `CONVERSATION_SAVE` |
+| `guarda lo que tengas en ram en tu mente` | `persona`, intent `CONVERSATION_SAVE` |
 | `comando_usuario` motor: `camina`, `alejate`, `gira`, `interactua` | `motor` |
 | `comando_usuario` tecnico: `codigo`, `arquitectura`, `debug`, `error` | `oracle` |
 | Evento desconocido | `noop` seguro |
 | Motor mientras `is_moving == true` | `noop` para evitar acumulacion |
 
-### Contrato futuro para Random Forest
+### Contrato Del Random Forest
 
-Cuando se reemplace parte del triage por modelo clasico, el dataset debe
-conservar este contrato minimo:
+El Triage ya puede cargar un modelo Random Forest. El dataset y cualquier
+reentrenamiento deben conservar este contrato mínimo:
 
 ```json
 {
@@ -245,6 +259,14 @@ conservar este contrato minimo:
 El modelo puede sugerir ruta, pero las reglas duras siguen teniendo prioridad:
 seguridad, eventos internos, errores absurdos, acciones peligrosas y no-op.
 
+La allowlist de guardado también tiene prioridad sobre el modelo. El artefacto
+desplegado el 2026-07-29 contiene las clases `MEMORY_QUERY`, `MOTOR_SIMPLE`,
+`ORACLE`, `ORACLE_QUERY`, `PERCEPTION`, `SOCIAL` y `UNKNOWN`; todavía no
+contiene `CONVERSATION_SAVE`. Por tanto, hoy únicamente las dos frases base
+normalizadas activan el guardado. La ampliación mediante ML es futura y deberá
+incluir negativos para evitar que `recuerda que...`, preguntas o guardado de
+archivos persistan toda la RAM.
+
 ## Contrato Del Core / Orchestrator
 
 Responsabilidad: coordinar todas las capas y convertir cualquier resultado en
@@ -254,29 +276,41 @@ Archivo fuente: `core/orchestrator.py`
 
 ### Entrada
 
-`procesar_evento(evento: EventoEntrante) -> RespuestaAPI`
+`procesar_evento(evento: EventoEntrante) -> Optional[AccionSaliente]`
+
+`api/routes.py` envuelve después ese resultado en una `RespuestaAPI`.
 
 ### Flujo obligatorio
 
-1. Revisar idempotencia por `id_transaccion`.
-2. Procesar evento en `BehaviorCore` para obtener estado, narrativa,
-   percepcion y tarea.
-3. Evaluar `TriageRouter`.
-4. Decidir si el evento solicita decision activa.
-5. Guardar experiencia en memoria para todos los eventos, incluso `noop` e
-   `internal`.
-6. Leer memoria de largo plazo y memoria de trabajo solo si el evento sobrevive
-   al triage y requiere decision.
-7. Filtrar herramientas con `ToolPolicy`.
-8. Resolver ruta: interrupcion critica, motor, persona, oracle, fallback legacy
-   o accion pasiva.
-9. Sanitizar `ActionResponse`.
-10. Convertir a `AccionSaliente`.
-11. Gestionar ejecucion local o despacho al cliente.
-12. Registrar accion reciente.
-13. Cachear respuesta por transaccion.
-14. Emitir notificaciones si aplica.
-15. Registrar impacto en `IdentityState`.
+1. Serializar solicitudes solapadas con el mismo `id_transaccion` y revisar el
+   cache.
+2. Si ese ID tiene un guardado manual pendiente, reintentar únicamente la
+   escritura, sin repetir el resto del Core.
+3. Procesar el evento en `BehaviorCore` para obtener estado, narrativa,
+   percepción y tarea.
+4. Evaluar `TriageRouter`.
+5. Para `origen="terminal"`, conservar Persona/Oracle y reconducir cualquier
+   otra ruta a Persona.
+6. Detectar `CONVERSATION_SAVE` antes de leer memoria larga o exponer
+   herramientas.
+7. Decidir si el evento solicita decisión activa y leer contexto solo cuando la
+   ruta normal lo requiere.
+8. Guardar la experiencia episódica de todos los eventos, incluso `noop`,
+   `internal` y la solicitud de guardado.
+9. Para `CONVERSATION_SAVE`, persistir el snapshot público mediante
+   `MemoryManager` y verbalizar el resultado de forma determinista.
+10. Para el resto, filtrar herramientas y resolver interrupción crítica, motor,
+    persona, oracle, fallback legacy o acción pasiva.
+11. Aplicar la primera barrera de solo habla cuando el origen es terminal.
+12. Sanitizar `ActionResponse` y reaplicar el firewall terminal.
+13. Convertir a `AccionSaliente` y gestionar ejecución o despacho.
+14. Registrar acción reciente.
+15. Registrar el par conversacional en RAM solo cuando la salida final es
+    `hablar` y no es el control de guardado.
+16. Cachear la respuesta o marcar únicamente la persistencia manual como
+    pendiente cuando Chroma devuelve error.
+17. Emitir notificaciones y registrar `IdentityState`; el control manual nunca
+    cuenta como descanso.
 
 ### Invariantes
 
@@ -289,25 +323,29 @@ Archivo fuente: `core/orchestrator.py`
 | `resultado_accion` de `hablar` devuelve `none` | Evita bucles de voz. |
 | `hablar` no requiere confirmacion desde Unity | Es salida pasiva. |
 | Herramientas reales de escritorio requieren confirmacion | Seguridad fuera del jardin de Unity. |
-| Solo Persona produce voz publica `hablar` | Oraculo debe devolver `OracleResult` interno, no `ActionResponse`. |
+| Persona produce la voz conversacional normal | Oraculo devuelve `OracleResult`; el Core solo puede sintetizar `hablar` como fallback o barrera de seguridad. |
+| `CONVERSATION_SAVE` no lee contexto ni llama LLM | El éxito depende de persistencia, no de una afirmación generada. |
+| El turno de control no entra a RAM | Evita guardar la orden y su confirmación en el siguiente snapshot. |
+| Un error manual no se cachea como éxito | Permite retry sin repetir BehaviorCore ni efectos generales. |
 
 ### Entrada que el Core espera de BehaviorCore
 
 | Clave | Uso |
 | --- | --- |
-| `estado_actual` | Estado fisico/emocional para triage e identidad. |
+| `estado` | Estado fisico/emocional para triage e identidad. |
 | `narrativa` | Texto resumido del evento para memoria y prompts. |
 | `contexto_llm` | Contexto base para ReasoningEngine legacy. |
 | `tarea` | Objetivo actual. |
-| `politica` | Politica de autonomia/confirmacion. |
+| `policy_activa` | Politica de autonomia/confirmacion. |
 | `es_interrupcion_critica` | Bypass de seguridad. |
 | `tipo_memoria` | Clasificacion para `guardar_experiencia`. |
 | `percepcion_resumida` | Resumen compacto de percepcion. |
 
 ### Salida que el Core garantiza
 
-El Core siempre intenta devolver `RespuestaAPI`. En errores controlados, debe
-preferir una accion segura:
+El Core intenta devolver una `AccionSaliente` segura o `None`. La API convierte
+ese resultado en `RespuestaAPI`. En errores controlados debe preferir una
+acción segura:
 
 ```json
 {
@@ -425,18 +463,106 @@ Contrato:
 
 ### Memoria conversacional RAM
 
-Responsabilidad: mantener continuidad inmediata de dialogo sin consultar ni
-escribir turnos completos en ChromaDB.
+Responsabilidad: mantener continuidad inmediata de diálogo. No escribe turnos
+completos en ChromaDB por defecto; solo expone una fotografía pública cuando el
+usuario activa explícitamente el guardado manual.
 
 Contrato:
 
 - Debe registrar pares `Usuario` / `Lazzaro` solo cuando la salida final sea
   `hablar`.
-- Debe vivir solo en RAM y usar una cola circular pequena.
+- Debe vivir solo en RAM y usar una cola circular de máximo 12 intercambios.
+- Debe inyectar normalmente los últimos 6 intercambios.
+- Debe recortar cada lado público del turno a 700 caracteres.
+- Debe limitar el resumen para prompt a 1600 caracteres.
 - Debe inyectarse antes de la memoria operativa y de los recuerdos largos.
 - Debe destacar el ultimo intercambio, temas activos y senales de continuidad
   cuando el usuario use referencias como `eso`, `recuerdas` o `como te dije`.
-- No debe ejecutarse para eventos `NOOP` o `INTERNAL` filtrados por Capa 0.
+- No debe ejecutarse cuando la ruta efectiva permanece `noop` o `internal`.
+  En terminal esas rutas se adaptan primero a Persona, por lo que un turno
+  hablado sí puede registrarse.
+- El objeto RAM puede contener campos internos de diagnóstico, pero el contexto
+  público y el guardado manual solo deben usar los textos
+  Usuario/Lazzaro; nunca persistir pensamiento privado crudo.
+- `snapshot_publico(max_turns, max_text_chars)` debe copiar de forma atómica,
+  devolver una tupla inmutable y conservar únicamente Usuario, Lazzaro y
+  timestamp.
+
+### Guardado Manual De RAM Conversacional
+
+Responsabilidad: persistir una fotografía pública de la conversación actual
+cuando Capa 0 produce `CONVERSATION_SAVE`.
+
+Archivos fuente:
+
+- `ai_engine/routing_rules.py`;
+- `ai_engine/triage_router.py`;
+- `core/orchestrator.py`;
+- `memory/conversation_memory.py`;
+- `memory/memory_manager.py`;
+- `memory/chroma_client.py`;
+- `ai_engine/persona_engine.py`.
+
+Contrato de activación:
+
+- frases base exactas:
+  `guarda lo que hemos hablado` y
+  `guarda lo que tengas en ram en tu mente`;
+- la normalización ignora mayúsculas, acentos, puntuación y espacios;
+- no existe `/guardar`;
+- la solicitud debe ser un `comando_usuario`;
+- el intent es `CONVERSATION_SAVE` y la ruta declarada es `persona`;
+- el Orchestrator corta esa ruta antes de lectura vectorial, tools o LLM;
+- puede entrar desde terminal o Unity, aunque terminal sea el uso principal.
+
+Contrato del snapshot:
+
+- máximo 12 pares;
+- máximo 700 caracteres por lado;
+- orden cronológico y timestamps UTC;
+- solo texto público Usuario/Lazzaro;
+- RAM intacta;
+- solicitud y confirmación excluidas del buffer;
+- documento máximo de 20 000 caracteres;
+- transcripción pública completa más un índice compacto al inicio.
+
+Contrato de persistencia:
+
+- usar `guardar_regla(...)`, no `guardar_experiencia(...)`, para la fotografía;
+- `tipo_evento="memoria_conversacional_manual"`;
+- `origen="guardado_manual_conversacion"`;
+- guardar huella SHA-256, cantidad, inicio y fin;
+- consultar por transacción y huella con estados encontrado/ausente/error;
+- ante lectura incierta, fallar cerrado y no escribir a ciegas;
+- si una segunda transacción deduplica por huella, asociar primero su recibo
+  durable; si la actualización de metadata falla, devolver error reintentable;
+- conservar hasta 128 hashes de transacción por fotografía;
+- fijar el snapshot del primer intento mientras el error siga pendiente dentro
+  del proceso.
+
+Contrato de respuesta:
+
+| Estado | Regla |
+|---|---|
+| `saved` | `Está bien, lo recordaré para después.` |
+| `already_saved` | Informar que ya existía y no fue duplicada. |
+| `empty` | Informar que no hay conversación reciente; no escribir. |
+| `error` | Informar el fallo sin declarar que se recordó. |
+
+La verbalización se construye con
+`PersonaEngine.construir_respuesta_guardado_conversacional(...)`; no requiere
+LLM. Solo `saved` y `already_saved` cuentan como persistidos.
+
+Límites explícitos:
+
+- el buffer RAM continúa siendo volátil y no se repuebla al reiniciar;
+- un intento que nunca alcanzó Chroma no puede conservar su snapshot a través
+  de un reinicio del proceso;
+- la idempotencia durable tras reinicio cubre la fotografía semántica, no el
+  cache del Core, el estado `empty` ni todos los efectos episódicos del comando;
+- la transcripción persiste, pero el contexto recuperado por Persona está
+  sujeto a ranking semántico y al presupuesto de 600 caracteres;
+- los locks por ID no convierten al Orchestrator en multiusuario o multiworker.
 
 ### Memoria relacional selectiva
 
@@ -468,7 +594,8 @@ Contrato:
 
 Metodo publico: `consolidar_memorias_si_hace_falta()`.
 
-Se activa desde el orquestador cuando se detecta descanso.
+Se activa desde el orquestador cuando se detecta descanso fuera del origen
+terminal.
 
 Contrato:
 
@@ -477,6 +604,8 @@ Contrato:
 - Evitar consolidar eventos criticos como si fueran ruido.
 - Conservar suficiente contexto para que Lazzaro recuerde patrones pasivos del
   entorno.
+- No debe confundirse con el guardado manual de RAM conversacional: este último
+  es semántico, explícito y queda fuera del scheduler observacional.
 
 ### OracleMemory
 
@@ -893,6 +1022,7 @@ Reglas actuales:
 - `oracle` no recibe herramientas publicas. Si una politica legacy lo consulta,
   como maximo expone `hablar`, pero `OracleEngine` no debe usarlo ni devolverlo.
 - `unity` y `roblox` solo pueden recibir herramientas seguras del jardin 3D.
+- `terminal` solo puede recibir `hablar`, sin importar la ruta original.
 - `sandbox` y `otro` pueden usar mas herramientas, pero las reales deben
   requerir confirmacion.
 
@@ -911,7 +1041,8 @@ El registro debe exponer:
 
 ### Contrato de ActionExecutor
 
-Solo ejecuta acciones locales cuando el destino es `sandbox` u `otro`.
+Solo ejecuta acciones locales cuando el origen es `sandbox`. Los demás clientes
+reciben la acción para manejarla o rechazarla según su contrato.
 
 No debe ejecutar acciones que requieren confirmacion si la accion saliente no
 la trae marcada.
@@ -942,7 +1073,7 @@ Archivo fuente: `ai_engine/persona_engine.py`
 
 ### Entrada
 
-`preparar_interaccion(mensaje_usuario, identity_state, percepcion, recuerdos)`
+`preparar_interaccion(mensaje_usuario, identity_state, percepcion, recuerdos, restriccion_canal="")`
 
 | Entrada | Descripcion |
 | --- | --- |
@@ -950,6 +1081,10 @@ Archivo fuente: `ai_engine/persona_engine.py`
 | `identity_state` | Energia, estres, foco y reglas biologicas. |
 | `percepcion` | Resumen del entorno para hablar con contexto. |
 | `recuerdos` | Memoria de trabajo + memoria de largo plazo. |
+| `restriccion_canal` | Limite opcional del frontend; terminal declara que no hay cuerpo disponible. |
+
+La misma `restriccion_canal` debe propagarse a la verbalización de Oracle y al
+prompt de retry para que ninguna ruta afirme acciones físicas desde terminal.
 
 ### Salida hacia LLM
 
@@ -998,6 +1133,16 @@ Contrato del retry:
 - Temperatura baja.
 - Limite corto de tokens.
 - Si falla, fallback seguro con `hablar`.
+
+### Verbalización Determinista De Memoria
+
+`construir_respuesta_guardado_conversacional(status, turn_count)` recibe un
+resultado ya resuelto por `MemoryManager` y devuelve el diccionario social que
+el Core transforma en `ActionResponse`.
+
+No consulta al LLM, no decide si hubo persistencia y no puede convertir
+`empty` o `error` en éxito. El pensamiento interno que acompaña esa respuesta
+permanece privado como en cualquier salida Persona.
 
 ### Biologia / IdentityState
 
@@ -1149,6 +1294,8 @@ Archivos fuente:
 - `unity_client/DTOs.cs`
 - `unity_client/PerceptionSystem.cs`
 - `unity_client/MovementController.cs`
+- `unity_client/InteractableMetadata.cs`
+- `unity_client/SomatoSensorySystem.cs`
 
 ### Eventos que Unity envia
 
@@ -1197,6 +1344,108 @@ Campos esperados:
 
 Esto permite a `LazzaroAgent` reportar resultados fisicos sin confirmar
 acciones pasivas como `hablar`.
+
+## Contrato Del Cliente Terminal
+
+Responsabilidad: permitir conversación textual con el mismo backend, estado y
+memoria de Lazzaro sin materializar acciones físicas.
+
+Archivos fuente:
+
+- `terminal_client/__init__.py`
+- `terminal_client/chat.py`
+- `terminal_client/__main__.py`
+- `terminal_client/test_chat.py`
+
+### Inicio Y Transporte
+
+El cliente se inicia con:
+
+```powershell
+python -m terminal_client
+```
+
+Cada turno normal usa `POST /api/v1/comando` con este contrato:
+
+```json
+{
+  "origen": "terminal",
+  "tipo_evento": "comando_usuario",
+  "id_transaccion": "uuid-unico-por-turno",
+  "objeto_involucrado": "ninguno",
+  "detalles": {
+    "mensaje": "texto del usuario",
+    "solicita_decision": true,
+    "modo_conversacion": true
+  }
+}
+```
+
+`/api/v1/comando` vuelve a forzar `tipo_evento="comando_usuario"`. El campo que
+autoriza la política conversacional es `origen="terminal"`.
+
+### Comandos Locales
+
+| Comando | Contrato |
+|---|---|
+| `/ayuda` | Se resuelve localmente y no toca la API. |
+| `/estado` | Ejecuta únicamente `GET /api/v1/estado`. |
+| `/salir` | Cierra el cliente sin enviar otro evento. |
+
+La coincidencia es exacta después de recortar extremos e ignorar mayúsculas.
+Las entradas vacías no generan UUID ni solicitudes. Otros textos que empiezan
+con `/` se rechazan localmente.
+
+No existe `/guardar`. Las dos frases naturales de guardado se envían como un
+turno normal y se resuelven dentro del Core.
+
+### Salida Visible
+
+Una respuesta aceptada debe cumplir:
+
+- `status == "ok"`;
+- `accion` es un objeto;
+- `accion.nombre == "hablar"`;
+- `accion.parametros` es un objeto;
+- `texto_a_comunicar` es un `str` no vacío.
+
+El frontend imprime únicamente `texto_a_comunicar`. Nunca debe mostrar
+`pensamiento_privado`, `razonamiento` ni el JSON completo. Antes de escribir
+elimina secuencias ANSI basadas en ESC y controles C0/DEL. La cobertura de
+controles Unicode C1 queda como endurecimiento pendiente.
+
+Errores de conexión, timeout, HTTP, JSON o contrato se muestran como `[error]`
+y no terminan el REPL. `Ctrl+C` y EOF cierran limpiamente.
+
+### Invariantes De Solo Conversación
+
+- Triage conserva `persona` y `oracle`.
+- `motor`, `noop`, `internal` o una ruta inválida se reconducen a Persona.
+- `ToolPolicy` solo entrega `hablar`.
+- La cancelación de tareas no se ejecuta.
+- Descanso no activa consolidación ni regeneración biológica.
+- Persona recibe la restricción de que el canal no tiene cuerpo.
+- El firewall del Core se aplica antes y después de la sanitización.
+- El cliente vuelve a rechazar cualquier acción final distinta de `hablar`.
+- `CONVERSATION_SAVE` puede escribir memoria semántica, pero no se expone como
+  herramienta y su salida pública sigue siendo `hablar`.
+
+Este contrato no modifica el flujo de Unity.
+
+### Memoria Y Límites De Fase
+
+Los turnos hablados entran en la RAM conversacional y mantienen acceso al
+contexto de memoria existente. El buffer completo es volátil y desaparece al
+reiniciar el backend. Una solicitud manual puede persistir su fotografía
+pública, pero no repuebla la cola RAM en el siguiente arranque.
+
+En esta fase:
+
+- Unity debe permanecer cerrado;
+- terminal y Unity no se usan simultáneamente;
+- `TaskContext` sigue compartido;
+- existe guardado manual mediante las dos frases base, sin `/guardar`;
+- no se crea otro Orchestrator, MemoryManager ni endpoint.
 
 ## Contrato De Proveedores LLM
 
@@ -1276,6 +1525,7 @@ def herramienta(params: ParamsModel) -> ToolResult:
 | ToolRegistry | Decoradores | Catalogo | Decidir rutas. |
 | ActionExecutor | Accion local | Resultado local | Ejecutar sin confirmacion requerida. |
 | Unity | `AccionSaliente` | Eventos/resultados | Confirmar `hablar`. |
+| Terminal | Texto local | Voz pública o `[error]` | Ejecutar acciones físicas o imprimir pensamiento privado. |
 
 ## Casos De Prueba Por Contrato
 
@@ -1286,6 +1536,9 @@ def herramienta(params: ParamsModel) -> ToolResult:
 - `hola` devuelve `persona`.
 - `camina hacia la capsula` devuelve `motor`.
 - `explicame este error de codigo` devuelve `oracle`.
+- Las dos frases base devuelven `CONVERSATION_SAVE` con confianza 1.
+- `recuerda que...`, `/guardar` y guardado de archivos no activan la regla
+  determinista.
 - Evento desconocido devuelve `noop`.
 
 ### Core
@@ -1295,6 +1548,24 @@ def herramienta(params: ParamsModel) -> ToolResult:
 - `alerta_dolor_fisico` genera accion de escape sin LLM.
 - `resultado_accion` de `hablar` devuelve `none`.
 - Accion desconocida se sanitiza a `none`.
+- `CONVERSATION_SAVE` omite contexto vectorial, herramientas y LLM.
+- Un retry fallido con el mismo ID no repite BehaviorCore, memoria operativa ni
+  IdentityState.
+- Dos solicitudes simultáneas con el mismo ID producen una sola escritura y la
+  misma acción cacheada.
+
+### Memoria Manual
+
+- Snapshot de varios turnos conserva orden, cantidad e intervalo UTC.
+- Pensamiento, emoción, route, intent y metadata privada no llegan a Chroma.
+- RAM vacía no escribe ni declara éxito.
+- Un fallo de lectura de idempotencia no escribe a ciegas.
+- Un commit seguido de timeout o `False` se reconoce sin duplicar.
+- Si falla asociar el recibo de un segundo ID, se devuelve error reintentable.
+- Turnos posteriores a un primer fallo no cambian el snapshot del retry.
+- Cierre y reapertura de Chroma real conservan memoria y segundo recibo.
+- El guardado no llama al consolidador, no mueve su contador y no borra
+  episodios.
 
 ### Motor
 
@@ -1328,7 +1599,7 @@ def herramienta(params: ParamsModel) -> ToolResult:
 - Pregunta cacheada devuelve `OracleResult` sin llamar API externa.
 - Falla de API externa usa fallback activo y devuelve `OracleResult`.
 - `OracleEngine` nunca devuelve `ActionResponse`.
-- Ruta `oracle` del Core llama a Persona antes de responder a Unity.
+- Ruta `oracle` del Core llama a Persona antes de responder al cliente.
 - Persona verbaliza `OracleResult` como `hablar`.
 - Conocimiento frio se guarda en `OracleMemory`.
 
@@ -1340,6 +1611,22 @@ def herramienta(params: ParamsModel) -> ToolResult:
 - Interaccion lejana reporta fallo, no exito.
 - Cola de tareas no ejecuta dos subtareas fisicas a la vez.
 
+### Terminal
+
+- Mensaje normal produce un `POST /api/v1/comando` y UUID nuevo.
+- Clasificación motora termina en Persona y `hablar`.
+- Ruta Oracle se conserva y termina verbalizada.
+- `detente` no activa `cancelar_tarea`.
+- `descansa` no consolida memoria ni regenera biología.
+- `/ayuda` y `/salir` no hacen solicitudes.
+- `/estado` solo consulta el endpoint de estado.
+- Las dos frases base terminan en `hablar` y no agregan su control a la RAM.
+- `empty`, `already_saved` y `error` tienen mensajes públicos distintos.
+- Pensamiento privado y razonamiento no aparecen en salida.
+- Respuesta no conversacional, malformada o sin `status="ok"` produce `[error]`.
+- Timeout, desconexión, `Ctrl+C` y EOF no generan traceback.
+- Unity conserva ruta motora, cancelación y descanso.
+
 ## Riesgos Conocidos
 
 | Riesgo | Impacto | Mitigacion prevista |
@@ -1350,6 +1637,12 @@ def herramienta(params: ParamsModel) -> ToolResult:
 | Escritura Chroma puede ser costosa | Latencia | Futura cola/asinc/batch de memoria. |
 | Unity y Python pueden divergir en nombres de acciones | Acciones no ejecutables | Mantener esta doc + tests de contrato. |
 | Herramientas de escritorio aumentan riesgo | Seguridad | Confirmacion obligatoria y permisos por origen. |
+| Unity y terminal comparten `TaskContext` | El último chat puede aparecer como tarea | Usar terminal solo con Unity cerrado en esta fase. |
+| Backend escucha en `0.0.0.0` sin autenticación | Acceso desde red local | Red confiable y futura autenticación/bind configurable. |
+| Random Forest desplegado no conoce `CONVERSATION_SAVE` | No admite variantes naturales adicionales | Mantener las dos frases base hasta reentrenar y validar negativos. |
+| Recuperación larga limitada a 600 caracteres | Un detalle interior puede persistir pero no llegar a Persona | Índice compacto actual; futura extracción guiada por consulta. |
+| Locks manuales solo cubren el mismo ID | IDs, procesos o workers distintos aún comparten estado | Mantener un solo cliente secuencial; diseñar sincronización antes de ampliar. |
+| Intento fallido sin commit no sobrevive reinicio | No puede reconstruirse el snapshot pendiente | Repetir como una transacción nueva después de reiniciar. |
 
 ## Checklist Para Cambios Futuros
 

@@ -6,6 +6,7 @@ Coordina el flujo completo: evento -> estado interno -> memoria -> IA -> accion.
 from collections import OrderedDict, deque
 from datetime import datetime
 import re
+import threading
 from typing import List, Optional
 import unicodedata
 import uuid
@@ -24,6 +25,7 @@ from ai_engine.triage_router import TriageRouter
 from api.schemas import AccionSaliente, EstadoAgente, EventoEntrante, NotificacionSaliente
 from core.logger import get_logger
 from core.tool_policy import ToolPolicy
+from memory.memory_manager import ManualConversationSaveResult
 from tools.executor import ActionExecutor
 
 logger = get_logger(__name__)
@@ -59,8 +61,11 @@ class Orchestrator:
         oracle_settings = getattr(getattr(reasoning_engine, "ai_client", None), "settings", None)
         self.oracle_client = OracleClient(settings=oracle_settings)
         self._transacciones_procesadas: OrderedDict[str, AccionSaliente] = OrderedDict()
+        self._guardados_conversacionales_pendientes: OrderedDict[str, str] = OrderedDict()
         self._alias_candidates_pendientes: OrderedDict[str, dict] = OrderedDict()
         self._notificaciones: deque[NotificacionSaliente] = deque(maxlen=50)
+        self._transacciones_lock_guard = threading.Lock()
+        self._transacciones_locks: dict[str, dict[str, object]] = {}
         logger.info("Orchestrator inicializado.")
 
     def _conectar_aliases_aprendidos(self) -> None:
@@ -72,6 +77,37 @@ class Orchestrator:
             self.motor_engine.fuzzy_resolver.affective_memory_provider = proveedor_afectivo
 
     def procesar_evento(self, evento: EventoEntrante) -> Optional[AccionSaliente]:
+        """Serializa únicamente retries solapados de la misma transacción."""
+        guard = getattr(self, "_transacciones_lock_guard", None)
+        locks = getattr(self, "_transacciones_locks", None)
+        if guard is None or not isinstance(locks, dict):
+            guard = threading.Lock()
+            locks = {}
+            self._transacciones_lock_guard = guard
+            self._transacciones_locks = locks
+
+        transaction_id = str(evento.id_transaccion)
+        with guard:
+            state = locks.get(transaction_id)
+            if state is None:
+                state = {"lock": threading.RLock(), "users": 0}
+                locks[transaction_id] = state
+            state["users"] = int(state.get("users", 0)) + 1
+            transaction_lock = state["lock"]
+
+        try:
+            with transaction_lock:  # type: ignore[attr-defined]
+                return self._procesar_evento_serializado(evento)
+        finally:
+            with guard:
+                state["users"] = int(state.get("users", 1)) - 1
+                if state["users"] <= 0 and locks.get(transaction_id) is state:
+                    locks.pop(transaction_id, None)
+
+    def _procesar_evento_serializado(
+        self,
+        evento: EventoEntrante,
+    ) -> Optional[AccionSaliente]:
         """
         Procesa un evento externo y devuelve la accion que el agente decide ejecutar.
         Si el evento ya fue procesado, devuelve la accion almacenada.
@@ -80,6 +116,10 @@ class Orchestrator:
         if cacheada is not None:
             logger.info("Evento %s ya procesado, devolviendo accion cacheada.", evento.id_transaccion)
             return cacheada
+
+        retry_guardado = self._reintentar_guardado_conversacional_pendiente(evento)
+        if retry_guardado is not None:
+            return retry_guardado
 
         try:
             respuesta_core = self.behavior.procesar_evento(
@@ -100,10 +140,14 @@ class Orchestrator:
         percepcion_resumida = str(respuesta_core.get("percepcion_resumida", ""))
 
         triage_decision = self._evaluar_triage(evento, estado_actual)
+        triage_decision = self._adaptar_triage_para_terminal(evento, triage_decision)
+        solicita_guardado_conversacional = self._triage_es_guardado_conversacional(
+            triage_decision
+        )
         solicita_decision = self._evento_solicita_decision(evento, es_interrupcion_critica)
 
         memoria_texto_completa = ""
-        if self._evento_requiere_contexto_memoria(
+        if not solicita_guardado_conversacional and self._evento_requiere_contexto_memoria(
             triage_decision,
             solicita_decision,
             es_interrupcion_critica,
@@ -127,7 +171,11 @@ class Orchestrator:
 
         herramientas: list[str] = []
         herramientas_detalle: dict[str, str] = {}
-        if solicita_decision and not self._triage_debe_cortar_flujo(triage_decision):
+        if (
+            solicita_decision
+            and not solicita_guardado_conversacional
+            and not self._triage_debe_cortar_flujo(triage_decision)
+        ):
             herramientas = self._herramientas_para_evento(evento, triage_decision)
             herramientas_detalle = (
                 self.tool_registry.describir_herramientas(herramientas) if self.tool_registry else {}
@@ -135,8 +183,10 @@ class Orchestrator:
 
         if es_interrupcion_critica:
             action_response = self._resolver_interrupcion_critica(evento)
-        elif self._usuario_pide_cancelar_tarea(evento):
+        elif not self._es_canal_terminal(evento) and self._usuario_pide_cancelar_tarea(evento):
             action_response = self._resolver_cancelacion_tarea_usuario(evento)
+        elif solicita_guardado_conversacional:
+            action_response = self._resolver_guardado_conversacional(evento)
         elif self._triage_debe_cortar_flujo(triage_decision):
             razon_triage = str(
                 triage_decision.get("reason")
@@ -194,7 +244,9 @@ class Orchestrator:
                     error=str(e),
                 )
 
+        action_response = self._blindar_salida_terminal(evento, action_response)
         action_response = self._sanitizar_action_response(action_response)
+        action_response = self._blindar_salida_terminal(evento, action_response)
         action_response = self._adjuntar_esfuerzo_subjetivo(action_response)
         accion_saliente = self._a_accion_saliente(action_response, politica)
         self._registrar_alias_candidato_pendiente(action_response, accion_saliente)
@@ -218,7 +270,14 @@ class Orchestrator:
             accion_saliente=accion_saliente,
         )
 
-        self._cachear_transaccion(evento.id_transaccion, accion_saliente)
+        if self._debe_cachear_transaccion(action_response):
+            self._olvidar_guardado_conversacional_pendiente(evento.id_transaccion)
+            self._cachear_transaccion(evento.id_transaccion, accion_saliente)
+        elif self._es_error_guardado_conversacional(action_response):
+            self._marcar_guardado_conversacional_pendiente(
+                evento.id_transaccion,
+                politica,
+            )
         self._agregar_notificacion_si_corresponde(action_response)
         self._registrar_estado_identidad(evento, triage_decision, action_response)
 
@@ -316,6 +375,8 @@ class Orchestrator:
         if evento.tipo_evento != "comando_usuario":
             return
         if accion_saliente.nombre != "hablar":
+            return
+        if bool((action_response.metadata or {}).get("manual_memory_save_control")):
             return
 
         registrar = getattr(self.memory, "registrar_turno_conversacional", None)
@@ -529,6 +590,86 @@ class Orchestrator:
         return decision
 
     @staticmethod
+    def _es_canal_terminal(evento: EventoEntrante) -> bool:
+        """Identifica el cliente conversacional que nunca materializa acciones fisicas."""
+        return str(evento.origen or "").strip().lower() == "terminal"
+
+    @classmethod
+    def _restriccion_canal_persona(cls, evento: EventoEntrante) -> str:
+        if not cls._es_canal_terminal(evento):
+            return ""
+        return (
+            "Este turno proviene de un chat de terminal sin cuerpo disponible. "
+            "Solo conversa. Si el usuario menciona o pide una accion fisica, habla sobre ella "
+            "o explica que requiere Unity; no afirmes que la ejecutaste, que la estas ejecutando "
+            "ni que la ejecutaras desde este canal."
+        )
+
+    @classmethod
+    def _adaptar_triage_para_terminal(
+        cls,
+        evento: EventoEntrante,
+        decision: dict,
+    ) -> dict:
+        """
+        Conserva Persona y Oraculo, pero reconduce cualquier otra ruta a conversacion.
+
+        El clasificador sigue aportando su intent original para auditoria y memoria.
+        Solo cambia el destino operativo, de modo que una clasificacion motora
+        accidental nunca llegue al cuerpo desde el chat.
+        """
+        if not cls._es_canal_terminal(evento):
+            return decision
+
+        decision_terminal = dict(decision or {})
+        route_original = str(decision_terminal.get("route", "")).strip().lower()
+        if route_original in {"persona", "oracle"}:
+            return decision_terminal
+
+        razon_original = str(decision_terminal.get("reason", "")).strip()
+        razon_terminal = "Canal terminal conversacional: la salida se verbaliza en Persona."
+        decision_terminal.update(
+            {
+                "route": "persona",
+                "requires_memory": True,
+                "requires_oracle": False,
+                "reason": " ".join(
+                    parte for parte in (razon_original, razon_terminal) if parte
+                ),
+                "terminal_original_route": route_original or "sin_ruta",
+            }
+        )
+        return decision_terminal
+
+    @classmethod
+    def _blindar_salida_terminal(
+        cls,
+        evento: EventoEntrante,
+        action_response: ActionResponse,
+    ) -> ActionResponse:
+        """Aplica una ultima barrera para que terminal solo pueda devolver ``hablar``."""
+        if not cls._es_canal_terminal(evento) or action_response.accion == "hablar":
+            return action_response
+
+        metadata = dict(action_response.metadata or {})
+        metadata.setdefault("terminal_action_blocked", action_response.accion)
+        if action_response.error:
+            texto = "No pude construir bien mi respuesta. Podemos intentarlo otra vez."
+        else:
+            texto = "Desde este chat solo puedo hablar; no voy a ejecutar acciones fisicas."
+
+        return ActionResponse(
+            pensamiento=action_response.pensamiento,
+            accion="hablar",
+            parametros={"texto_a_comunicar": texto},
+            razon="Canal terminal limitado a conversacion.",
+            valido=True,
+            error=action_response.error,
+            emocion_facial=action_response.emocion_facial,
+            metadata=metadata,
+        )
+
+    @staticmethod
     def _triage_debe_cortar_flujo(decision: dict) -> bool:
         route = str(decision.get("route", "")).strip().lower()
         return route in {"noop", "internal"}
@@ -544,6 +685,10 @@ class Orchestrator:
     @staticmethod
     def _triage_es_oracle(decision: dict) -> bool:
         return str(decision.get("route", "")).strip().lower() == "oracle"
+
+    @staticmethod
+    def _triage_es_guardado_conversacional(decision: dict) -> bool:
+        return str(decision.get("intent", "")).strip().upper() == "CONVERSATION_SAVE"
 
     def _evento_requiere_contexto_memoria(
         self,
@@ -574,6 +719,7 @@ class Orchestrator:
                 estado_biologico=self.identity_state,
                 percepcion=percepcion,
                 recuerdos=memoria_texto,
+                restriccion_canal=self._restriccion_canal_persona(evento),
             )
             raw_response = self.llm_adapter.ejecutar_texto(
                 mensajes,
@@ -589,6 +735,7 @@ class Orchestrator:
                 mensajes_reintento = self.persona_engine.preparar_reintento_json(
                     mensaje_usuario=mensaje_usuario,
                     respuesta_fallida=raw_response or "",
+                    restriccion_canal=self._restriccion_canal_persona(evento),
                 )
                 raw_response_reintento = self.llm_adapter.ejecutar_texto(
                     mensajes_reintento,
@@ -612,6 +759,91 @@ class Orchestrator:
                 emocion_facial="Fcl_ALL_Neutral",
                 error=str(e),
             )
+
+    def _resolver_guardado_conversacional(
+        self,
+        evento: EventoEntrante,
+    ) -> ActionResponse:
+        """Persiste la RAM pública y entrega a Persona un resultado ya confirmado."""
+        guardar = getattr(self.memory, "guardar_fotografia_conversacional", None)
+        if not callable(guardar):
+            resultado = ManualConversationSaveResult(
+                status="error",
+                error="MemoryManager no expone el guardado conversacional manual.",
+            )
+        else:
+            try:
+                resultado = guardar(id_transaccion=evento.id_transaccion)
+            except Exception as exc:
+                logger.error(
+                    "Error resolviendo guardado manual de conversación: %s",
+                    exc,
+                    exc_info=True,
+                )
+                resultado = ManualConversationSaveResult(
+                    status="error",
+                    error=str(exc),
+                )
+
+        datos_persona = PersonaEngine.construir_respuesta_guardado_conversacional(
+            status=resultado.status,
+            turn_count=resultado.turn_count,
+        )
+        action_response = self._action_response_desde_persona(datos_persona)
+        metadata = dict(action_response.metadata or {})
+        metadata.update(
+            {
+                "manual_memory_save_control": True,
+                "manual_memory_save_status": resultado.status,
+                "manual_memory_save_turn_count": resultado.turn_count,
+            }
+        )
+        if resultado.fingerprint:
+            metadata["manual_memory_save_fingerprint"] = resultado.fingerprint
+        if resultado.memory_id:
+            metadata["manual_memory_save_id"] = resultado.memory_id
+
+        return action_response.model_copy(
+            update={
+                "metadata": metadata,
+                "error": resultado.error if resultado.status == "error" else None,
+            }
+        )
+
+    def _reintentar_guardado_conversacional_pendiente(
+        self,
+        evento: EventoEntrante,
+    ) -> Optional[AccionSaliente]:
+        """
+        Reintenta solo la escritura manual, sin repetir BehaviorCore ni memorias.
+
+        El primer intento ya registró el evento y su fallo. Un retry con el
+        mismo ID únicamente debe completar la persistencia pendiente.
+        """
+        pendientes = getattr(self, "_guardados_conversacionales_pendientes", None)
+        if not isinstance(pendientes, OrderedDict):
+            return None
+        politica = pendientes.get(evento.id_transaccion)
+        if politica is None:
+            return None
+
+        action_response = self._resolver_guardado_conversacional(evento)
+        action_response = self._blindar_salida_terminal(evento, action_response)
+        action_response = self._sanitizar_action_response(action_response)
+        action_response = self._blindar_salida_terminal(evento, action_response)
+        action_response = self._adjuntar_esfuerzo_subjetivo(action_response)
+        accion_saliente = self._a_accion_saliente(action_response, politica)
+
+        if self._debe_cachear_transaccion(action_response):
+            self._olvidar_guardado_conversacional_pendiente(evento.id_transaccion)
+            self._cachear_transaccion(evento.id_transaccion, accion_saliente)
+
+        logger.info(
+            "Retry de guardado manual %s resuelto con estado=%s.",
+            evento.id_transaccion,
+            (action_response.metadata or {}).get("manual_memory_save_status"),
+        )
+        return accion_saliente
 
     @staticmethod
     def _action_response_desde_persona(datos: dict) -> ActionResponse:
@@ -757,6 +989,7 @@ class Orchestrator:
                 datos_oraculo=oracle_result,
                 percepcion=percepcion,
                 recuerdos=memoria_texto,
+                restriccion_canal=self._restriccion_canal_persona(evento),
             )
             raw_response = self.llm_adapter.ejecutar_texto(
                 mensajes,
@@ -772,6 +1005,7 @@ class Orchestrator:
                 mensajes_reintento = self.persona_engine.preparar_reintento_json(
                     mensaje_usuario=mensaje_usuario,
                     respuesta_fallida=raw_response or "",
+                    restriccion_canal=self._restriccion_canal_persona(evento),
                 )
                 raw_response_reintento = self.llm_adapter.ejecutar_texto(
                     mensajes_reintento,
@@ -1174,8 +1408,17 @@ class Orchestrator:
         except Exception as e:
             logger.error("Error actualizando IdentityState: %s", e, exc_info=True)
 
-    @staticmethod
-    def _evento_es_descanso(evento: EventoEntrante, action_response: ActionResponse) -> bool:
+    @classmethod
+    def _evento_es_descanso(
+        cls,
+        evento: EventoEntrante,
+        action_response: ActionResponse,
+    ) -> bool:
+        if bool((action_response.metadata or {}).get("manual_memory_save_control")):
+            return False
+        if cls._es_canal_terminal(evento):
+            return False
+
         texto = " ".join(
             str(parte or "")
             for parte in (
@@ -1564,6 +1807,42 @@ class Orchestrator:
         if accion is not None:
             self._transacciones_procesadas.move_to_end(id_transaccion)
         return accion
+
+    @staticmethod
+    def _debe_cachear_transaccion(action_response: ActionResponse) -> bool:
+        """Permite reintentar un guardado manual cuya escritura falló."""
+        metadata = action_response.metadata if isinstance(action_response.metadata, dict) else {}
+        return not (
+            metadata.get("manual_memory_save_control") is True
+            and metadata.get("manual_memory_save_status") == "error"
+        )
+
+    @staticmethod
+    def _es_error_guardado_conversacional(action_response: ActionResponse) -> bool:
+        metadata = action_response.metadata if isinstance(action_response.metadata, dict) else {}
+        return (
+            metadata.get("manual_memory_save_control") is True
+            and metadata.get("manual_memory_save_status") == "error"
+        )
+
+    def _marcar_guardado_conversacional_pendiente(
+        self,
+        id_transaccion: str,
+        politica: str,
+    ) -> None:
+        pendientes = getattr(self, "_guardados_conversacionales_pendientes", None)
+        if not isinstance(pendientes, OrderedDict):
+            pendientes = OrderedDict()
+            self._guardados_conversacionales_pendientes = pendientes
+        pendientes[id_transaccion] = politica
+        pendientes.move_to_end(id_transaccion)
+        while len(pendientes) > self.MAX_TRANSACCIONES_CACHE:
+            pendientes.popitem(last=False)
+
+    def _olvidar_guardado_conversacional_pendiente(self, id_transaccion: str) -> None:
+        pendientes = getattr(self, "_guardados_conversacionales_pendientes", None)
+        if isinstance(pendientes, OrderedDict):
+            pendientes.pop(id_transaccion, None)
 
     def _cachear_transaccion(self, id_transaccion: str, accion: AccionSaliente) -> None:
         self._transacciones_procesadas[id_transaccion] = accion

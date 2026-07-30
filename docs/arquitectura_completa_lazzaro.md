@@ -1,9 +1,10 @@
 # Arquitectura Completa De Lazzaro
 
-Actualizado: 2026-06-11
+Actualizado: 2026-07-29
 
 Documento para explicar el proyecto a un colaborador tecnico. Describe carpetas,
-archivos, contratos de entrada/salida y flujo actual entre Unity y Python.
+archivos, contratos de entrada/salida y flujo actual entre Unity, terminal y
+Python.
 
 > Nota de seguridad: no compartir el contenido real de `.env`. Este documento
 > solo describe que variables espera el sistema, sin exponer claves.
@@ -15,6 +16,11 @@ de pruebas: percibe objetos, ejecuta movimiento NavMesh, muestra habla, aplica
 expresiones VRM y reporta resultados fisicos. Python funciona como cerebro:
 recibe eventos REST, actualiza estado, escribe memoria, clasifica intencion,
 elige una capa cognitiva y devuelve una accion estructurada.
+
+`terminal_client/` es un segundo frontend, exclusivamente conversacional, para
+usar ese mismo cerebro y memoria con Unity cerrado. También puede solicitar,
+mediante dos frases naturales, una fotografía persistente de la conversación
+que continúa en RAM.
 
 La prioridad actual del sistema es estabilidad con bajo consumo:
 
@@ -30,9 +36,9 @@ La prioridad actual del sistema es estabilidad con bajo consumo:
 
 | Capa | Modulo principal | Responsabilidad | LLM |
 |---|---|---|---|
-| Capa 0 | `ai_engine/triage_router.py` | Clasifica cada evento como `noop`, `internal`, `motor`, `persona` u `oracle`. | No |
+| Capa 0 | `ai_engine/triage_router.py` | Clasifica eventos y reconoce la intención especial `CONVERSATION_SAVE`. | No |
 | Capa 1 | `ai_engine/motor_engine.py` | Resuelve y valida comandos fisicos. | Solo fallback si el motor determinista no basta |
-| Capa 2 | `ai_engine/persona_engine.py` | Conversacion, identidad, estado biologico y unica voz publica social. | Si |
+| Capa 2 | `ai_engine/persona_engine.py` | Conversacion, identidad, estado biologico y unica voz publica social; verbaliza determinísticamente el guardado manual. | Si en conversación normal; no en la rama de guardado |
 | Capa 3 | `ai_engine/oracle_engine.py` | Preguntas tecnicas/complejas con cache semantico; produce `OracleResult` frio. | Si, con cache y fallback |
 | Fallback | `ai_engine/reasoning_engine.py` | Pipeline historico de prompt + LLM + parser. | Si |
 
@@ -41,17 +47,22 @@ La prioridad actual del sistema es estabilidad con bajo consumo:
 ```mermaid
 flowchart TD
     U["Unity Client<br/>LazzaroAgent.cs"] -->|"POST /api/v1/evento<br/>EventoEntrante"| API["FastAPI<br/>api/routes.py"]
+    T["Terminal Client<br/>python -m terminal_client"] -->|"POST /api/v1/comando<br/>origen=terminal"| API
     API --> ORCH["Orchestrator<br/>core/orchestrator.py"]
 
     ORCH --> BCORE["BehaviorCore<br/>estado, tarea, psicologia, constelacion"]
     ORCH --> TRIAGE["TriageRouter<br/>Capa 0"]
     ORCH --> MEMW["MemoryManager.guardar_experiencia<br/>escritura siempre"]
 
-    TRIAGE -->|"noop/internal"| NONE["Accion none<br/>sin lectura vectorial<br/>sin LLM"]
-    TRIAGE -->|"motor"| MOTOR["MotorEngine<br/>Capa 1"]
-    TRIAGE -->|"persona"| PERSONA["PersonaEngine<br/>Capa 2"]
-    TRIAGE -->|"oracle"| ORACLE["OracleEngine<br/>Capa 3 fria"]
-    TRIAGE -->|"fallback"| REASON["ReasoningEngine<br/>pipeline clasico"]
+    TRIAGE --> EFFECTIVE["Ruta efectiva<br/>terminal: Persona/Oracle;<br/>resto a Persona"]
+    TRIAGE -->|"CONVERSATION_SAVE"| MSAVE["Snapshot público de RAM<br/>idempotencia por transacción y huella"]
+    MSAVE --> SMEM["SemanticMemory<br/>memoria_conversacional_manual"]
+    MSAVE --> OUT
+    EFFECTIVE -->|"noop/internal"| NONE["Accion none<br/>sin lectura vectorial<br/>sin LLM"]
+    EFFECTIVE -->|"motor"| MOTOR["MotorEngine<br/>Capa 1"]
+    EFFECTIVE -->|"persona"| PERSONA["PersonaEngine<br/>Capa 2"]
+    EFFECTIVE -->|"oracle"| ORACLE["OracleEngine<br/>Capa 3 fria"]
+    EFFECTIVE -->|"fallback"| REASON["ReasoningEngine<br/>pipeline clasico"]
 
     MOTOR --> OUT["ActionResponse"]
     PERSONA --> ADAPTER["LLMGenerationAdapter<br/>text/plain"]
@@ -71,6 +82,7 @@ flowchart TD
     OUT --> SAN["Sanitizacion + AccionSaliente"]
     SAN --> API
     API -->|"RespuestaAPI"| U
+    API -->|"RespuestaAPI<br/>hablar o error sin accion"| T
     U -->|"ejecuta accion / reporta resultado"| API
 ```
 
@@ -106,6 +118,11 @@ sequenceDiagram
         Orch-->>API: none
     else resultado_accion hablar o sin solicita_decision
         Orch-->>API: none
+    else CONVERSATION_SAVE
+        Orch->>Mem: guardar_fotografia_conversacional
+        Mem-->>Orch: saved/already_saved/empty/error
+        Orch->>Layer: verbalizacion Persona determinista, sin LLM
+        Layer-->>Orch: ActionResponse hablar
     else motor/persona/fallback
         Orch->>Layer: resolver ruta
         Layer-->>Orch: ActionResponse
@@ -120,14 +137,16 @@ sequenceDiagram
 ```
 
 Punto clave: el sistema separa lectura y escritura de memoria. Todos los eventos
-se escriben para alimentar consolidacion y "sueno"; solo los eventos relevantes
-leen memoria vectorial para ahorrar latencia y tokens.
+se escriben por el flujo episódico normal; solo los eventos relevantes leen
+memoria vectorial para ahorrar latencia y tokens. `CONVERSATION_SAVE` es una
+excepción explícita: además del evento normal, escribe una fotografía semántica
+sin consultar contexto largo, llamar al LLM ni activar consolidación.
 
 ## Contrato Principal De Datos
 
 ### EventoEntrante
 
-Llega desde Unity, Roblox, sandbox u otro cliente.
+Llega desde Unity, Roblox, sandbox, terminal u otro cliente.
 
 ```json
 {
@@ -163,13 +182,14 @@ Tipos de evento principales:
 |---|---|
 | `inicio_simulacion` | Despertar inicial. Unity puede mandar manual espacial una sola vez. |
 | `actualizacion_estado` | Telemetria pasiva. Normalmente Triage la corta. |
-| `comando_usuario` | Instruccion directa. Pasa por Triage. |
+| `comando_usuario` | Texto del usuario: instruccion en Unity o conversación normal en terminal. Pasa por Triage. |
 | `resultado_accion` | Reporte interno de Unity. Normalmente no llama al LLM. |
 | `alerta_dolor_fisico` | Interrupcion critica. Prioridad maxima, sin LLM. |
 
 ### AccionSaliente
 
-Sale desde Python hacia Unity.
+Sale desde Python hacia Unity u otro cliente. Terminal solo acepta una
+`AccionSaliente` cuyo nombre sea `hablar`.
 
 ```json
 {
@@ -188,15 +208,16 @@ Acciones actuales:
 | Accion | Parametros principales | Ejecuta |
 |---|---|---|
 | `none` | `{}` | No hace nada. |
-| `hablar` | `texto_a_comunicar` | Unity muestra voz/log. No reporta resultado. |
+| `hablar` | `texto_a_comunicar` | Unity muestra voz/log; terminal imprime el texto público. No reporta resultado. |
 | `navegar_a_objeto` | `nombre_objeto` | NavMesh hacia objeto visible. |
 | `navegar_a_posicion` | `x`, `y`, `z` | NavMesh hacia coordenadas. |
 | `alejarse_de_objeto` | `nombre_objeto`, `distancia` | Punto opuesto al objeto. |
 | `girar_avatar` | `grados` | Rotacion relativa en Y. |
-| `interactuar_objeto_3d` | `nombre_objeto`, `tipo_accion` | Mirar/tocar/inspeccionar/golpear/usar/activar. |
-| `agarrar_objeto` | `nombre_objeto` | Agarrar objeto cercano. |
-| `soltar_objeto` | `fuerza_lanzamiento` | Soltar objeto. |
-| `aplicar_fuerza` | `nombre_objeto`, `vector_x`, `vector_y`, `vector_z`, `fuerza` | Aplicar fuerza simulada. |
+| `cancelar_tarea` | `cancelar_movimiento`, `cancelar_cola` | Detiene movimiento, cola y contexto en Unity. |
+| `interactuar_objeto_3d` | `nombre_objeto`, `tipo_accion` | Valida proximidad y reporta; el efecto de dominio sigue como stub. |
+| `agarrar_objeto` | `nombre_objeto` | Valida proximidad y reporta; todavía no sujeta físicamente el objeto. |
+| `soltar_objeto` | `fuerza_lanzamiento` | Reporta el contrato; todavía no mantiene un objeto agarrado real. |
+| `aplicar_fuerza` | `nombre_objeto`, `vector_x`, `vector_y`, `vector_z`, `fuerza` | Reporta parámetros; todavía no aplica fuerza a un `Rigidbody`. |
 
 ## Carpetas Principales
 
@@ -210,6 +231,7 @@ Acciones actuales:
 | `telescopio/` | Modelo y visualizador de constelacion cognitiva. | Estado bruto o ChromaDB. | Grafo y HTML visual. |
 | `tools/` | Registro y ejecucion de herramientas simuladas/reales. | Acciones y parametros. | `ToolResult` o confirmaciones. |
 | `unity_client/` | Cuerpo Unity: percepcion, movimiento, voz, VRM, cola de tareas. | Respuestas API y eventos de usuario/fisica. | Eventos HTTP y acciones en escena. |
+| `terminal_client/` | Chat de texto sin cuerpo ni comandos motores. | Texto y comandos locales de terminal. | Eventos HTTP con origen terminal y habla publica. |
 | `docs/` | Bitacoras y documentacion tecnica. | Cambios del proyecto. | Markdown compartible. |
 | `lazzaro_data/` | Persistencia ChromaDB. | Memoria y cache. | Base local. No editar manualmente. |
 
@@ -387,7 +409,7 @@ Componentes:
 - `MemorySummarizer`: resumen compacto para prompt.
 - `WorkingMemory`: acciones recientes en RAM.
 - `ConversationMemory`: pares recientes Usuario/Lazzaro, ultimo intercambio,
-  temas activos y senales de continuidad inmediata.
+  temas activos, señales de continuidad y snapshot público atómico.
 - Memoria relacional selectiva: apodos, identidad del usuario/creador y
   preferencias claras se guardan como reglas semanticas, no como transcripciones.
 - Lectura relacional prioritaria: `MemoryManager.obtener_contexto_relacional()`
@@ -397,19 +419,28 @@ Componentes:
   valor y estado (`activo` o `revocado`) para evitar duplicados y resolver
   correcciones como dejar de usar un apodo viejo.
 - Consolidacion observacional: compacta telemetria vieja en reglas semanticas.
+- Guardado conversacional manual: convierte hasta 12 pares públicos en una sola
+  regla `memoria_conversacional_manual`, con transcripción, índice compacto,
+  huella y recibos de transacción.
 
 Reglas actuales:
 
 - Todos los eventos se guardan como experiencia si es posible.
 - La lectura vectorial solo ocurre cuando el evento sobrevive al triage.
-- Los turnos conversacionales completos viven en RAM; solo hechos relacionales
-  explicitos se promueven a memoria semantica persistente.
+- Los turnos conversacionales completos viven en RAM. Los hechos relacionales
+  explícitos se promueven selectivamente; una solicitud `CONVERSATION_SAVE`
+  también puede promover la fotografía pública completa.
 - Cuando hay decision activa, el contexto se arma como continuidad RAM,
   memoria relacional persistente, memoria operativa y recuerdos largos.
 - La memoria relacional elige el hecho mas reciente por categoria, por lo que
   una revocacion nueva puede ocultar un apodo o nombre anterior sin borrar datos.
 - `resultado_accion` y `actualizacion_estado` no entran a memoria de trabajo si terminan en `none` pasivo.
-- Al detectar descanso, el orquestador llama a `consolidar_memorias_si_hace_falta()`.
+- Al detectar descanso fuera del canal terminal, el orquestador llama a
+  `consolidar_memorias_si_hace_falta()`.
+- El guardado manual no entra al consolidador, no incrementa su batch, no
+  vacía la RAM y no agrega su propio turno de control.
+- Los retries del mismo ID conservan el snapshot del primer intento dentro del
+  proceso y reintentan únicamente la escritura manual.
 - `ChromaClient` tiene compuerta de hilos process-local; no protege contra otro proceso externo tocando la misma DB.
 
 ## Unity
@@ -460,6 +491,66 @@ Reglas importantes de estabilidad:
 - Riesgo pendiente: comandos unidos solo por coma pueden quedar como una sola
   subtarea.
 
+## Terminal
+
+`terminal_client/` reutiliza el backend normal con Unity cerrado. Cada mensaje
+se envia a `/api/v1/comando` como `comando_usuario` y `origen="terminal"`.
+
+Flujo:
+
+```mermaid
+flowchart LR
+    INPUT["Texto del usuario"] --> LOCAL{"Comando local exacto"}
+    LOCAL -->|"/ayuda o /salir"| CLIENT["Resolver en terminal"]
+    LOCAL -->|"/estado"| STATE["GET /api/v1/estado"]
+    STATE --> SNAPSHOT["Mostrar estado publico"]
+    LOCAL -->|"Conversacion"| API["POST /api/v1/comando"]
+    API --> TRIAGE["Triage"]
+    TRIAGE -->|"CONVERSATION_SAVE"| SAVE["Snapshot público e idempotente"]
+    SAVE --> SEM["Regla semántica persistente"]
+    SEM --> GUARD
+    TRIAGE -->|"persona"| PERSONA["Persona"]
+    TRIAGE -->|"oracle"| ORACLE["Oracle y verbalizacion Persona"]
+    TRIAGE -->|"motor, noop, internal o desconocida"| REROUTE["Reconducir a Persona"]
+    PERSONA --> GUARD["Firewall final: solo hablar"]
+    ORACLE --> GUARD
+    REROUTE --> GUARD
+    GUARD --> PUBLIC["Mostrar solo texto_a_comunicar"]
+```
+
+Protecciones:
+
+- `ToolPolicy` entrega solamente `hablar`.
+- La cancelacion de tareas y el efecto de descanso se omiten en este origen.
+- Persona sabe que no hay cuerpo disponible y no debe fingir acciones fisicas.
+- El cliente no imprime pensamiento privado ni razonamiento.
+- El cliente rechaza cualquier accion final distinta de `hablar`.
+- El texto visible se limpia de secuencias ANSI basadas en ESC y controles
+  C0/DEL.
+
+Los turnos conservan acceso a recuerdos y entran en la RAM conversacional. Las
+frases `guarda lo que hemos hablado` y
+`guarda lo que tengas en ram en tu mente` activan el guardado manual después de
+normalizar mayúsculas, acentos, puntuación y espacios. No existe `/guardar`.
+
+El artefacto Random Forest desplegado aún no contiene
+`CONVERSATION_SAVE`; admitir más variantes con ML requiere reentrenarlo y
+validarlo. La rama actual no lee contexto vectorial, no expone herramientas y
+no llama al LLM. Persiste solo Usuario/Lazzaro/timestamp y responde por Persona
+de forma determinista.
+
+La fotografía semántica no debe confundirse con el consolidador observacional.
+La RAM permanece intacta y sigue siendo volátil; la memoria persistida no
+repuebla el buffer al reiniciar.
+
+La separacion de `TaskContext` también se postergó: `/estado` puede mostrar el
+último mensaje como tarea, por lo que esta fase no admite uso simultáneo con
+Unity.
+
+La guia operativa completa esta en `docs/chat_terminal.md`.
+La validación automatizada del chat y del guardado está aprobada; el resultado
+de la prueba de campo terminal aún no se ha registrado.
+
 ## Inventario De Archivos
 
 ### Raiz
@@ -472,10 +563,11 @@ Reglas importantes de estabilidad:
 | `.env` | Configuracion local secreta. | Claves/modelos/puertos. | Valores para `Settings`. |
 | `.editorconfig` | Convenciones de edicion. | Editores compatibles. | Encoding/estilo consistente. |
 | `.gitignore` | Reglas Git. | Patrones. | Evita versionar secretos/cache. |
-| `lazzaro.log` | Log runtime. | Mensajes logger. | Diagnostico. |
-| `esp32_scan_log.txt` | Log auxiliar de sensores/ESP32. | Runtime externo. | Diagnostico. |
 | `teses.py` | Script manual antiguo. | Ejecucion directa. | Salida por consola. |
 | `to-do` | Pendientes libres. | Texto humano. | Texto humano. |
+| `train_triage_model.py` | Entrenamiento del clasificador de Triage. | Dataset configurado. | Modelo y métricas. |
+| `segurity.sh` | Script histórico de reglas UFW; mantiene defectos señalados por la auditoría. | Shell Linux. | Reglas de firewall si se corrige y ejecuta. |
+| `install-segurity-autostart.sh` | Instalador histórico del script UFW. | Shell Linux. | Configuración de arranque si se corrige. |
 
 ### `api/`
 
@@ -497,8 +589,8 @@ Reglas importantes de estabilidad:
 |---|---|
 | `core/__init__.py` | Marca paquete. |
 | `core/logger.py` | Logging a consola y `lazzaro.log`. |
-| `core/orchestrator.py` | Cerebro central: idempotencia, behavior, triage, memoria, capas, herramientas, notificaciones e identidad. |
-| `core/tool_policy.py` | Politica declarativa de herramientas por ruta/origen. Evita que Unity reciba herramientas de escritorio. |
+| `core/orchestrator.py` | Cerebro central: idempotencia, retries por transacción, behavior, triage, guardado conversacional, capas, herramientas, notificaciones e identidad. |
+| `core/tool_policy.py` | Politica de herramientas por ruta/origen: protege Unity y limita terminal exclusivamente a `hablar`. |
 | `core/behavior_core.py` | Integra estado, personalidad, tarea, psicologia y constelacion. |
 | `core/state_engine.py` | Variables emocionales/cognitivas y decaimiento temporal. |
 | `core/task_context.py` | Objetivo activo, intentos, fallos, compulsiones y loops. |
@@ -524,23 +616,24 @@ Reglas importantes de estabilidad:
 | `ai_engine/schemas.py` | Modelos internos de prompt/respuesta, incluyendo `OracleResult`. |
 | `ai_engine/llm_policies.py` | Temperatura, tokens y riesgo por politica/proveedor. |
 | `ai_engine/tool_router.py` | Filtro adicional de herramientas en `ReasoningEngine`. |
-| `ai_engine/intent_types.py` | Enum de intenciones y rutas. |
-| `ai_engine/routing_rules.py` | Reglas keyword para clasificar mensajes. |
-| `ai_engine/triage_router.py` | Capa 0 de enrutamiento. |
+| `ai_engine/intent_types.py` | Enum de intenciones y rutas, incluido `CONVERSATION_SAVE`. |
+| `ai_engine/routing_rules.py` | Reglas keyword y allowlist normalizada de guardado manual. |
+| `ai_engine/triage_router.py` | Capa 0 de enrutamiento; las dos frases base ganan al modelo. |
 | `ai_engine/spatial_reasoner.py` | Utilidades espaciales deterministas. |
 | `ai_engine/motor_schemas.py` | Esquemas estrictos de acciones fisicas. |
 | `ai_engine/motor_engine.py` | Capa 1 motora. |
 | `ai_engine/identity_state.py` | Energia, estres y enfoque para Persona. |
 | `ai_engine/persona_prompt_buider.py` | Prompt social. Mantiene typo historico `buider`. |
-| `ai_engine/persona_engine.py` | Capa 2 social y parser robusto. |
+| `ai_engine/persona_engine.py` | Capa 2 social, parser robusto y verbalización determinista del resultado de guardado. |
 | `ai_engine/oracle_client.py` | Cliente API externa para Oraculo. |
 | `ai_engine/oracle_memory.py` | Cache semantico frio del Oraculo en Chroma. |
 | `ai_engine/oracle_engine.py` | Capa 3 Oraculo, normalizacion a `OracleResult` y cache. |
 | `ai_engine/test_llm_fallbacks.py` | Prueba de settings/fallbacks. |
 | `ai_engine/test_oracle.py` | Prueba de Oraculo. |
 | `ai_engine/test_persona.py` | Prueba de Persona. |
-| `ai_engine/test_triage_routing.py` | Prueba de guardarrail social antes de Oraculo. |
+| `ai_engine/test_triage_routing.py` | Prueba de guardarrail social, frases base, negativos y futura expansión del modelo. |
 | `ai_engine/test_motor_guardrails.py` | Prueba de guardarrailes motores. |
+| `ai_engine/test_manual_memory_save.py` | Privacidad, idempotencia, retries, separación del consolidador y reapertura real de Chroma. |
 
 ### `ai_engine/prompts/`
 
@@ -559,7 +652,7 @@ Reglas importantes de estabilidad:
 | Archivo | Hace |
 |---|---|
 | `memory/__init__.py` | Marca paquete. |
-| `memory/chroma_client.py` | Wrapper de ChromaDB con RLock process-local, add/query/list/delete/count/close. |
+| `memory/chroma_client.py` | Wrapper de ChromaDB con RLock process-local, add/query/list/update de metadata/delete/count/close. |
 | `memory/memory_types.py` | Tipos de memoria y resultados. |
 | `memory/memory_encoder.py` | Convierte eventos/reglas a documentos Chroma. |
 | `memory/episodic_memory.py` | Store episodico. |
@@ -569,7 +662,8 @@ Reglas importantes de estabilidad:
 | `memory/memory_filters.py` | Fabrica filtros Chroma. |
 | `memory/memory_decay.py` | Peso temporal/uso. |
 | `memory/working_memory.py` | Memoria de trabajo de acciones recientes. |
-| `memory/memory_manager.py` | Fachada, escritura, lectura, consolidacion y sueno. |
+| `memory/conversation_memory.py` | Cola RAM volátil, resumen de continuidad y snapshot público inmutable. |
+| `memory/memory_manager.py` | Fachada, escritura, lectura, guardado conversacional idempotente, consolidación y sueño. |
 
 ### `tools/`
 
@@ -619,9 +713,20 @@ Reglas importantes de estabilidad:
 |---|---|
 | `unity_client/DTOs.cs` | Contrato C# compatible con `api/schemas.py`. |
 | `unity_client/ApiClient.cs` | Cliente HTTP Unity, timeout configurable, parseo con Newtonsoft. |
+| `unity_client/InteractableMetadata.cs` | Metadata de affordances, aliases e identidad de objetos. |
 | `unity_client/PerceptionSystem.cs` | Escaneo frontal, resumen textual, cambios significativos y busqueda de objetos. |
 | `unity_client/MovementController.cs` | NavMesh, alejarse, navegar a posicion y rotar. |
+| `unity_client/SomatoSensorySystem.cs` | Sensores de choque/dolor y emisión de alertas físicas. |
 | `unity_client/LazzaroAgent.cs` | Coordinador Unity: cola, latido, eventos, habla, VRM, movimiento y reportes. |
+
+### `terminal_client/`
+
+| Archivo | Hace |
+|---|---|
+| `terminal_client/__init__.py` | Expone el cliente y su error de contrato como paquete Python. |
+| `terminal_client/__main__.py` | Permite iniciar el frontend con `python -m terminal_client`. |
+| `terminal_client/chat.py` | Cliente HTTP, parser de comandos locales y REPL de solo conversación. |
+| `terminal_client/test_chat.py` | Validación aislada del contrato, las barreras conversacionales y regresiones de Unity. |
 
 ### `docs/`
 
@@ -629,12 +734,19 @@ Reglas importantes de estabilidad:
 |---|---|
 | `docs/registro_pruebas_unity.md` | Bitacora historica de fases, pruebas, bugs y riesgos. |
 | `docs/arquitectura_completa_lazzaro.md` | Este documento. |
+| `docs/auditoria_integral_2026-07-12.md` | Auditoría histórica integral con addendum del cliente terminal. |
+| `docs/chat_terminal.md` | Guía de uso, guardado natural y límites del cliente conversacional. |
+| `docs/cognitive_contracts.md` | Contratos e invariantes del Core, las capas y ambos clientes. |
+| `docs/estado_actual_proyecto_2026-07-06.md` | Snapshot histórico, reemplazado como estado vigente. |
+| `docs/estado_actual_proyecto_2026-07-29.md` | Estado vigente y validaciones de ambos entregables. |
+| `docs/plan_guardado_ram_conversacional.md` | Contrato, implementación y pruebas del guardado manual de RAM. |
 
 ### Datos Generados
 
 | Ruta | Hace |
 |---|---|
 | `lazzaro_data/` | Persistencia ChromaDB de experiencias y cache del Oraculo. |
+| `logs/lazzaro.log` | Registro de ejecución creado por `core/logger.py`. |
 | `constelacion.html` | Salida HTML generada por `telescopio/visualizar_constelacion.py` si se usa esa ruta. |
 | `__pycache__/` | Cache Python. |
 | `.pytest_cache/` | Cache de pruebas si existe. |
@@ -657,12 +769,14 @@ El arranque actual registra herramientas simuladas:
 - `navegar_a_posicion`
 - `alejarse_de_objeto`
 - `girar_avatar`
+- `cancelar_tarea`
 
 `ToolPolicy` filtra por origen/ruta:
 
 - `persona`: solo `hablar`.
 - `oracle`: no ejecuta herramientas publicas; produce `OracleResult` y vuelve a Persona.
 - `unity`/`roblox`: herramientas seguras de mundo 3D y voz.
+- `terminal`: solo `hablar`, sin importar la ruta propuesta por Triage.
 - otros origenes: puede exponer mas herramientas, sujeto al registry y al executor.
 
 ## Puntos De Extension
@@ -681,13 +795,19 @@ El arranque actual registra herramientas simuladas:
 Comandos ligeros:
 
 ```powershell
-python -m compileall -q ai_engine core memory api tools telescopio config main.py
+python -m compileall -q terminal_client ai_engine core memory api tools telescopio config main.py
 python ai_engine\test_llm_fallbacks.py
 python ai_engine\test_oracle.py
 python ai_engine\test_persona.py
 python ai_engine\test_triage_routing.py
 python ai_engine\test_motor_guardrails.py
+python ai_engine\test_manual_memory_save.py
+python terminal_client\test_chat.py
 ```
+
+El inventario actual contiene 18 archivos de prueba en `ai_engine` y una suite
+adicional en `terminal_client`. La prueba manual de memoria usa Chroma real en
+un directorio temporal y no toca `lazzaro_data/`.
 
 Checks manuales en Unity:
 
@@ -707,12 +827,21 @@ Checks manuales en Unity:
   valido, puede no intentar el siguiente proveedor.
 - `orchestrator.procesar_evento()` corre desde threadpool y el orquestador tiene
   estado compartido. Chroma esta protegido por lock process-local, pero el
-  orquestador completo no tiene una compuerta global.
+  orquestador completo no tiene una compuerta global. Los retries del mismo ID
+  sí se serializan; IDs distintos continúan fuera de esa garantía.
 - `AI_FALLBACK_ORDER` reemplaza el orden default; si se configura, incluir
   explicitamente el proveedor que se quiera probar primero.
 - `persona_prompt_buider.py` conserva typo en el nombre. Renombrarlo requiere
   actualizar imports y pruebas.
 - `routing_rules.py` usa keywords y puede clasificar mal frases ambiguas.
+- El cliente terminal comparte `TaskContext`: cada mensaje puede aparecer como
+  tarea actual. Se usa con Unity cerrado hasta implementar separacion de canales.
+- El Random Forest desplegado no contiene `CONVERSATION_SAVE`; únicamente las
+  dos frases base deterministas activan hoy el guardado manual.
+- La memoria manual persiste la transcripción pública, pero no repuebla la RAM
+  al reiniciar y su contexto visible sigue limitado por ranking y resumen.
+- Los snapshots fallidos se mantienen estables solo dentro del proceso; no hay
+  recibo durable de un intento que nunca llegó a escribirse.
 - `OracleClient` asume endpoint compatible con `/chat/completions` y puede usar
   `response_format` segun proveedor.
 - `tools/real/*` controla mouse/teclado real si se importa. Mantener fuera del

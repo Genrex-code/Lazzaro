@@ -27,12 +27,57 @@ class PersonaEngine:
     def __init__(self):
         self.prompt_builder = PersonaPromptBuilder()
 
+    @staticmethod
+    def construir_respuesta_guardado_conversacional(
+        status: str,
+        turn_count: int = 0,
+    ) -> Dict[str, Any]:
+        """
+        Verbaliza de forma determinista un resultado ya resuelto por memoria.
+
+        La respuesta no decide ni simula la persistencia: solamente comunica el
+        estado confirmado, evitando que un fallo del LLM anuncie un éxito falso.
+        """
+        if status == "saved":
+            texto = "Está bien, lo recordaré para después."
+            pensamiento = f"Quedaron persistidos {max(0, turn_count)} intercambios públicos."
+            razon = "Confirmar un guardado manual ya completado."
+            emocion = "Fcl_ALL_Joy"
+        elif status == "already_saved":
+            texto = "Eso ya estaba guardado en mi mente; no hace falta duplicarlo."
+            pensamiento = "La fotografía conversacional ya tenía una copia persistente."
+            razon = "Confirmar idempotencia sin fingir una escritura nueva."
+            emocion = "Fcl_ALL_Neutral"
+        elif status == "empty":
+            texto = "Todavía no tengo una conversación reciente en RAM que pueda guardar."
+            pensamiento = "No había intercambios públicos previos en la RAM conversacional."
+            razon = "Explicar que no hubo contenido para persistir."
+            emocion = "Fcl_ALL_Neutral"
+        else:
+            texto = (
+                "No pude guardar lo que hablamos esta vez. "
+                "Prefiero decírtelo antes que fingir que lo recordé."
+            )
+            pensamiento = "La memoria persistente no confirmó el guardado solicitado."
+            razon = "Informar un fallo real sin anunciar éxito."
+            emocion = "Fcl_ALL_Sorrow"
+
+        return {
+            "accion": "hablar",
+            "parametros": {"texto_a_comunicar": texto},
+            "pensamiento_privado": pensamiento,
+            "razon": razon,
+            "emocion_facial": emocion,
+            "requiere_reintento": False,
+        }
+
     def preparar_interaccion(
         self,
         mensaje_usuario: str,
         estado_biologico: IdentityState,
         percepcion: Optional[Dict[str, Any]] = None,
         recuerdos: str = "",
+        restriccion_canal: str = "",
     ) -> List[Dict[str, str]]:
         """
         Prepara la lista de mensajes [system, user] para enviar al LLM local.
@@ -47,6 +92,12 @@ class PersonaEngine:
             percepcion_texto=percepcion_texto,
             recuerdos=recuerdos,
         ) or ""
+
+        if restriccion_canal:
+            system_prompt += (
+                "\n=== RESTRICCION DEL CANAL ACTUAL ===\n"
+                f"{restriccion_canal.strip()}\n"
+            )
 
         system_prompt += (
             "\n=== FORMATO DE SALIDA ESTRICTO ===\n"
@@ -74,6 +125,7 @@ class PersonaEngine:
         datos_oraculo: OracleResult,
         percepcion: Optional[Dict[str, Any]] = None,
         recuerdos: str = "",
+        restriccion_canal: str = "",
     ) -> List[Dict[str, str]]:
         """
         Prepara una respuesta publica usando conocimiento frio de Capa 3.
@@ -88,6 +140,12 @@ class PersonaEngine:
             percepcion_texto=percepcion_texto,
             recuerdos=recuerdos,
         ) or ""
+
+        if restriccion_canal:
+            system_prompt += (
+                "\n=== RESTRICCION DEL CANAL ACTUAL ===\n"
+                f"{restriccion_canal.strip()}\n"
+            )
 
         contenido_tecnico = self._limitar_texto(datos_oraculo.contenido_tecnico, 3000)
         resumen_para_persona = self._limitar_texto(datos_oraculo.resumen_para_persona or "", 800)
@@ -135,15 +193,22 @@ class PersonaEngine:
         self,
         mensaje_usuario: str,
         respuesta_fallida: str,
+        restriccion_canal: str = "",
     ) -> List[Dict[str, str]]:
         """Construye un prompt minimo para reparar una respuesta social fallida."""
         salida = self._limitar_texto(respuesta_fallida or "", 1200)
+        restriccion = (
+            f"Restriccion del canal: {restriccion_canal.strip()}\n"
+            if restriccion_canal
+            else ""
+        )
         return [
             {
                 "role": "system",
                 "content": (
                     "Repara la respuesta de Lazzaro. Devuelve SOLO JSON valido, sin markdown.\n"
                     "La unica accion permitida es hablar.\n"
+                    f"{restriccion}"
                     "Formato exacto: "
                     '{"accion":"hablar","parametros":{"texto_a_comunicar":"..."},"pensamiento_privado":"...","razon":"..."}'
                 ),
