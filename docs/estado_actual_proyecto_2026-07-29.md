@@ -91,6 +91,8 @@ validación.
   proceso;
 - mantiene intacta la RAM y excluye el turno de control;
 - no toca descanso, biología ni el consolidador observacional.
+- emite un evento `conversation_memory_save` por intento con estado, conteo,
+  prefijo de huella y confirmación durable, sin contenido conversacional.
 
 Persona confirma `Está bien, lo recordaré para después.` únicamente después de
 una escritura confirmada. Los estados duplicado, vacío y error tienen mensajes
@@ -154,6 +156,8 @@ guardado válida, la rama de memoria tampoco se confunde con descanso.
 | Retry con snapshot estable y turnos posteriores | OK |
 | Fallos `False`/excepción al asociar metadata, seguidos de retry | OK |
 | Dos solicitudes simultáneas con el mismo ID | OK |
+| Logging de `saved`, `already_saved`, `empty` y `error` | OK |
+| Logging sin transcripción/canarios privados y fail-open | OK |
 | `python -m compileall -q terminal_client ai_engine core memory api tools telescopio config main.py` | OK |
 | `git diff --check` | OK |
 

@@ -170,13 +170,24 @@ class MemoryManager:
                 extra=extra,
             )
             if self.semantic_store.almacenar(recuerdo):
-                logger.debug("Regla guardada: %s", regla[:60])
+                logger.debug(
+                    "Regla guardada: tipo_evento=%s id=%s",
+                    tipo_evento,
+                    recuerdo.id,
+                )
                 return recuerdo.id
 
-            logger.warning("No se pudo guardar la regla '%s'.", regla[:60])
+            logger.warning(
+                "No se pudo guardar la regla: tipo_evento=%s.",
+                tipo_evento,
+            )
             return None
         except Exception as e:
-            logger.error("Error al guardar regla: %s", e, exc_info=True)
+            logger.error(
+                "Error al guardar regla: tipo_evento=%s error_type=%s",
+                tipo_evento,
+                type(e).__name__,
+            )
             return None
 
     def guardar_alias_aprendido(
@@ -543,6 +554,33 @@ class MemoryManager:
         self,
         id_transaccion: str,
     ) -> ManualConversationSaveResult:
+        """Ejecuta un intento manual y emite exactamente un evento estructurado."""
+        try:
+            resultado = self._guardar_fotografia_conversacional(id_transaccion)
+        except Exception as exc:
+            try:
+                self._registrar_intento_guardado_conversacional(
+                    id_transaccion=id_transaccion,
+                    resultado=ManualConversationSaveResult(status="error"),
+                    error_type=type(exc).__name__,
+                )
+            except Exception:
+                pass
+            raise
+
+        try:
+            self._registrar_intento_guardado_conversacional(
+                id_transaccion=id_transaccion,
+                resultado=resultado,
+            )
+        except Exception:
+            pass
+        return resultado
+
+    def _guardar_fotografia_conversacional(
+        self,
+        id_transaccion: str,
+    ) -> ManualConversationSaveResult:
         """
         Persiste una copia pública de toda la RAM sin vaciarla ni consolidarla.
 
@@ -658,9 +696,9 @@ class MemoryManager:
             except Exception as exc:
                 error_guardado = str(exc)
                 logger.error(
-                    "Error inesperado guardando fotografia conversacional: %s",
-                    exc,
-                    exc_info=True,
+                    "Error inesperado guardando fotografia conversacional: "
+                    "error_type=%s",
+                    type(exc).__name__,
                 )
 
             if memory_id:
@@ -697,6 +735,58 @@ class MemoryManager:
                 ended_at=fin,
                 error=error_guardado or "La memoria persistente no confirmó la escritura.",
             )
+
+    @classmethod
+    def _registrar_intento_guardado_conversacional(
+        cls,
+        id_transaccion: str,
+        resultado: ManualConversationSaveResult,
+        error_type: str = "",
+    ) -> None:
+        """Registra solo telemetría segura; nunca incluye contenido conversacional."""
+        status = str(resultado.status or "error").strip().lower()
+        if status not in {"saved", "already_saved", "empty", "error"}:
+            status = "error"
+
+        try:
+            turn_count = max(0, int(resultado.turn_count))
+        except (TypeError, ValueError):
+            turn_count = 0
+
+        transaction_id = cls._valor_seguro_log(id_transaccion, max_chars=160)
+        fingerprint = cls._valor_seguro_log(
+            str(resultado.fingerprint or "")[:12],
+            max_chars=12,
+        )
+        persistent_write_confirmed = "true" if resultado.persisted else "false"
+
+        campos = (
+            "event=conversation_memory_save "
+            f"transaction_id={transaction_id} "
+            f"status={status} "
+            f"turn_count={turn_count} "
+            f"fingerprint={fingerprint} "
+            f"persistent_write_confirmed={persistent_write_confirmed}"
+        )
+        if status == "error":
+            tipo_error = cls._valor_seguro_log(
+                error_type or "ManualConversationSaveError",
+                max_chars=96,
+            )
+            campos += f" error_type={tipo_error}"
+
+        try:
+            logger.info(campos)
+        except Exception:
+            # La telemetría nunca debe cambiar el resultado funcional del guardado.
+            return
+
+    @staticmethod
+    def _valor_seguro_log(valor: Any, max_chars: int) -> str:
+        """Convierte un identificador técnico en un único token sin controles."""
+        texto = str(valor or "").strip()
+        texto = re.sub(r"[\x00-\x20\x7f]+", "_", texto)
+        return texto[: max(0, max_chars)]
 
     def _obtener_o_capturar_fotografia_pendiente(
         self,
@@ -744,7 +834,10 @@ class MemoryManager:
         try:
             registros = listar(where={clave: valor}, limite=1)
         except Exception as exc:
-            logger.warning("No se pudo comprobar guardado conversacional existente: %s", exc)
+            logger.warning(
+                "No se pudo comprobar guardado conversacional existente: error_type=%s",
+                type(exc).__name__,
+            )
             return _ManualConversationLookup(status="error", error=str(exc))
 
         if registros is None:
@@ -783,7 +876,10 @@ class MemoryManager:
         try:
             registros = listar(where={"tipo_evento": "memoria_conversacional_manual"})
         except Exception as exc:
-            logger.warning("No se pudieron consultar recibos de guardado: %s", exc)
+            logger.warning(
+                "No se pudieron consultar recibos de guardado: error_type=%s",
+                type(exc).__name__,
+            )
             return _ManualConversationLookup(status="error", error=str(exc))
         if registros is None:
             return _ManualConversationLookup(
@@ -847,7 +943,10 @@ class MemoryManager:
                 )
             )
         except Exception as exc:
-            logger.warning("No se pudo asociar recibo de transacción al guardado: %s", exc)
+            logger.warning(
+                "No se pudo asociar recibo de transacción al guardado: error_type=%s",
+                type(exc).__name__,
+            )
             return False
 
     @staticmethod

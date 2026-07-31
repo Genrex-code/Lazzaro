@@ -711,6 +711,9 @@ guarda lo que tengas en ram en tu mente
 - La solicitud y su confirmación no entran en la RAM.
 - El control no activa descanso, regeneración ni consolidación desde terminal o
   Unity.
+- Cada intento manual emite un evento `conversation_memory_save` con campos
+  escalares permitidos; no registra transcripción, pensamiento, metadata ni
+  mensajes de excepción.
 
 ### Respuestas Públicas
 
@@ -751,6 +754,8 @@ Cobertura específica:
 - misma transacción concurrente: OK;
 - separación del consolidador y descanso: OK;
 - base Chroma real temporal, cierre y reapertura: OK.
+- estados `saved`, `already_saved`, `empty` y `error` en logging: OK;
+- privacidad, formato de una línea y logging fail-open: OK.
 
 La prueba Chroma usa `TemporaryDirectory` y no modifica `lazzaro_data/`.
 

@@ -136,6 +136,24 @@ Persona verbaliza de forma determinista el resultado ya confirmado:
 La confirmación de éxito ocurre únicamente después de una escritura confirmada
 o de encontrar la misma fotografía ya persistida.
 
+## Logging Estructurado
+
+Cada invocación real de `guardar_fotografia_conversacional()` emite exactamente
+un evento canónico después de conocer el resultado:
+
+```text
+event=conversation_memory_save transaction_id=<id> status=<estado> turn_count=<n> fingerprint=<12 caracteres> persistent_write_confirmed=<true|false>
+```
+
+`persistent_write_confirmed` es `true` únicamente para `saved` y
+`already_saved`. En `error` se añade `error_type`, pero nunca el mensaje de la
+excepción.
+
+El evento no incluye transcripción, texto del usuario, pensamiento privado,
+`memory_id`, metadata ni errores crudos. Los controles dentro del ID técnico se
+normalizan para conservar una sola línea. Si el sistema de logging falla, el
+resultado funcional del guardado y cualquier excepción original se conservan.
+
 ## Validación Automatizada
 
 `ai_engine/test_manual_memory_save.py` comprueba:
@@ -151,6 +169,10 @@ o de encontrar la misma fotografía ya persistida.
 - asociación durable de una segunda transacción;
 - visibilidad del último turno dentro del contexto recuperado;
 - separación total del consolidador y del descanso;
+- una línea estructurada correcta para `saved`, `already_saved`, `empty` y
+  `error`;
+- allowlist exacta de campos, ausencia de canarios privados y logging
+  fail-open;
 - cierre, reapertura y consulta de una base Chroma real en un directorio
   temporal.
 

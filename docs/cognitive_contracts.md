@@ -553,6 +553,20 @@ La verbalización se construye con
 `PersonaEngine.construir_respuesta_guardado_conversacional(...)`; no requiere
 LLM. Solo `saved` y `already_saved` cuentan como persistidos.
 
+Contrato de observabilidad:
+
+- una invocación real de `guardar_fotografia_conversacional()` produce un solo
+  evento `event=conversation_memory_save` después de resolver su estado;
+- campos obligatorios: `transaction_id`, `status`, `turn_count`,
+  `fingerprint` de 12 caracteres y `persistent_write_confirmed`;
+- `persistent_write_confirmed=true` solo para `saved` y `already_saved`;
+- `error` añade `error_type`, nunca el mensaje de excepción;
+- no se registran transcripción, texto del usuario, pensamiento, `memory_id` o
+  metadata;
+- los valores se convierten en tokens de una sola línea;
+- una falla del logger no cambia el resultado ni sustituye la excepción
+  original.
+
 Límites explícitos:
 
 - el buffer RAM continúa siendo volátil y no se repuebla al reiniciar;

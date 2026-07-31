@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import gc
+import logging
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
@@ -12,6 +13,7 @@ if __package__ in (None, ""):
     project_root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(project_root))
 
+import memory.memory_manager as memory_manager_module
 from memory.memory_manager import MemoryManager
 from memory.chroma_client import ChromaClient
 
@@ -28,6 +30,7 @@ class FakePersistentClient:
         self.records = records if records is not None else []
         self.fail_mode = ""
         self.list_fail_mode = ""
+        self.list_fail_message = "fallo programado de lectura"
         self.update_fail_mode = ""
         self.db_path = "fake-manual-memory"
         self.deleted_ids: list[str] = []
@@ -78,7 +81,7 @@ class FakePersistentClient:
         if list_fail_mode == "none":
             return None
         if list_fail_mode == "raise":
-            raise RuntimeError("fallo programado de lectura")
+            raise RuntimeError(self.list_fail_message)
         seleccionados = [
             record for record in self.records if self._matches(record["metadata"], where)
         ]
@@ -463,6 +466,221 @@ def test_manual_save_never_touches_observational_consolidation() -> None:
     )
 
 
+def test_structured_log_covers_all_statuses_without_private_content() -> None:
+    saved_client = FakePersistentClient()
+    saved_manager = _manager_with_private_turn(saved_client)
+    empty_manager = MemoryManager(FakePersistentClient())
+    error_client = FakePersistentClient()
+    error_manager = _manager_with_private_turn(error_client)
+
+    class _CaptureHandler(logging.Handler):
+        def __init__(self):
+            super().__init__()
+            self.messages: list[str] = []
+
+        def emit(self, record: logging.LogRecord) -> None:
+            self.messages.append(record.getMessage())
+
+    handler = _CaptureHandler()
+    memory_logger = logging.getLogger("memory.memory_manager")
+    memory_logger.addHandler(handler)
+    try:
+        saved = saved_manager.guardar_fotografia_conversacional("log-saved")
+        already_saved = saved_manager.guardar_fotografia_conversacional(
+            "log-already-saved"
+        )
+        empty = empty_manager.guardar_fotografia_conversacional("log-empty")
+        error_client.list_fail_mode = "raise"
+        error_client.list_fail_message = (
+            "CANARIO_ERROR_PRIVADO con texto de usuario y metadata sensible"
+        )
+        error = error_manager.guardar_fotografia_conversacional("log-error")
+    finally:
+        memory_logger.removeHandler(handler)
+
+    assert_true(saved.status == "saved", "El escenario de log saved debe guardar.")
+    assert_true(
+        already_saved.status == "already_saved",
+        "El escenario duplicado debe producir already_saved.",
+    )
+    assert_true(empty.status == "empty", "El escenario vacío debe producir empty.")
+    assert_true(error.status == "error", "El fallo de lectura debe producir error.")
+
+    event_lines = [
+        message
+        for message in handler.messages
+        if message.startswith("event=conversation_memory_save ")
+    ]
+    assert_true(
+        len(event_lines) == 4,
+        "Cada uno de los cuatro intentos debe producir exactamente una línea estructurada.",
+    )
+    assert_true(
+        all("\n" not in line and "\r" not in line for line in event_lines),
+        "Cada evento estructurado debe permanecer en una sola línea.",
+    )
+
+    by_transaction = {
+        token.split("=", 1)[1]: line
+        for line in event_lines
+        for token in line.split()
+        if token.startswith("transaction_id=")
+    }
+    expected = {
+        "log-saved": (
+            "saved",
+            2,
+            saved.fingerprint[:12],
+            "true",
+        ),
+        "log-already-saved": (
+            "already_saved",
+            2,
+            already_saved.fingerprint[:12],
+            "true",
+        ),
+        "log-empty": ("empty", 0, "", "false"),
+        "log-error": ("error", 0, "", "false"),
+    }
+    assert_true(
+        set(by_transaction) == set(expected),
+        "Los cuatro IDs deben quedar correlacionados sin líneas extra.",
+    )
+
+    for transaction_id, (
+        status,
+        turn_count,
+        fingerprint,
+        write_confirmed,
+    ) in expected.items():
+        line = by_transaction[transaction_id]
+        parsed_fields = {
+            token.split("=", 1)[0]: token.split("=", 1)[1]
+            for token in line.split()
+        }
+        expected_keys = {
+            "event",
+            "transaction_id",
+            "status",
+            "turn_count",
+            "fingerprint",
+            "persistent_write_confirmed",
+        }
+        if status == "error":
+            expected_keys.add("error_type")
+        assert_true(
+            set(parsed_fields) == expected_keys,
+            f"El evento de {transaction_id} solo debe usar campos permitidos.",
+        )
+        assert_true(f"status={status}" in line, f"Estado incorrecto para {transaction_id}.")
+        assert_true(
+            f"turn_count={turn_count}" in line,
+            f"Conteo incorrecto para {transaction_id}.",
+        )
+        assert_true(
+            f"fingerprint={fingerprint}" in line,
+            f"Prefijo de huella incorrecto para {transaction_id}.",
+        )
+        assert_true(
+            f"persistent_write_confirmed={write_confirmed}" in line,
+            f"Confirmación durable incorrecta para {transaction_id}.",
+        )
+        if status == "error":
+            assert_true(
+                "error_type=ManualConversationSaveError" in line,
+                "El error debe incluir un tipo estable sin incluir su mensaje.",
+            )
+        else:
+            assert_true(
+                "error_type=" not in line,
+                "Los estados no erróneos no deben inventar un error_type.",
+            )
+
+    joined_logs = "\n".join(handler.messages)
+    for private_canary in (
+        "cactus azul",
+        "faro verde",
+        "CANARIO_PENSAMIENTO_PRIVADO",
+        "CANARIO_EMOCION",
+        "CANARIO_ROUTE",
+        "CANARIO_INTENT",
+        "CANARIO_METADATA_PRIVADA",
+        str(error.error or ""),
+    ):
+        assert_true(
+            not private_canary or private_canary not in joined_logs,
+            f"Ningún log del intento debe filtrar contenido privado: {private_canary}.",
+        )
+
+
+def test_structured_logging_is_fail_open_and_preserves_exceptions() -> None:
+    manager = _manager_with_private_turn(FakePersistentClient())
+    original_info = memory_manager_module.logger.info
+
+    def broken_logger(*args, **kwargs) -> None:
+        raise RuntimeError("fallo del handler de logging")
+
+    memory_manager_module.logger.info = broken_logger
+    try:
+        result = manager.guardar_fotografia_conversacional("log-handler-failure")
+    finally:
+        memory_manager_module.logger.info = original_info
+
+    assert_true(
+        result.status == "saved",
+        "Un fallo del logger no debe cambiar un guardado confirmado.",
+    )
+
+    exploding_manager = MemoryManager(FakePersistentClient())
+
+    def explode(id_transaccion: str) -> ManualConversationSaveResult:
+        raise ValueError("CANARIO_EXCEPCION_PRIVADA")
+
+    exploding_manager._guardar_fotografia_conversacional = explode
+
+    class _CaptureHandler(logging.Handler):
+        def __init__(self):
+            super().__init__()
+            self.messages: list[str] = []
+
+        def emit(self, record: logging.LogRecord) -> None:
+            self.messages.append(record.getMessage())
+
+    handler = _CaptureHandler()
+    memory_logger = logging.getLogger("memory.memory_manager")
+    memory_logger.addHandler(handler)
+    try:
+        raised: Exception | None = None
+        try:
+            exploding_manager.guardar_fotografia_conversacional(
+                "log-unexpected-exception"
+            )
+        except Exception as exc:
+            raised = exc
+    finally:
+        memory_logger.removeHandler(handler)
+
+    assert_true(
+        isinstance(raised, ValueError),
+        "El wrapper debe preservar la excepción funcional original.",
+    )
+    event_lines = [
+        message
+        for message in handler.messages
+        if message.startswith("event=conversation_memory_save ")
+    ]
+    assert_true(
+        len(event_lines) == 1
+        and "status=error" in event_lines[0]
+        and "error_type=ValueError" in event_lines[0],
+        "Una excepción inesperada debe producir un único evento error tipado.",
+    )
+    assert_true(
+        "CANARIO_EXCEPCION_PRIVADA" not in "\n".join(handler.messages),
+        "El mensaje privado de la excepción no debe registrarse.",
+    )
+
+
 def test_real_chroma_survives_restart_and_recovers_last_turn() -> None:
     with TemporaryDirectory(prefix="lazzaro-manual-save-test-") as temp_dir:
         first: MemoryManager | None = MemoryManager(ChromaClient(temp_dir))
@@ -538,6 +756,8 @@ def main() -> None:
     test_transaction_receipt_update_failure_is_retryable()
     test_compact_digest_covers_the_last_turn_in_persona_context()
     test_manual_save_never_touches_observational_consolidation()
+    test_structured_log_covers_all_statuses_without_private_content()
+    test_structured_logging_is_fail_open_and_preserves_exceptions()
     test_real_chroma_survives_restart_and_recovers_last_turn()
     print(
         "[OK] test_manual_memory_save paso: persistencia pública, "

@@ -159,7 +159,10 @@ class ChromaClient:
                 logger.debug("Agregados %d documentos a '%s'.", len(ids), self.collection_name)
                 return True
             except Exception as e:
-                logger.error("Error al agregar documentos: %s", e)
+                logger.error(
+                    "Error al agregar documentos: error_type=%s",
+                    type(e).__name__,
+                )
                 return False
 
     def actualizar_metadatos(
@@ -181,7 +184,10 @@ class ChromaClient:
                 logger.debug("Actualizada metadata de %d documentos.", len(ids))
                 return True
             except Exception as e:
-                logger.error("Error al actualizar metadata: %s", e)
+                logger.error(
+                    "Error al actualizar metadata: error_type=%s",
+                    type(e).__name__,
+                )
                 return False
 
     def buscar(
@@ -233,7 +239,10 @@ class ChromaClient:
                     kwargs["limit"] = limite
                 return cast(dict[str, list[Any]], collection.get(**kwargs))
             except Exception as e:
-                logger.error("Error al listar documentos en ChromaDB: %s", e)
+                logger.error(
+                    "Error al listar documentos en ChromaDB: error_type=%s",
+                    type(e).__name__,
+                )
                 return None
 
     def eliminar(self, ids: list[str]) -> bool:

@@ -663,7 +663,7 @@ de la prueba de campo terminal aún no se ha registrado.
 | `memory/memory_decay.py` | Peso temporal/uso. |
 | `memory/working_memory.py` | Memoria de trabajo de acciones recientes. |
 | `memory/conversation_memory.py` | Cola RAM volátil, resumen de continuidad y snapshot público inmutable. |
-| `memory/memory_manager.py` | Fachada, escritura, lectura, guardado conversacional idempotente, consolidación y sueño. |
+| `memory/memory_manager.py` | Fachada, escritura, lectura, guardado conversacional idempotente con logging estructurado seguro, consolidación y sueño. |
 
 ### `tools/`
 
