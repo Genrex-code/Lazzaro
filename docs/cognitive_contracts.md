@@ -143,7 +143,6 @@ Archivo fuente: `api/schemas.py`, `unity_client/DTOs.cs` y
 | `pensamiento_privado` | `str` | Pensamiento interno para depuracion o UI privada. |
 | `requiere_confirmacion` | `bool` | Si debe pedir permiso antes de ejecutar. |
 | `parametros_descripcion` | `list[ParametroHerramienta]` | Descripcion estructurada de parametros, si aplica. |
-| `emocion_facial` | `str` | Blend shape o emocion para VRM. |
 
 ### ActionResponse
 
@@ -160,7 +159,6 @@ Archivo fuente: `ai_engine/schemas.py`
 | `razon` | `str` | Razon de la decision. |
 | `valido` | `bool` | Si la accion es confiable. |
 | `error` | `Optional[str]` | Error controlado. No debe romper el flujo. |
-| `emocion_facial` | `str` | Expresion facial sugerida. |
 | `metadata` | `dict` | Metadata interna opcional, por ejemplo auditoria motora. No debe ser voz publica. |
 
 Invariante importante: cualquier salida invalida, accion desconocida o payload
@@ -286,31 +284,36 @@ Archivo fuente: `core/orchestrator.py`
    cache.
 2. Si ese ID tiene un guardado manual pendiente, reintentar únicamente la
    escritura, sin repetir el resto del Core.
-3. Procesar el evento en `BehaviorCore` para obtener estado, narrativa,
+3. Si llega un `comando_usuario` nuevo desde terminal y existe un descanso
+   activo, finalizarlo y liquidar su recuperación antes de evaluar el mensaje.
+   `CONVERSATION_SAVE` también cumple esta condición; un retry no.
+4. Procesar el evento en `BehaviorCore` para obtener estado, narrativa,
    percepción y tarea.
-4. Evaluar `TriageRouter`.
-5. Para `origen="terminal"`, conservar Persona/Oracle y reconducir cualquier
+5. Evaluar `TriageRouter`.
+6. Para `origen="terminal"`, conservar Persona/Oracle y reconducir cualquier
    otra ruta a Persona.
-6. Detectar `CONVERSATION_SAVE` antes de leer memoria larga o exponer
+7. Detectar `CONVERSATION_SAVE` antes de leer memoria larga o exponer
    herramientas.
-7. Decidir si el evento solicita decisión activa y leer contexto solo cuando la
+8. Decidir si el evento solicita decisión activa y leer contexto solo cuando la
    ruta normal lo requiere.
-8. Guardar la experiencia episódica de todos los eventos, incluso `noop`,
+9. Guardar la experiencia episódica de todos los eventos, incluso `noop`,
    `internal` y la solicitud de guardado.
-9. Para `CONVERSATION_SAVE`, persistir el snapshot público mediante
+10. Para `CONVERSATION_SAVE`, persistir el snapshot público mediante
    `MemoryManager` y verbalizar el resultado de forma determinista.
-10. Para el resto, filtrar herramientas y resolver interrupción crítica, motor,
-    persona, oracle, fallback legacy o acción pasiva.
-11. Aplicar la primera barrera de solo habla cuando el origen es terminal.
-12. Sanitizar `ActionResponse` y reaplicar el firewall terminal.
-13. Convertir a `AccionSaliente` y gestionar ejecución o despacho.
-14. Registrar acción reciente.
-15. Registrar el par conversacional en RAM solo cuando la salida final es
-    `hablar` y no es el control de guardado.
-16. Cachear la respuesta o marcar únicamente la persistencia manual como
-    pendiente cuando Chroma devuelve error.
-17. Emitir notificaciones y registrar `IdentityState`; el control manual nunca
-    cuenta como descanso.
+11. Para el resto, filtrar herramientas y resolver interrupción crítica, motor,
+     persona, oracle, fallback legacy o acción pasiva.
+12. Aplicar la primera barrera de solo habla cuando el origen es terminal.
+13. Sanitizar `ActionResponse` y reaplicar el firewall terminal.
+14. Convertir a `AccionSaliente` y gestionar ejecución o despacho.
+15. Registrar acción reciente.
+16. Registrar el par conversacional en RAM solo cuando la salida final es
+     `hablar` y no es el control de guardado.
+17. Cachear la respuesta o marcar únicamente la persistencia manual como
+     pendiente cuando Chroma devuelve error.
+18. Emitir notificaciones y registrar el coste cognitivo sobre el estado
+    canónico. Si el turno terminal fue una petición explícita de descanso,
+    iniciar al final un único periodo diferido; el control manual nunca inicia
+    otro descanso.
 
 ### Invariantes
 
@@ -325,6 +328,8 @@ Archivo fuente: `core/orchestrator.py`
 | Herramientas reales de escritorio requieren confirmacion | Seguridad fuera del jardin de Unity. |
 | Persona produce la voz conversacional normal | Oraculo devuelve `OracleResult`; el Core solo puede sintetizar `hablar` como fallback o barrera de seguridad. |
 | `CONVERSATION_SAVE` no lee contexto ni llama LLM | El éxito depende de persistencia, no de una afirmación generada. |
+| El descanso terminal se liquida antes del siguiente comando nuevo | Persona, Psychology, motor y `/estado` comparten la misma reserva recuperada. |
+| GETs, comandos locales y retries no despiertan | Consultar o repetir transporte no equivale a un turno humano nuevo. |
 | El turno de control no entra a RAM | Evita guardar la orden y su confirmación en el siguiente snapshot. |
 | Un error manual no se cachea como éxito | Permite retry sin repetir BehaviorCore ni efectos generales. |
 
@@ -513,7 +518,10 @@ Contrato de activación:
 - la solicitud debe ser un `comando_usuario`;
 - el intent es `CONVERSATION_SAVE` y la ruta declarada es `persona`;
 - el Orchestrator corta esa ruta antes de lectura vectorial, tools o LLM;
-- puede entrar desde terminal o Unity, aunque terminal sea el uso principal.
+- puede entrar desde terminal o Unity, aunque terminal sea el uso principal;
+- si es el siguiente `comando_usuario` terminal después de pedir descanso,
+  primero finaliza ese periodo; el guardado no se convierte por ello en una
+  nueva petición de descanso.
 
 Contrato del snapshot:
 
@@ -608,8 +616,9 @@ Contrato:
 
 Metodo publico: `consolidar_memorias_si_hace_falta()`.
 
-Se activa desde el orquestador cuando se detecta descanso fuera del origen
-terminal.
+El flujo de Unity puede activarlo al detectar su descanso conforme a su contrato
+vigente. El descanso diferido del origen terminal es deliberadamente ortogonal:
+recupera estado biológico, pero nunca llama a este método.
 
 Contrato:
 
@@ -1120,8 +1129,7 @@ JSON estricto con esta forma:
   "parametros": {
     "texto_a_comunicar": "respuesta visible"
   },
-  "razon": "motivo breve",
-  "emocion_facial": "neutral"
+  "razon": "motivo breve"
 }
 ```
 
@@ -1160,7 +1168,29 @@ permanece privado como en cualquier salida Persona.
 
 ### Biologia / IdentityState
 
-Persona recibe condiciones de `IdentityState.inyectar_en_prompt(...)`.
+En producción, `BehaviorCore.state_engine` es la reserva canónica de energía,
+estrés y foco. `IdentityState` actúa como adaptador de compatibilidad: su
+`enfoque` refleja `StateEngine.foco`, y Persona continúa recibiendo las
+condiciones mediante `IdentityState.inyectar_en_prompt(...)`. Psychology,
+contexto motor, esfuerzo subjetivo y `/estado` observan así la misma reserva.
+
+El descanso del chat terminal sigue este contrato:
+
+- comienza después de responder a una petición explícita de descanso;
+- recupera `0.10` puntos de energía por segundo, con límite de `100` y sin
+  aplicar desgaste activo al mismo intervalo;
+- conserva la relajación de estrés y carga cognitiva, congela el decaimiento de
+  foco y neutraliza la fatiga activa por estrés alto durante ese intervalo;
+- mantiene un solo periodo activo: no apila ni compone tasas de recuperación;
+- `obtener_estado()` puede proyectar el valor correspondiente al instante de
+  lectura sin mutar el periodo ni despertar;
+- finaliza exactamente una vez antes del siguiente `comando_usuario` terminal
+  nuevo, incluido `CONVERSATION_SAVE`;
+- `/ayuda`, `/estado`, `/salir`, entradas vacías y retries del mismo
+  `id_transaccion` no lo finalizan;
+- nunca ejecuta una acción física ni consolidación de memoria;
+- solo existe durante la vida del proceso backend y no recupera tiempo mientras
+  ese proceso está detenido.
 
 Ejemplos de reglas esperadas:
 
@@ -1169,7 +1199,7 @@ Ejemplos de reglas esperadas:
 | Energia baja | Respuestas mas cortas, cansancio o baja bateria. |
 | Estres alto | Tono mas tenso o irritable, sin perder seguridad. |
 | Foco bajo | Pedir claridad y evitar tareas complejas. |
-| Descanso | Reducir actividad y consolidar memoria. |
+| Descanso terminal | Recuperación biológica diferida, sin actividad física ni consolidación. |
 
 ### Contrato futuro para modelo propio
 
@@ -1195,8 +1225,7 @@ Ejemplo de dataset:
     "pensamiento_privado": "El usuario abre conversacion social.",
     "accion": "hablar",
     "parametros": {"texto_a_comunicar": "Estoy aqui, algo cansada pero estable."},
-    "razon": "Responder socialmente sin accionar herramientas.",
-    "emocion_facial": "neutral"
+    "razon": "Responder socialmente sin accionar herramientas."
   }
 }
 ```
@@ -1403,15 +1432,16 @@ autoriza la política conversacional es `origen="terminal"`.
 | Comando | Contrato |
 |---|---|
 | `/ayuda` | Se resuelve localmente y no toca la API. |
-| `/estado` | Ejecuta únicamente `GET /api/v1/estado`. |
+| `/estado` | Ejecuta únicamente `GET /api/v1/estado`; proyecta la recuperación sin despertar. |
 | `/salir` | Cierra el cliente sin enviar otro evento. |
 
 La coincidencia es exacta después de recortar extremos e ignorar mayúsculas.
 Las entradas vacías no generan UUID ni solicitudes. Otros textos que empiezan
 con `/` se rechazan localmente.
 
-No existe `/guardar`. Las dos frases naturales de guardado se envían como un
-turno normal y se resuelven dentro del Core.
+No existen `/guardar` ni `/descansar`. Las frases naturales de guardado y las
+peticiones de descanso se envían como turnos normales y se resuelven dentro del
+Core.
 
 ### Salida Visible
 
@@ -1437,7 +1467,10 @@ y no terminan el REPL. `Ctrl+C` y EOF cierran limpiamente.
 - `motor`, `noop`, `internal` o una ruta inválida se reconducen a Persona.
 - `ToolPolicy` solo entrega `hablar`.
 - La cancelación de tareas no se ejecuta.
-- Descanso no activa consolidación ni regeneración biológica.
+- Una petición explícita puede iniciar descanso biológico diferido, pero no
+  consolidación, herramientas ni acciones físicas.
+- El siguiente `comando_usuario` nuevo despierta; consultar estado, usar un
+  comando local o reintentar la misma transacción no.
 - Persona recibe la restricción de que el canal no tiene cuerpo.
 - El firewall del Core se aplica antes y después de la sanitización.
 - El cliente vuelve a rechazar cualquier acción final distinta de `hablar`.
@@ -1459,6 +1492,7 @@ En esta fase:
 - terminal y Unity no se usan simultáneamente;
 - `TaskContext` sigue compartido;
 - existe guardado manual mediante las dos frases base, sin `/guardar`;
+- el descanso terminal es único, no acumulable y volátil al proceso backend;
 - no se crea otro Orchestrator, MemoryManager ni endpoint.
 
 ## Contrato De Proveedores LLM
@@ -1631,9 +1665,12 @@ def herramienta(params: ParamsModel) -> ToolResult:
 - Clasificación motora termina en Persona y `hablar`.
 - Ruta Oracle se conserva y termina verbalizada.
 - `detente` no activa `cancelar_tarea`.
-- `descansa` no consolida memoria ni regenera biología.
+- `descansa` inicia recuperación diferida a `0.10` puntos de energía por
+  segundo, sin consolidación ni acción física.
 - `/ayuda` y `/salir` no hacen solicitudes.
-- `/estado` solo consulta el endpoint de estado.
+- `/estado` proyecta la recuperación sin finalizar el descanso.
+- El siguiente mensaje nuevo, incluido guardado manual, despierta exactamente
+  una vez; un retry del mismo ID no.
 - Las dos frases base terminan en `hablar` y no agregan su control a la RAM.
 - `empty`, `already_saved` y `error` tienen mensajes públicos distintos.
 - Pensamiento privado y razonamiento no aparecen en salida.
@@ -1657,6 +1694,7 @@ def herramienta(params: ParamsModel) -> ToolResult:
 | Recuperación larga limitada a 600 caracteres | Un detalle interior puede persistir pero no llegar a Persona | Índice compacto actual; futura extracción guiada por consulta. |
 | Locks manuales solo cubren el mismo ID | IDs, procesos o workers distintos aún comparten estado | Mantener un solo cliente secuencial; diseñar sincronización antes de ampliar. |
 | Intento fallido sin commit no sobrevive reinicio | No puede reconstruirse el snapshot pendiente | Repetir como una transacción nueva después de reiniciar. |
+| Descanso terminal vive solo en RAM | Reiniciar el backend elimina el periodo pendiente y no cuenta el tiempo apagado | Mantener el backend activo durante el descanso; persistencia queda fuera de esta fase. |
 
 ## Checklist Para Cambios Futuros
 

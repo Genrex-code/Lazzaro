@@ -64,21 +64,17 @@ class LLMResponse(BaseModel):
         ...,
         description="Resumen breve de la decision. No incluyas cadena de pensamiento extensa.",
     )
-    accion: Optional[str] = Field(
-        default=None,
-        description="Nombre exacto de la accion a ejecutar o null si no aplica.",
+    accion: str = Field(
+        default="none",
+        description="Nombre exacto de la accion a ejecutar o 'none' si no aplica.",
     )
     parametros: dict[str, Any] = Field(
         default_factory=dict,
-        description="Parametros validos para la accion elegida. Si accion es null, usa {}.",
+        description="Parametros validos para la accion elegida. Si accion es 'none', usa {}.",
     )
     razon: str = Field(
         default="",
         description="Justificacion corta y concreta de la decision.",
-    )
-    emocion_facial: str = Field(
-        default="Fcl_ALL_Neutral",
-        description="Expresion facial a mostrar (ej. Fcl_ALL_Joy, Fcl_ALL_Sorrow, Fcl_ALL_Angry, Fcl_ALL_Fun, Fcl_ALL_Neutral).",
     )
 
 
@@ -91,7 +87,6 @@ class ActionResponse(BaseModel):
     razon: str = ""
     valido: bool = True
     error: Optional[str] = None
-    emocion_facial: str = "Fcl_ALL_Neutral"
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

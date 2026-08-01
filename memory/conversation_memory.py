@@ -27,7 +27,6 @@ class ConversationTurn:
     lazzaro: str
     timestamp: datetime = field(default_factory=datetime.utcnow)
     pensamiento: str = ""
-    emocion: str = "Fcl_ALL_Neutral"
     route: str = ""
     intent: str = ""
     metadata: Optional[dict[str, Any]] = None
@@ -61,7 +60,6 @@ class ConversationMemory:
         usuario: str,
         lazzaro: str,
         pensamiento: str = "",
-        emocion: str = "Fcl_ALL_Neutral",
         route: str = "",
         intent: str = "",
         metadata: Optional[dict[str, Any]] = None,
@@ -77,7 +75,6 @@ class ConversationMemory:
             usuario=usuario_limpio,
             lazzaro=lazzaro_limpio,
             pensamiento=self._limpiar_texto(pensamiento, limite=240),
-            emocion=str(emocion or "Fcl_ALL_Neutral").strip() or "Fcl_ALL_Neutral",
             route=str(route or "").strip(),
             intent=str(intent or "").strip(),
             metadata=metadata or None,

@@ -113,7 +113,6 @@ class AccionSaliente(BaseModel):
         default_factory=list,
         description="Metadatos opcionales que describen los parametros esperados.",
     )
-    emocion_facial: str = Field(default="Fcl_ALL_Neutral", description="Expresion VRM a usar.")
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -124,7 +123,6 @@ class AccionSaliente(BaseModel):
                 "razonamiento": "Necesito acercarme al arbol mas cercano para explorarlo.",
                 "pensamiento_privado": "La ruta esta libre y el objetivo sigue vigente.",
                 "requiere_confirmacion": False,
-                "emocion_facial": "Fcl_ALL_Joy",
             }
         }
     )

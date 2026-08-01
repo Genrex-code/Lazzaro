@@ -53,7 +53,6 @@ class ResponseParser:
             accion = ResponseParser._normalizar_accion(datos.get("accion"))
             parametros = datos.get("parametros", {})
             razon = datos.get("razon", "")
-            emocion_facial = datos.get("emocion_facial", "Fcl_ALL_Neutral")
             return ActionResponse(
                 pensamiento=pensamiento,
                 accion=accion,
@@ -61,7 +60,6 @@ class ResponseParser:
                 razon=razon,
                 valido=False,
                 error=f"Estructura JSON incorrecta: {e}",
-                emocion_facial=emocion_facial if isinstance(emocion_facial, str) else "Fcl_ALL_Neutral",
             )
 
         accion_normalizada = ResponseParser._normalizar_accion(respuesta.accion)
@@ -82,7 +80,6 @@ class ResponseParser:
                 razon=respuesta.razon,
                 valido=False,
                 error=f"Accion '{accion_normalizada}' no permitida.",
-                emocion_facial=respuesta.emocion_facial,
             )
 
         logger.debug("Respuesta parseada correctamente. Accion: %s", accion_normalizada)
@@ -92,7 +89,6 @@ class ResponseParser:
             parametros=respuesta.parametros,
             razon=respuesta.razon,
             valido=True,
-            emocion_facial=respuesta.emocion_facial,
         )
 
     @staticmethod

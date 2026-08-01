@@ -5,7 +5,6 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
-using UniVRM10; // Corregido para VRM 1.0
 using TMPro;    // Corregido para UI
 
 [RequireComponent(typeof(ApiClient))]
@@ -17,7 +16,6 @@ public class LazzaroAgent : MonoBehaviour
     private ApiClient api;
     private PerceptionSystem percepcion;
     private MovementController movimiento;
-    private Vrm10Instance vrmInstance; // Corregido para VRM 1.0
     private readonly LinkedList<EventoEntrante> colaEventos = new LinkedList<EventoEntrante>();
     private readonly Queue<string> colaTareasUsuario = new Queue<string>();
     private bool procesandoCola = false;
@@ -53,7 +51,6 @@ public class LazzaroAgent : MonoBehaviour
         api = GetComponent<ApiClient>();
         percepcion = GetComponent<PerceptionSystem>();
         movimiento = GetComponent<MovementController>();
-        vrmInstance = GetComponentInChildren<Vrm10Instance>(); // Corregido para VRM 1.0
         movimiento.OnMovimientoCompletado += ManejarMovimientoCompletado;
     }
 
@@ -494,8 +491,6 @@ public class LazzaroAgent : MonoBehaviour
             return; // Validacion de seguridad
         }
 
-        AplicarExpresionFacial(respuesta.accion.emocion_facial);
-
         // 1. Mostrar Pensamiento Privado en la UI
         if (textoPensamientoUI != null && !string.IsNullOrEmpty(respuesta.accion.pensamiento_privado))
         {
@@ -782,54 +777,6 @@ REGLAS FISICAS Y DE ENTORNO:
             CultureInfo.InvariantCulture,
             out valor
         );
-    }
-
-    private void AplicarExpresionFacial(string emocionFacial)
-    {
-        if (vrmInstance == null || vrmInstance.Runtime == null || string.IsNullOrWhiteSpace(emocionFacial))
-        {
-            return;
-        }
-
-        ExpressionPreset preset = ResolverPresetFacial(emocionFacial);
-        ExpressionPreset[] presetsFaciales =
-        {
-            ExpressionPreset.neutral,
-            ExpressionPreset.happy,
-            ExpressionPreset.sad,
-            ExpressionPreset.angry,
-            ExpressionPreset.relaxed
-        };
-
-        foreach (ExpressionPreset facial in presetsFaciales)
-        {
-            float peso = (facial == preset) ? 1.0f : 0.0f;
-            vrmInstance.Runtime.Expression.SetWeight(ExpressionKey.CreateFromPreset(facial), peso);
-        }
-    }
-
-    private static ExpressionPreset ResolverPresetFacial(string emocionFacial)
-    {
-        string valor = emocionFacial.Trim().ToLowerInvariant();
-        valor = valor.Replace("fcl_all_", "");
-
-        switch (valor)
-        {
-            case "joy":
-            case "happy":
-                return ExpressionPreset.happy;
-            case "sorrow":
-            case "sad":
-                return ExpressionPreset.sad;
-            case "angry":
-                return ExpressionPreset.angry;
-            case "fun":
-            case "relaxed":
-                return ExpressionPreset.relaxed;
-            case "neutral":
-            default:
-                return ExpressionPreset.neutral;
-        }
     }
 
     private void EjecutarInteraccion(JObject parametros)

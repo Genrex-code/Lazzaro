@@ -19,10 +19,12 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(project_root))
 
 from ai_engine.schemas import ActionResponse
+from ai_engine.identity_state import IdentityState
 from ai_engine.persona_engine import PersonaEngine
 from api.routes import router
 from api.schemas import AccionSaliente, EventoEntrante
 from core.orchestrator import Orchestrator
+from core.state_engine import StateEngine
 from core.tool_policy import ToolPolicy
 from memory.memory_manager import ManualConversationSaveResult
 from terminal_client.chat import (
@@ -38,11 +40,14 @@ def assert_true(condicion: bool, mensaje: str) -> None:
         raise AssertionError(mensaje)
 
 
-def _evento_terminal(mensaje: str = "hola") -> EventoEntrante:
+def _evento_terminal(
+    mensaje: str = "hola",
+    id_transaccion: str | None = None,
+) -> EventoEntrante:
     return EventoEntrante(
         origen="terminal",
         tipo_evento="comando_usuario",
-        id_transaccion=f"terminal-{abs(hash(mensaje))}",
+        id_transaccion=id_transaccion or f"terminal-{abs(hash(mensaje))}",
         detalles={"mensaje": mensaje, "solicita_decision": True},
     )
 
@@ -76,7 +81,6 @@ def test_cliente_envia_contrato_terminal_y_solo_devuelve_texto_publico() -> None
                     "pensamiento_privado": "Esto no debe mostrarse.",
                     "requiere_confirmacion": False,
                     "parametros_descripcion": [],
-                    "emocion_facial": "Fcl_ALL_Joy",
                 },
             },
         )
@@ -442,10 +446,69 @@ def test_api_comando_acepta_terminal_y_fuerza_evento_conversacional() -> None:
     assert_true(fake.eventos[0].origen == "terminal", "Debe conservar el origen terminal.")
 
 
+class _FakeClock:
+    def __init__(self, instante: float = 1_000.0):
+        self._instante = float(instante)
+        self._lock = threading.Lock()
+
+    def __call__(self) -> float:
+        with self._lock:
+            return self._instante
+
+    def avanzar(self, segundos: float) -> None:
+        with self._lock:
+            self._instante += float(segundos)
+
+
+class _TrackingStateEngine(StateEngine):
+    def __init__(self, *, clock: _FakeClock):
+        super().__init__(clock=clock)
+        self.descansos_iniciados = 0
+        self.descansos_finalizados = 0
+        self.bloquear_finalizacion = False
+        self.finalizacion_iniciada = threading.Event()
+        self.liberar_finalizacion = threading.Event()
+
+    def iniciar_descanso(self) -> bool:
+        iniciado = super().iniciar_descanso()
+        if iniciado:
+            self.descansos_iniciados += 1
+        return iniciado
+
+    def finalizar_descanso(self) -> dict[str, float | bool]:
+        if self.bloquear_finalizacion:
+            self.finalizacion_iniciada.set()
+            assert_true(
+                self.liberar_finalizacion.wait(timeout=2),
+                "La prueba debe liberar la finalizacion del descanso.",
+            )
+        resultado = super().finalizar_descanso()
+        if resultado["aplicado"]:
+            self.descansos_finalizados += 1
+        return resultado
+
+
+class _TrackingIdentity(IdentityState):
+    def __init__(self, state_engine: StateEngine):
+        super().__init__(state_engine=state_engine)
+        self.eventos: list[dict] = []
+
+    def registrar_evento(self, **kwargs) -> None:
+        self.eventos.append(dict(kwargs))
+        super().registrar_evento(**kwargs)
+
+
 class _FakeBehavior:
+    def __init__(self, state_engine: StateEngine | None = None):
+        self.state_engine = state_engine
+
     def procesar_evento(self, tipo_evento: str, detalles: dict) -> dict:
+        estado = {}
+        if self.state_engine is not None:
+            self.state_engine.aplicar_evento(tipo_evento, contexto=detalles)
+            estado = self.state_engine.obtener_estado()
         return {
-            "estado": {},
+            "estado": estado,
             "narrativa": "",
             "contexto_llm": {},
             "tarea": None,
@@ -453,6 +516,14 @@ class _FakeBehavior:
             "es_interrupcion_critica": False,
             "tipo_memoria": tipo_evento,
             "percepcion_resumida": "",
+        }
+
+    def obtener_resumen(self) -> dict:
+        estado = self.state_engine.obtener_estado() if self.state_engine is not None else {}
+        return {
+            "estado": estado,
+            "personalidad": {},
+            "tarea": None,
         }
 
 
@@ -569,21 +640,26 @@ class _BombReasoning:
 def _orquestador_aislado(
     route: str,
     intent: str | None = None,
+    state_engine: StateEngine | None = None,
 ) -> tuple[Orchestrator, dict[str, int]]:
     orchestrator = object.__new__(Orchestrator)
-    orchestrator.behavior = _FakeBehavior()
+    orchestrator.behavior = _FakeBehavior(state_engine=state_engine)
     orchestrator.memory = _FakeMemory()
     orchestrator.reasoning = _BombReasoning()
     orchestrator.tool_registry = _FakeRegistry()
     orchestrator.triage_router = _FakeTriage(route, intent=intent)
     orchestrator.tool_policy = ToolPolicy()
-    orchestrator.identity_state = _FakeIdentity()
+    orchestrator.identity_state = (
+        _TrackingIdentity(state_engine) if state_engine is not None else _FakeIdentity()
+    )
     orchestrator._transacciones_procesadas = OrderedDict()
     orchestrator._guardados_conversacionales_pendientes = OrderedDict()
     orchestrator._alias_candidates_pendientes = OrderedDict()
     orchestrator._notificaciones = deque(maxlen=50)
     orchestrator._transacciones_lock_guard = threading.Lock()
     orchestrator._transacciones_locks = {}
+    orchestrator._descanso_terminal_lock = threading.RLock()
+    orchestrator._descanso_terminal_pendiente = None
 
     llamadas = {"persona": 0, "oracle": 0, "motor": 0, "cancelacion": 0}
 
@@ -723,7 +799,487 @@ def test_oracle_se_conserva_y_tool_policy_solo_expone_hablar() -> None:
     assert_true(herramientas == ["hablar"], "Terminal solo debe exponer hablar en toda ruta.")
 
 
-def test_terminal_no_activa_descanso_ni_consolidacion() -> None:
+def test_state_engine_descanso_temporal_proyecta_sin_mutar_y_no_acumula() -> None:
+    reloj = _FakeClock()
+    estado = _TrackingStateEngine(clock=reloj)
+    estado.energia = 40.0
+
+    assert_true(estado.iniciar_descanso() is True, "El primer descanso debe iniciar.")
+    assert_true(
+        estado.iniciar_descanso() is False,
+        "Una segunda solicitud no debe acumular otro descanso.",
+    )
+    reloj.avanzar(25.0)
+
+    proyectado_a = estado.obtener_estado()
+    proyectado_b = estado.obtener_estado()
+    assert_true(
+        abs(proyectado_a["energia"] - 42.5) < 1e-6,
+        "El descanso debe proyectar exactamente 0.10 de energia por segundo.",
+    )
+    assert_true(
+        proyectado_b["energia"] == proyectado_a["energia"],
+        "Consultar el estado no debe acumular dos veces el mismo intervalo.",
+    )
+    assert_true(
+        abs(estado.energia - 40.0) < 1e-6,
+        "La proyeccion publica no debe mutar la reserva antes de despertar.",
+    )
+
+    resultado = estado.finalizar_descanso()
+    assert_true(resultado["aplicado"] is True, "El siguiente mensaje debe liquidar el descanso.")
+    assert_true(
+        abs(float(resultado["energia_recuperada"]) - 2.5) < 1e-6,
+        "La liquidacion debe informar solo la energia acumulada durante el intervalo.",
+    )
+    assert_true(abs(estado.energia - 42.5) < 1e-6, "La energia proyectada debe quedar aplicada.")
+    assert_true(estado.descansando is False, "La recuperacion debe detenerse al despertar.")
+    assert_true(
+        estado.finalizar_descanso()["aplicado"] is False,
+        "Finalizar otra vez no debe duplicar la recuperacion.",
+    )
+
+    reloj_tope = _FakeClock()
+    estado_tope = StateEngine(clock=reloj_tope)
+    estado_tope.energia = 99.5
+    estado_tope.iniciar_descanso()
+    reloj_tope.avanzar(20.0)
+    assert_true(
+        estado_tope.obtener_estado()["energia"] == 100.0,
+        "La proyeccion del descanso debe respetar el tope biologico.",
+    )
+    estado_tope.finalizar_descanso()
+    assert_true(estado_tope.energia == 100.0, "La liquidacion tampoco debe superar 100.")
+
+
+def test_descanso_parcial_relaja_sin_decaer_foco_ni_aplicar_fatiga_activa() -> None:
+    reloj = _FakeClock()
+    estado = StateEngine(clock=reloj)
+    estado.energia = 50.0
+    estado.estres = 80.0
+    estado.foco = 60.0
+    estado.carga_cognitiva = 40.0
+    segundos = 10.0
+
+    estado.iniciar_descanso()
+    reloj.avanzar(segundos)
+    proyectado = estado.obtener_estado()
+    energia_esperada = 50.0 + estado.RECUPERACION_DESCANSO_POR_SEGUNDO * segundos
+    estres_esperado = 80.0 - estado.RECUPERACION_ESTRES_POR_SEGUNDO * segundos
+    carga_esperada = 40.0 - estado.RECUPERACION_CARGA_POR_SEGUNDO * segundos
+
+    assert_true(
+        abs(proyectado["energia"] - energia_esperada) < 1e-6,
+        "Durante descanso solo debe aplicarse la tasa positiva, incluso con estres alto.",
+    )
+    assert_true(
+        abs(proyectado["estres"] - estres_esperado) < 1e-6,
+        "El estres debe relajarse segun su constante temporal.",
+    )
+    assert_true(
+        abs(proyectado["carga_cognitiva"] - carga_esperada) < 1e-6,
+        "La carga debe relajarse segun su constante temporal.",
+    )
+    assert_true(
+        proyectado["foco"] == 60.0,
+        "El foco no debe decaer ni recibir la penalizacion activa por estres alto.",
+    )
+    assert_true(
+        estado.energia == 50.0
+        and estado.estres == 80.0
+        and estado.foco == 60.0
+        and estado.carga_cognitiva == 40.0,
+        "La lectura parcial debe seguir siendo una proyeccion sin mutaciones.",
+    )
+
+    estado.finalizar_descanso()
+    assert_true(
+        abs(estado.energia - energia_esperada) < 1e-6
+        and abs(estado.estres - estres_esperado) < 1e-6
+        and estado.foco == 60.0
+        and abs(estado.carga_cognitiva - carga_esperada) < 1e-6,
+        "Al despertar deben liquidarse exactamente los valores proyectados.",
+    )
+
+
+def test_identity_state_y_state_engine_comparten_reserva_biologica() -> None:
+    reloj = _FakeClock()
+    estado = StateEngine(clock=reloj)
+    identidad = IdentityState(state_engine=estado)
+    estado.energia = 50.0
+
+    identidad.registrar_evento(route="persona", success=True)
+    assert_true(
+        identidad.energia == estado.energia == 49.0,
+        "Persona y StateEngine deben descontar sobre una sola reserva de energia.",
+    )
+
+    estado.iniciar_descanso()
+    reloj.avanzar(20.0)
+    estado.finalizar_descanso()
+    assert_true(
+        identidad.energia == estado.energia == 51.0,
+        "La recuperacion canonica debe ser visible inmediatamente para Persona.",
+    )
+
+
+def test_descanso_terminal_proyecta_en_estado_y_despierta_antes_de_responder() -> None:
+    reloj = _FakeClock()
+    estado = _TrackingStateEngine(clock=reloj)
+    orchestrator, _ = _orquestador_aislado(
+        "persona",
+        intent="CORE_SYSTEM",
+        state_engine=estado,
+    )
+    energias_vistas: list[float] = []
+    descansando_al_responder: list[bool] = []
+
+    def resolver_persona(**kwargs) -> ActionResponse:
+        energias_vistas.append(orchestrator.identity_state.energia)
+        descansando_al_responder.append(estado.descansando)
+        return ActionResponse(
+            pensamiento="Respuesta privada de prueba.",
+            accion="hablar",
+            parametros={"texto_a_comunicar": "Descansare hasta que vuelvas."},
+            razon="Ruta Persona.",
+        )
+
+    orchestrator._resolver_ruta_persona = resolver_persona
+    solicitud = _evento_terminal("descansa", "rest-projection")
+    respuesta = orchestrator.procesar_evento(solicitud)
+
+    assert_true(respuesta is not None and respuesta.nombre == "hablar", "Debe responder conversando.")
+    assert_true(
+        descansando_al_responder == [False],
+        "El descanso debe armarse despues de generar la respuesta a la solicitud.",
+    )
+    assert_true(estado.descansando is True, "La solicitud CORE_SYSTEM debe dejar descanso activo.")
+    assert_true(estado.descansos_iniciados == 1, "Debe iniciar un solo periodo.")
+    energia_base = estado.energia
+
+    reloj.avanzar(25.0)
+    app = FastAPI()
+    app.state.orchestrator = orchestrator
+    app.include_router(router)
+    with TestClient(app) as api_client:
+        estado_a = api_client.get("/api/v1/estado")
+        estado_b = api_client.get("/api/v1/estado")
+
+    assert_true(estado_a.status_code == 200 and estado_b.status_code == 200, "/estado debe responder.")
+    energia_proyectada = min(100.0, energia_base + 2.5)
+    assert_true(
+        abs(float(estado_a.json()["energia"]) - energia_proyectada) < 1e-6,
+        "/estado debe proyectar la recuperacion acumulada.",
+    )
+    assert_true(
+        estado_b.json()["energia"] == estado_a.json()["energia"],
+        "Dos consultas de estado no deben aplicar dos veces el intervalo.",
+    )
+    assert_true(
+        abs(estado.energia - energia_base) < 1e-6 and estado.descansando,
+        "/estado no debe despertar ni mutar la energia almacenada.",
+    )
+
+    orchestrator.triage_router.intent = "SOCIAL"
+    siguiente = orchestrator.procesar_evento(_evento_terminal("ya volvi", "wake-projection"))
+    assert_true(siguiente is not None and siguiente.nombre == "hablar", "El despertar debe conversar.")
+    assert_true(
+        abs(energias_vistas[-1] - energia_proyectada) < 1e-6,
+        "Persona debe recibir la energia recuperada antes de responder al siguiente mensaje.",
+    )
+    assert_true(
+        descansando_al_responder[-1] is False,
+        "El siguiente turno debe cerrar la recuperacion antes de entrar a Persona.",
+    )
+    assert_true(estado.descansos_finalizados == 1, "El periodo debe liquidarse una sola vez.")
+    assert_true(estado.descansando is False, "El siguiente mensaje debe detener la recuperacion.")
+    energia_tras_despertar = estado.energia
+    reloj.avanzar(100.0)
+    assert_true(
+        orchestrator.obtener_estado_publico().energia == round(energia_tras_despertar, 2),
+        "Sin un nuevo descanso, el estado no debe seguir proyectando recuperacion.",
+    )
+    assert_true(orchestrator.memory.consolidaciones == 0, "Terminal no debe consolidar al descansar.")
+
+
+def test_segunda_peticion_core_system_despierta_y_rearma_sin_apilar_tasas() -> None:
+    reloj = _FakeClock()
+    estado = _TrackingStateEngine(clock=reloj)
+    orchestrator, _ = _orquestador_aislado(
+        "persona",
+        intent="CORE_SYSTEM",
+        state_engine=estado,
+    )
+    descansando_al_responder: list[bool] = []
+
+    def resolver_persona(**kwargs) -> ActionResponse:
+        descansando_al_responder.append(estado.descansando)
+        return ActionResponse(
+            pensamiento="Respuesta privada de prueba.",
+            accion="hablar",
+            parametros={"texto_a_comunicar": "De acuerdo."},
+            razon="Ruta Persona.",
+        )
+
+    orchestrator._resolver_ruta_persona = resolver_persona
+    orchestrator.procesar_evento(_evento_terminal("descansa", "rest-sequential-a"))
+    energia_primer_inicio = estado.energia
+    reloj.avanzar(10.0)
+
+    segunda = orchestrator.procesar_evento(
+        _evento_terminal("descansa otro rato", "rest-sequential-b")
+    )
+    assert_true(segunda is not None and segunda.nombre == "hablar", "La segunda peticion debe hablar.")
+    assert_true(
+        descansando_al_responder == [False, False],
+        "Cada solicitud debe responder fuera del periodo anterior y rearmarse despues.",
+    )
+    assert_true(
+        estado.descansos_iniciados == 2 and estado.descansos_finalizados == 1,
+        "La segunda peticion debe liquidar el primer periodo y abrir exactamente otro.",
+    )
+    assert_true(estado.descansando is True, "El segundo periodo debe quedar activo.")
+    assert_true(
+        abs(estado.energia - energia_primer_inicio) < 1e-6,
+        "La primera recuperacion y el coste del segundo turno deben aplicarse una vez cada uno.",
+    )
+
+    energia_segundo_inicio = estado.energia
+    reloj.avanzar(10.0)
+    assert_true(
+        abs(
+            estado.obtener_estado()["energia"]
+            - min(100.0, energia_segundo_inicio + estado.RECUPERACION_DESCANSO_POR_SEGUNDO * 10.0)
+        )
+        < 1e-6,
+        "El segundo periodo debe recuperar a 0.10/s, no a una tasa apilada.",
+    )
+
+    orchestrator.triage_router.intent = "SOCIAL"
+    orchestrator.procesar_evento(_evento_terminal("volvi", "rest-sequential-wake"))
+    assert_true(
+        estado.descansos_iniciados == 2 and estado.descansos_finalizados == 2,
+        "El siguiente mensaje debe cerrar solo el segundo periodo.",
+    )
+    assert_true(estado.descansando is False, "No debe quedar descanso residual.")
+    assert_true(orchestrator.memory.consolidaciones == 0, "Ninguno de los periodos debe consolidar.")
+
+
+def test_ayuda_estado_y_salir_no_despiertan_descanso_terminal() -> None:
+    reloj = _FakeClock()
+    estado = _TrackingStateEngine(clock=reloj)
+    orchestrator, _ = _orquestador_aislado(
+        "persona",
+        intent="CORE_SYSTEM",
+        state_engine=estado,
+    )
+    orchestrator.procesar_evento(_evento_terminal("descansa", "local-commands-rest"))
+    reloj.avanzar(15.0)
+
+    class RestingClient:
+        @staticmethod
+        def enviar_mensaje(mensaje: str) -> str:
+            raise AssertionError("Los comandos locales no deben enviarse como conversacion.")
+
+        @staticmethod
+        def obtener_estado() -> dict:
+            return orchestrator.obtener_estado_publico().model_dump(mode="python")
+
+    entradas = iter(["/ayuda", "/estado", "/salir"])
+    salidas: list[str] = []
+    codigo = ejecutar_chat(
+        RestingClient(),
+        input_fn=lambda prompt: next(entradas),
+        output_fn=salidas.append,
+    )
+
+    assert_true(codigo == 0, "El REPL debe cerrar normalmente.")
+    assert_true(HELP_TEXT in salidas, "La ayuda debe resolverse dentro del cliente.")
+    assert_true(estado.descansando is True, "Ayuda, estado y salir no deben despertar.")
+    assert_true(estado.descansos_finalizados == 0, "Ningun comando local debe consumir el periodo.")
+    assert_true(orchestrator.memory.consolidaciones == 0, "Los comandos locales no consolidan.")
+
+
+def test_retries_cacheados_no_rearman_ni_despiertan_descanso_terminal() -> None:
+    reloj = _FakeClock()
+    estado = _TrackingStateEngine(clock=reloj)
+    orchestrator, _ = _orquestador_aislado("persona", intent="SOCIAL", state_engine=estado)
+
+    evento_anterior = _evento_terminal("turno anterior", "cached-before-rest")
+    accion_anterior = orchestrator.procesar_evento(evento_anterior)
+    orchestrator.triage_router.intent = "CORE_SYSTEM"
+    solicitud = _evento_terminal("descansa", "cached-rest")
+    accion_descanso = orchestrator.procesar_evento(solicitud)
+    energia_base = estado.energia
+    reloj.avanzar(10.0)
+
+    retry_anterior = orchestrator.procesar_evento(evento_anterior)
+    retry_descanso = orchestrator.procesar_evento(solicitud)
+    assert_true(
+        retry_anterior is not None
+        and accion_anterior is not None
+        and retry_anterior.id_accion == accion_anterior.id_accion,
+        "Un retry anterior debe seguir saliendo del cache.",
+    )
+    assert_true(
+        retry_descanso is not None
+        and accion_descanso is not None
+        and retry_descanso.id_accion == accion_descanso.id_accion,
+        "Reintentar la solicitud no debe crear un segundo periodo.",
+    )
+    assert_true(estado.descansando is True, "Los retries cacheados no deben despertar.")
+    assert_true(estado.descansos_iniciados == 1, "El retry no debe rearmar el reloj.")
+    assert_true(
+        abs(estado.obtener_estado()["energia"] - min(100.0, energia_base + 1.0)) < 1e-6,
+        "La proyeccion debe conservar el inicio original del descanso.",
+    )
+
+    orchestrator.triage_router.intent = "SOCIAL"
+    despertar = _evento_terminal("mensaje nuevo", "cached-wake")
+    accion_despertar = orchestrator.procesar_evento(despertar)
+    energia_final = estado.energia
+    reloj.avanzar(30.0)
+    retry_despertar = orchestrator.procesar_evento(despertar)
+    assert_true(
+        retry_despertar is not None
+        and accion_despertar is not None
+        and retry_despertar.id_accion == accion_despertar.id_accion,
+        "El retry del mensaje despertador debe devolver la accion cacheada.",
+    )
+    assert_true(estado.descansos_finalizados == 1, "El retry no debe recuperar dos veces.")
+    assert_true(estado.energia == energia_final, "El retry no debe volver a mutar la biologia.")
+    assert_true(orchestrator.memory.consolidaciones == 0, "Los retries no deben consolidar.")
+
+
+class _ContendedRLock:
+    def __init__(self):
+        self._lock = threading.RLock()
+        self._attempt_guard = threading.Lock()
+        self._attempts = 0
+        self.second_attempt = threading.Event()
+
+    def __enter__(self):
+        with self._attempt_guard:
+            self._attempts += 1
+            if self._attempts >= 2:
+                self.second_attempt.set()
+        self._lock.acquire()
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self._lock.release()
+        return False
+
+
+def test_mensajes_concurrentes_consumen_descanso_terminal_una_sola_vez() -> None:
+    reloj = _FakeClock()
+    estado = _TrackingStateEngine(clock=reloj)
+    orchestrator, _ = _orquestador_aislado(
+        "persona",
+        intent="CORE_SYSTEM",
+        state_engine=estado,
+    )
+    orchestrator.procesar_evento(_evento_terminal("descansa", "concurrent-rest"))
+    reloj.avanzar(10.0)
+    orchestrator.triage_router.intent = "SOCIAL"
+    estado.bloquear_finalizacion = True
+    descanso_lock = _ContendedRLock()
+    orchestrator._descanso_terminal_lock = descanso_lock
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(
+            orchestrator.procesar_evento,
+            _evento_terminal("primer despertar", "concurrent-wake-a"),
+        )
+        assert_true(
+            estado.finalizacion_iniciada.wait(timeout=2),
+            "La primera solicitud debe entrar a la liquidacion.",
+        )
+        second = executor.submit(
+            orchestrator.procesar_evento,
+            _evento_terminal("segundo despertar", "concurrent-wake-b"),
+        )
+        assert_true(
+            descanso_lock.second_attempt.wait(timeout=2),
+            "El segundo ID debe solaparse sobre el lock de descanso.",
+        )
+        estado.liberar_finalizacion.set()
+        acciones = [first.result(timeout=2), second.result(timeout=2)]
+
+    assert_true(
+        all(accion is not None and accion.nombre == "hablar" for accion in acciones),
+        "Ambos mensajes nuevos deben conservar una respuesta conversacional.",
+    )
+    assert_true(estado.descansos_finalizados == 1, "Solo un mensaje debe liquidar el descanso.")
+    assert_true(estado.descansando is False, "El latch debe quedar consumido.")
+    assert_true(orchestrator.memory.consolidaciones == 0, "La carrera no debe consolidar memoria.")
+
+
+def test_guardado_manual_despierta_y_su_retry_no_recupera_dos_veces() -> None:
+    reloj = _FakeClock()
+    estado = _TrackingStateEngine(clock=reloj)
+    orchestrator, _ = _orquestador_aislado(
+        "persona",
+        intent="CORE_SYSTEM",
+        state_engine=estado,
+    )
+    orchestrator.procesar_evento(_evento_terminal("descansa", "save-rest"))
+    reloj.avanzar(20.0)
+    orchestrator.triage_router.intent = "CONVERSATION_SAVE"
+    orchestrator.memory.resultados_guardado_manual.extend(
+        (
+            ManualConversationSaveResult(status="error", error="fallo transitorio", turn_count=2),
+            ManualConversationSaveResult(
+                status="saved",
+                memory_id="manual-after-rest",
+                fingerprint="manual-after-rest-fingerprint",
+                turn_count=2,
+            ),
+        )
+    )
+    guardar = _evento_terminal("guarda lo que hemos hablado", "save-wake")
+
+    primera = orchestrator.procesar_evento(guardar)
+    energia_tras_primera = estado.energia
+    reloj.avanzar(30.0)
+    segunda = orchestrator.procesar_evento(guardar)
+
+    assert_true(primera is not None and "No pude guardar" in primera.parametros["texto_a_comunicar"], "Debe informar el fallo real.")
+    assert_true(
+        segunda is not None
+        and segunda.parametros["texto_a_comunicar"] == "Está bien, lo recordaré para después.",
+        "El retry debe conservar el contrato publico de guardado exitoso.",
+    )
+    assert_true(estado.descansos_finalizados == 1, "El guardado debe despertar exactamente una vez.")
+    assert_true(estado.descansando is False, "El retry manual no debe rearmar el descanso.")
+    assert_true(estado.energia == energia_tras_primera, "El retry manual no debe mutar otra vez la energia.")
+    assert_true(
+        orchestrator.memory.guardados_manuales == [guardar.id_transaccion, guardar.id_transaccion],
+        "El fallo debe reintentar solo la persistencia manual.",
+    )
+    assert_true(orchestrator.memory.consolidaciones == 0, "Guardar al despertar no debe consolidar.")
+
+
+def test_guardado_manual_con_palabras_de_sueno_no_arma_descanso() -> None:
+    reloj = _FakeClock()
+    estado = _TrackingStateEngine(clock=reloj)
+    orchestrator, _ = _orquestador_aislado(
+        "persona",
+        intent="CONVERSATION_SAVE",
+        state_engine=estado,
+    )
+
+    accion = orchestrator.procesar_evento(
+        _evento_terminal("duerme y guarda nuestra charla", "save-sleep-control")
+    )
+
+    assert_true(accion is not None and accion.nombre == "hablar", "El control debe confirmar hablando.")
+    assert_true(estado.descansos_iniciados == 0, "CONVERSATION_SAVE nunca debe armar descanso.")
+    assert_true(estado.descansando is False, "El control no debe dejar recuperacion pendiente.")
+    assert_true(orchestrator.memory.consolidaciones == 0, "El control nunca debe consolidar.")
+
+
+def test_terminal_no_usa_descanso_inmediato_y_unity_lo_conserva() -> None:
     orchestrator = object.__new__(Orchestrator)
     orchestrator.memory = _FakeMemory()
     orchestrator.identity_state = _FakeIdentity()
@@ -753,11 +1309,11 @@ def test_terminal_no_activa_descanso_ni_consolidacion() -> None:
 
     assert_true(
         orchestrator.memory.consolidaciones == 1,
-        "Solo Unity debe conservar el efecto de descanso existente.",
+        "Terminal no debe consolidar; Unity conserva su descanso inmediato.",
     )
     assert_true(
         orchestrator.identity_state.eventos[0]["es_descanso"] is False,
-        "Terminal no debe regenerar la biologia ni consolidar.",
+        "Terminal debe usar el periodo temporal, no el descanso biologico inmediato.",
     )
     assert_true(
         orchestrator.identity_state.eventos[1]["es_descanso"] is True,
@@ -1085,7 +1641,17 @@ def main() -> None:
     test_flujo_terminal_conserva_oracle_y_verbaliza()
     test_orchestrator_reconduce_motor_y_blinda_la_salida()
     test_oracle_se_conserva_y_tool_policy_solo_expone_hablar()
-    test_terminal_no_activa_descanso_ni_consolidacion()
+    test_state_engine_descanso_temporal_proyecta_sin_mutar_y_no_acumula()
+    test_descanso_parcial_relaja_sin_decaer_foco_ni_aplicar_fatiga_activa()
+    test_identity_state_y_state_engine_comparten_reserva_biologica()
+    test_descanso_terminal_proyecta_en_estado_y_despierta_antes_de_responder()
+    test_segunda_peticion_core_system_despierta_y_rearma_sin_apilar_tasas()
+    test_ayuda_estado_y_salir_no_despiertan_descanso_terminal()
+    test_retries_cacheados_no_rearman_ni_despiertan_descanso_terminal()
+    test_mensajes_concurrentes_consumen_descanso_terminal_una_sola_vez()
+    test_guardado_manual_despierta_y_su_retry_no_recupera_dos_veces()
+    test_guardado_manual_con_palabras_de_sueno_no_arma_descanso()
+    test_terminal_no_usa_descanso_inmediato_y_unity_lo_conserva()
     test_terminal_guarda_ram_como_conversacion_y_no_registra_el_control()
     test_terminal_reintenta_un_guardado_fallido_sin_exito_falso()
     test_terminal_informa_ram_vacia_y_guardado_ya_existente()

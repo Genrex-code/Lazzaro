@@ -42,17 +42,14 @@ class PersonaEngine:
             texto = "Está bien, lo recordaré para después."
             pensamiento = f"Quedaron persistidos {max(0, turn_count)} intercambios públicos."
             razon = "Confirmar un guardado manual ya completado."
-            emocion = "Fcl_ALL_Joy"
         elif status == "already_saved":
             texto = "Eso ya estaba guardado en mi mente; no hace falta duplicarlo."
             pensamiento = "La fotografía conversacional ya tenía una copia persistente."
             razon = "Confirmar idempotencia sin fingir una escritura nueva."
-            emocion = "Fcl_ALL_Neutral"
         elif status == "empty":
             texto = "Todavía no tengo una conversación reciente en RAM que pueda guardar."
             pensamiento = "No había intercambios públicos previos en la RAM conversacional."
             razon = "Explicar que no hubo contenido para persistir."
-            emocion = "Fcl_ALL_Neutral"
         else:
             texto = (
                 "No pude guardar lo que hablamos esta vez. "
@@ -60,14 +57,12 @@ class PersonaEngine:
             )
             pensamiento = "La memoria persistente no confirmó el guardado solicitado."
             razon = "Informar un fallo real sin anunciar éxito."
-            emocion = "Fcl_ALL_Sorrow"
 
         return {
             "accion": "hablar",
             "parametros": {"texto_a_comunicar": texto},
             "pensamiento_privado": pensamiento,
             "razon": razon,
-            "emocion_facial": emocion,
             "requiere_reintento": False,
         }
 
@@ -283,7 +278,7 @@ class PersonaEngine:
         data["parametros"] = {"texto_a_comunicar": self._limitar_texto(texto_a_comunicar, 700)}
         data["pensamiento_privado"] = self._limitar_texto(str(data.get("pensamiento_privado", "")), 240)
         data["razon"] = self._limitar_texto(str(data.get("razon", "")), 200)
-        data.setdefault("emocion_facial", "Fcl_ALL_Neutral")
+        data.pop("emocion_facial", None)
         data.setdefault("requiere_reintento", False)
         return data
 
@@ -342,7 +337,6 @@ class PersonaEngine:
             "parametros": {"texto_a_comunicar": texto_rescatado},
             "pensamiento_privado": "Respuesta social recuperada de una salida parcial.",
             "razon": "Se rescato texto comunicable de una salida incompleta.",
-            "emocion_facial": "Fcl_ALL_Neutral",
             "recuperado_de_json_parcial": True,
             "requiere_reintento": False,
         }
@@ -384,7 +378,6 @@ class PersonaEngine:
             "parametros": {"texto_a_comunicar": mensaje_seguridad},
             "pensamiento_privado": "Fallback de seguridad por fallo del LLM.",
             "razon": "Error interno.",
-            "emocion_facial": "Fcl_ALL_Neutral",
             "error": error,
             "requiere_reintento": requiere_reintento,
         }

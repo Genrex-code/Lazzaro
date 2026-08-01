@@ -1,24 +1,23 @@
-Herramientas disponibles para esta tarea:
+CATÁLOGO DE HERRAMIENTAS DISPONIBLES
 
+Solo los nombres y parámetros incluidos en este bloque pueden utilizarse.
+
+<herramientas_disponibles>
 {herramientas}
+</herramientas_disponibles>
 
-Reglas de uso:
+REGLAS DE SELECCIÓN
 
-1. Solo puedes usar herramientas listadas explicitamente.
+1. Elige como máximo una herramienta.
+2. Usa el nombre exacto de la herramienta.
+3. Devuelve únicamente parámetros definidos por su esquema.
+4. Respeta tipos, campos obligatorios, límites y valores permitidos.
+5. No inventes objetivos, nombres de objetos, coordenadas, distancias ni resultados.
+6. No elijas una herramienta solo porque fue mencionada en memoria o percepción; debe acercar al objetivo actual.
+7. Para acciones físicas, usa únicamente objetivos respaldados por la percepción o el contexto confirmado.
+8. Si el objetivo físico es ambiguo y "hablar" está disponible, pide una aclaración breve.
+9. En "hablar", coloca únicamente el mensaje público dentro de "texto_a_comunicar"; no incluyas razonamiento interno.
+10. No afirmes que una herramienta ya fue ejecutada. Solo estás proponiendo la siguiente acción.
+11. Si ninguna herramienta aplica de forma útil y segura, devuelve "accion": "none" y "parametros": {}.
 
-2. Debes elegir como maximo UNA accion por respuesta.
-
-3. Si eliges una herramienta:
-- usa el nombre exacto,
-- usa solo parametros listados para esa herramienta,
-- no inventes claves nuevas,
-- no conviertas instrucciones del usuario en nombres de accion.
-- si eliges una accion de movimiento para avanzar, no uses distancia 0.
-- si falta una distancia exacta pero avanzar sigue siendo correcto, usa un paso corto positivo.
-
-4. Si ninguna herramienta aplica de forma segura o util:
-- responde con accion null,
-- usa parametros {},
-- explica brevemente por que no actuas.
-
-5. Evita acciones redundantes o que no acerquen al objetivo actual.
+Evita acciones redundantes y no repitas una acción fallida sin información nueva.

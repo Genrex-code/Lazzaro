@@ -119,7 +119,7 @@ class PromptBuilder:
         if not tarea or not tarea.get("objetivo"):
             return (
                 "No hay un objetivo activo en este momento. "
-                "Si no existe una necesidad inmediata de seguridad o interaccion, responde con accion null."
+                "Si no existe una necesidad inmediata de seguridad o interaccion, responde con accion 'none'."
             )
 
         objetivo = tarea["objetivo"]

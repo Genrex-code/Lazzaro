@@ -1,31 +1,33 @@
-Debes responder EXCLUSIVAMENTE con un JSON valido.
+FORMATO DE SALIDA OBLIGATORIO
 
-No expliques el JSON.
-No uses markdown.
-No uses bloques de codigo.
-No agregues texto fuera del JSON.
-No emitas etiquetas <think>.
+Devuelve exclusivamente un único objeto JSON válido.
 
-Formato obligatorio:
+No uses markdown, bloques de código, comentarios, etiquetas <think>, texto introductorio ni texto posterior al JSON.
+
+Usa exactamente estas cuatro claves:
 
 {
-  "pensamiento": "resumen breve de la decision",
-  "accion": "nombre_exacto_de_herramienta_o_null",
+  "pensamiento": "Resumen breve de la decisión",
+  "accion": "nombre_exacto_de_herramienta_o_none",
   "parametros": {},
-  "razon": "justificacion concreta y corta",
-  "emocion_facial": "Fcl_ALL_Neutral"
+  "razon": "Justificación breve basada en el contexto"
 }
 
-Reglas obligatorias:
+REGLAS DEL CONTRATO
 
-- Usa exactamente estas 5 claves: "pensamiento", "accion", "parametros", "razon", "emocion_facial".
-- "pensamiento" debe ser breve. No incluyas cadena de pensamiento larga.
-- "accion" debe ser una herramienta valida o null.
-- Si "accion" es null, "parametros" debe ser {}.
-- Si "accion" no es null, "parametros" debe contener solo claves permitidas para esa herramienta.
-- "emocion_facial" debe ser una de: Fcl_ALL_Neutral, Fcl_ALL_Joy, Fcl_ALL_Sorrow, Fcl_ALL_Angry, Fcl_ALL_Fun.
-- No inventes campos extra.
-- El JSON debe ser parseable directamente.
+- "pensamiento" debe ser un resumen corto, no una cadena de pensamiento detallada.
+- "accion" debe ser el nombre exacto de una herramienta disponible o la cadena "none".
+- Si "accion" es "none", "parametros" debe ser {}.
+- Si se elige una herramienta, "parametros" debe contener solo campos permitidos por su esquema.
+- "razon" debe explicar brevemente qué evidencia u objetivo sustenta la decisión.
+- No agregues claves adicionales.
+- Usa comillas dobles y JSON estándar, sin comas finales.
+- El resultado debe poder procesarse directamente con json.loads.
 
-Ejemplo valido sin accion:
-{"pensamiento":"No hay una accion segura que ejecutar ahora.","accion":null,"parametros":{},"razon":"Falta un objetivo ejecutable o una herramienta adecuada.","emocion_facial":"Fcl_ALL_Neutral"}
+EJEMPLO SIN ACCIÓN
+
+{"pensamiento":"No existe una acción segura con los datos actuales.","accion":"none","parametros":{},"razon":"Falta un objetivo físico confirmado."}
+
+EJEMPLO CON COMUNICACIÓN
+
+{"pensamiento":"Necesito aclarar el objetivo antes de moverme.","accion":"hablar","parametros":{"texto_a_comunicar":"¿A cuál de los objetos te refieres?"},"razon":"Hay más de un objetivo posible."}

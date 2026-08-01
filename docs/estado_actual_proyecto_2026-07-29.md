@@ -4,6 +4,14 @@ Fecha de actualización: 2026-07-29
 Commit base observado: `1711f8b`  
 Workspace: `C:\Users\JAIRO\Entidades\Lazzaro`
 
+> Nota de vigencia (2026-08-01): este archivo conserva el snapshot del
+> 2026-07-29. Las afirmaciones posteriores que bloquean toda regeneración desde
+> terminal quedaron reemplazadas por el contrato de descanso diferido aprobado:
+> `0.10` puntos de energía por segundo hasta el siguiente `comando_usuario`
+> nuevo, proyección mediante `/estado` sin despertar, sin consolidación ni
+> acciones físicas, no acumulable y válido solo mientras corre el backend. La
+> especificación vigente está en [`chat_terminal.md`](chat_terminal.md).
+
 Este documento actualiza el snapshot histórico del 2026-07-06. Describe el
 commit base junto con los cambios todavía no confirmados del chat terminal y
 del guardado manual de RAM conversacional.

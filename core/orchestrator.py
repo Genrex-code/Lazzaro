@@ -48,7 +48,9 @@ class Orchestrator:
         self.tool_policy = ToolPolicy()
         self.motor_engine = MotorEngine()
         self._conectar_aliases_aprendidos()
-        self.identity_state = IdentityState()
+        self.identity_state = IdentityState(
+            state_engine=getattr(self.behavior, "state_engine", None)
+        )
         self.subjective_effort = SubjectiveEffortCalculator()
         self.persona_engine = PersonaEngine()
         self.llm_adapter = LLMGenerationAdapter(
@@ -66,6 +68,8 @@ class Orchestrator:
         self._notificaciones: deque[NotificacionSaliente] = deque(maxlen=50)
         self._transacciones_lock_guard = threading.Lock()
         self._transacciones_locks: dict[str, dict[str, object]] = {}
+        self._descanso_terminal_lock = threading.RLock()
+        self._descanso_terminal_pendiente: dict[str, str] | None = None
         logger.info("Orchestrator inicializado.")
 
     def _conectar_aliases_aprendidos(self) -> None:
@@ -120,6 +124,8 @@ class Orchestrator:
         retry_guardado = self._reintentar_guardado_conversacional_pendiente(evento)
         if retry_guardado is not None:
             return retry_guardado
+
+        self._consumir_descanso_terminal_si_corresponde(evento)
 
         try:
             respuesta_core = self.behavior.procesar_evento(
@@ -280,6 +286,7 @@ class Orchestrator:
             )
         self._agregar_notificacion_si_corresponde(action_response)
         self._registrar_estado_identidad(evento, triage_decision, action_response)
+        self._armar_descanso_terminal_si_corresponde(evento, triage_decision)
 
         logger.info("Evento %s procesado. Accion: %s", evento.id_transaccion, accion_saliente.nombre)
         return accion_saliente
@@ -393,7 +400,6 @@ class Orchestrator:
                 mensaje_usuario=mensaje_usuario,
                 respuesta_lazzaro=respuesta_lazzaro,
                 pensamiento=action_response.pensamiento,
-                emocion=accion_saliente.emocion_facial,
                 route=str(triage_decision.get("route", "")),
                 intent=str(triage_decision.get("intent", "")),
                 metadata={
@@ -562,7 +568,6 @@ class Orchestrator:
             parametros={},
             razon=razon or "Evento tratado como telemetria pasiva.",
             valido=True,
-            emocion_facial="Fcl_ALL_Neutral",
         )
 
     def _evaluar_triage(self, evento: EventoEntrante, estado_actual: dict) -> dict:
@@ -665,7 +670,6 @@ class Orchestrator:
             razon="Canal terminal limitado a conversacion.",
             valido=True,
             error=action_response.error,
-            emocion_facial=action_response.emocion_facial,
             metadata=metadata,
         )
 
@@ -756,7 +760,6 @@ class Orchestrator:
                 parametros={"texto_a_comunicar": "Me perdi un momento, pero sigo aqui."},
                 razon="Error interno en Capa Social.",
                 valido=True,
-                emocion_facial="Fcl_ALL_Neutral",
                 error=str(e),
             )
 
@@ -865,7 +868,6 @@ class Orchestrator:
             parametros=parametros,
             razon=str(datos.get("razon", "Respuesta social de Capa 2.")),
             valido=True,
-            emocion_facial=str(datos.get("emocion_facial", "Fcl_ALL_Neutral")),
         )
 
     def _resolver_ruta_oracle(
@@ -1033,7 +1035,6 @@ class Orchestrator:
                 razon="Error verbalizando conocimiento de Oraculo en Capa Social.",
                 valido=True,
                 error=error,
-                emocion_facial="Fcl_ALL_Neutral",
             )
 
     def _resolver_ruta_motor(
@@ -1073,7 +1074,6 @@ class Orchestrator:
             return self._action_response_desde_motor(
                 accion_motora,
                 pensamiento="",
-                emocion_facial="Fcl_ALL_Neutral",
             )
         if diagnostico_motor["estado"] in {"falta_objetivo", "ambigua"}:
             return self._respuesta_aclaracion_motor(diagnostico_motor)
@@ -1111,7 +1111,6 @@ class Orchestrator:
             return self._action_response_desde_motor(
                 accion_validada,
                 pensamiento=action_response.pensamiento,
-                emocion_facial=action_response.emocion_facial,
             )
 
         return action_response
@@ -1193,7 +1192,6 @@ class Orchestrator:
     def _action_response_desde_motor(
         motor_action: dict,
         pensamiento: str,
-        emocion_facial: str,
     ) -> ActionResponse:
         if not isinstance(motor_action, dict):
             motor_action = {
@@ -1211,7 +1209,6 @@ class Orchestrator:
             razon=str(motor_action.get("razon", "")),
             valido=valido,
             error=None if valido else str(motor_action.get("razon", "Accion bloqueada por Capa 1.")),
-            emocion_facial=emocion_facial or "Fcl_ALL_Neutral",
             metadata=motor_action.get("metadata", {}) if isinstance(motor_action.get("metadata"), dict) else {},
         )
 
@@ -1232,7 +1229,6 @@ class Orchestrator:
             parametros={"texto_a_comunicar": texto},
             razon="Capa 1 bloqueo un comando motor ambiguo para evitar alucinaciones fisicas.",
             valido=True,
-            emocion_facial="Fcl_ALL_Neutral",
         )
 
     @staticmethod
@@ -1268,7 +1264,6 @@ class Orchestrator:
                     parametros={"texto_a_comunicar": texto},
                     razon="Capa 1 propuso una correccion candidata sin ejecutar accion fisica.",
                     valido=True,
-                    emocion_facial="Fcl_ALL_Neutral",
                     metadata=metadata,
                 )
 
@@ -1289,7 +1284,6 @@ class Orchestrator:
                 parametros={"texto_a_comunicar": texto},
                 razon=razon,
                 valido=True,
-                emocion_facial="Fcl_ALL_Neutral",
                 metadata=metadata,
             )
 
@@ -1302,7 +1296,6 @@ class Orchestrator:
                 parametros={"texto_a_comunicar": texto},
                 razon=razon,
                 valido=True,
-                emocion_facial="Fcl_ALL_Neutral",
                 metadata=metadata,
             )
 
@@ -1315,7 +1308,6 @@ class Orchestrator:
                 parametros={"texto_a_comunicar": texto},
                 razon=razon,
                 valido=True,
-                emocion_facial="Fcl_ALL_Neutral",
                 metadata=metadata,
             )
 
@@ -1326,7 +1318,6 @@ class Orchestrator:
             razon=f"Resolucion motora '{estado or accion}' bloqueada por seguridad.",
             valido=False,
             error="Accion fisica bloqueada por Capa 1.",
-            emocion_facial="Fcl_ALL_Neutral",
             metadata=metadata,
         )
 
@@ -1374,6 +1365,124 @@ class Orchestrator:
             if suggested_id in ids or suggested_name in ids:
                 return candidato
         return None
+
+    def _obtener_lock_descanso_terminal(self) -> threading.RLock:
+        """Crea perezosamente el lock para conservar compatibilidad con fakes aislados."""
+        lock = getattr(self, "_descanso_terminal_lock", None)
+        if lock is None:
+            lock = threading.RLock()
+            self._descanso_terminal_lock = lock
+        return lock
+
+    def _obtener_state_engine_biologico(self):
+        """Devuelve la reserva biologica canonica compartida por Capa 1 y Persona."""
+        identity_state = getattr(self, "identity_state", None)
+        state_engine = getattr(identity_state, "state_engine", None)
+        if state_engine is not None:
+            return state_engine
+        return getattr(getattr(self, "behavior", None), "state_engine", None)
+
+    @classmethod
+    def _es_comando_terminal(cls, evento: EventoEntrante) -> bool:
+        return cls._es_canal_terminal(evento) and evento.tipo_evento == "comando_usuario"
+
+    def _consumir_descanso_terminal_si_corresponde(self, evento: EventoEntrante) -> None:
+        """Despierta una sola vez antes de procesar el siguiente comando nuevo del terminal."""
+        if not self._es_comando_terminal(evento):
+            return
+
+        lock = self._obtener_lock_descanso_terminal()
+        with lock:
+            pendiente = getattr(self, "_descanso_terminal_pendiente", None)
+            if not isinstance(pendiente, dict):
+                return
+
+            transaction_id = str(evento.id_transaccion)
+            if transaction_id == str(pendiente.get("transaction_id", "")):
+                return
+
+            state_engine = self._obtener_state_engine_biologico()
+            finalizar = getattr(state_engine, "finalizar_descanso", None)
+            if not callable(finalizar):
+                logger.error(
+                    "event=terminal_rest_wake transaction_id=%s status=error error_type=missing_state_engine",
+                    transaction_id,
+                )
+                return
+
+            try:
+                resultado = finalizar()
+            except Exception as exc:
+                logger.error(
+                    "event=terminal_rest_wake transaction_id=%s status=error error_type=%s",
+                    transaction_id,
+                    type(exc).__name__,
+                    exc_info=True,
+                )
+                return
+
+            self._descanso_terminal_pendiente = None
+            logger.info(
+                "event=terminal_rest_wake transaction_id=%s status=%s seconds=%.2f energy_recovered=%.2f",
+                transaction_id,
+                "applied" if bool(resultado.get("aplicado")) else "not_active",
+                float(resultado.get("segundos", 0.0)),
+                float(resultado.get("energia_recuperada", 0.0)),
+            )
+
+    def _armar_descanso_terminal_si_corresponde(
+        self,
+        evento: EventoEntrante,
+        triage_decision: dict,
+    ) -> None:
+        """Arma recuperacion diferida cuando el Random Forest detecta ``CORE_SYSTEM``."""
+        if not self._es_comando_terminal(evento):
+            return
+        if str(triage_decision.get("intent", "")).strip().upper() != "CORE_SYSTEM":
+            return
+
+        transaction_id = str(evento.id_transaccion)
+        lock = self._obtener_lock_descanso_terminal()
+        with lock:
+            if isinstance(getattr(self, "_descanso_terminal_pendiente", None), dict):
+                logger.info(
+                    "event=terminal_rest_arm transaction_id=%s status=already_armed",
+                    transaction_id,
+                )
+                return
+
+            state_engine = self._obtener_state_engine_biologico()
+            iniciar = getattr(state_engine, "iniciar_descanso", None)
+            if not callable(iniciar):
+                logger.error(
+                    "event=terminal_rest_arm transaction_id=%s status=error error_type=missing_state_engine",
+                    transaction_id,
+                )
+                return
+
+            try:
+                iniciado = bool(iniciar())
+            except Exception as exc:
+                logger.error(
+                    "event=terminal_rest_arm transaction_id=%s status=error error_type=%s",
+                    transaction_id,
+                    type(exc).__name__,
+                    exc_info=True,
+                )
+                return
+
+            if not iniciado and not bool(getattr(state_engine, "descansando", False)):
+                logger.warning(
+                    "event=terminal_rest_arm transaction_id=%s status=not_started",
+                    transaction_id,
+                )
+                return
+
+            self._descanso_terminal_pendiente = {"transaction_id": transaction_id}
+            logger.info(
+                "event=terminal_rest_arm transaction_id=%s status=armed",
+                transaction_id,
+            )
 
     def _registrar_estado_identidad(
         self,
@@ -1504,7 +1613,6 @@ class Orchestrator:
             },
             razon="Cancelacion solicitada por el usuario; se evita llamar al LLM y se prioriza detener actividad.",
             valido=True,
-            emocion_facial="Fcl_ALL_Neutral",
             metadata={
                 "task_cancelled_by_user": True,
                 "mensaje_usuario": mensaje_usuario,
@@ -1543,7 +1651,6 @@ class Orchestrator:
                 },
                 razon=razon,
                 valido=True,
-                emocion_facial="Fcl_ALL_Sorrow",
             )
 
         objeto_escape = self._leer_objeto_escape(evento)
@@ -1557,7 +1664,6 @@ class Orchestrator:
                 },
                 razon=razon,
                 valido=True,
-                emocion_facial="Fcl_ALL_Sorrow",
             )
 
         return ActionResponse(
@@ -1567,7 +1673,6 @@ class Orchestrator:
             razon=razon,
             valido=False,
             error="No hay herramienta de movimiento disponible para reaccionar al dolor fisico.",
-            emocion_facial="Fcl_ALL_Sorrow",
         )
 
     def _sanitizar_action_response(self, action_response: ActionResponse) -> ActionResponse:
@@ -1586,7 +1691,6 @@ class Orchestrator:
                 razon=action_response.razon,
                 valido=False,
                 error=action_response.error or "Respuesta invalida del modelo.",
-                emocion_facial=action_response.emocion_facial,
                 metadata=action_response.metadata,
             )
 
@@ -1604,7 +1708,6 @@ class Orchestrator:
                 razon=action_response.razon,
                 valido=False,
                 error=error,
-                emocion_facial=action_response.emocion_facial,
                 metadata=action_response.metadata,
             )
 
@@ -1647,7 +1750,6 @@ class Orchestrator:
             razonamiento=action_response.razon,
             pensamiento_privado=action_response.pensamiento,
             requiere_confirmacion=requiere_confirmacion,
-            emocion_facial=action_response.emocion_facial,
         )
 
     @staticmethod

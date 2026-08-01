@@ -101,6 +101,9 @@ sequenceDiagram
     Unity->>API: EventoEntrante
     API->>Orch: procesar_evento(evento)
     Orch->>Orch: cache por id_transaccion
+    opt comando_usuario terminal nuevo y descanso activo
+        Orch->>Core: finalizar descanso y liquidar recuperacion
+    end
     Orch->>Core: procesar_evento(tipo, detalles)
     Core-->>Orch: estado, contexto_llm, tarea, politica, narrativa
     Orch->>Triage: route_event(evento, estado)
@@ -132,7 +135,10 @@ sequenceDiagram
         Orch->>Layer: verbalizar con Persona
         Layer-->>Orch: ActionResponse hablar
     end
-    Orch->>Orch: sanitizar, cachear, notificar, registrar IdentityState
+    Orch->>Orch: sanitizar, cachear, registrar estado canonico
+    opt peticion terminal explicita de descanso
+        Orch->>Core: iniciar descanso despues de responder
+    end
     API-->>Unity: RespuestaAPI
 ```
 
@@ -198,8 +204,7 @@ Sale desde Python hacia Unity u otro cliente. Terminal solo acepta una
   "parametros": {"texto_a_comunicar": "texto"},
   "razonamiento": "motivo breve",
   "pensamiento_privado": "debug interno",
-  "requiere_confirmacion": false,
-  "emocion_facial": "Fcl_ALL_Neutral"
+  "requiere_confirmacion": false
 }
 ```
 
@@ -435,8 +440,9 @@ Reglas actuales:
 - La memoria relacional elige el hecho mas reciente por categoria, por lo que
   una revocacion nueva puede ocultar un apodo o nombre anterior sin borrar datos.
 - `resultado_accion` y `actualizacion_estado` no entran a memoria de trabajo si terminan en `none` pasivo.
-- Al detectar descanso fuera del canal terminal, el orquestador llama a
-  `consolidar_memorias_si_hace_falta()`.
+- El flujo vigente de Unity puede llamar a
+  `consolidar_memorias_si_hace_falta()` al detectar su descanso. La recuperacion
+  diferida de terminal no llama al consolidador.
 - El guardado manual no entra al consolidador, no incrementa su batch, no
   vacía la RAM y no agrega su propio turno de control.
 - Los retries del mismo ID conservan el snapshot del primer intento dentro del
@@ -451,7 +457,7 @@ Scripts principales:
 - `ApiClient.cs`: cliente HTTP con timeout configurable y parseo JSON.
 - `PerceptionSystem.cs`: percepcion comprimida, resumen textual, busqueda de objetos.
 - `MovementController.cs`: NavMesh para navegar, alejarse y girar.
-- `LazzaroAgent.cs`: coordinador de eventos, cola, UI, VRM y reportes.
+- `LazzaroAgent.cs`: coordinador de eventos, cola, UI y reportes.
 
 Flujo Unity:
 
@@ -461,7 +467,6 @@ flowchart TD
     QUEUE --> API["ApiClient.EnviarEvento"]
     API --> RESP["RespuestaAPI"]
     RESP --> AGENT["LazzaroAgent.ProcesarRespuestaDelCerebro"]
-    AGENT --> FACE["Aplicar emocion_facial"]
     AGENT --> THINK["Mostrar pensamiento_privado"]
     AGENT --> SWITCH["switch accion.nombre"]
     SWITCH -->|"hablar"| VOICE["UI voz + Debug.Log<br/>sin ReportarResultadoAccion"]
@@ -505,7 +510,8 @@ flowchart LR
     LOCAL -->|"/estado"| STATE["GET /api/v1/estado"]
     STATE --> SNAPSHOT["Mostrar estado publico"]
     LOCAL -->|"Conversacion"| API["POST /api/v1/comando"]
-    API --> TRIAGE["Triage"]
+    API --> WAKE["Si es UUID nuevo: liquidar descanso previo"]
+    WAKE --> TRIAGE["Triage"]
     TRIAGE -->|"CONVERSATION_SAVE"| SAVE["Snapshot público e idempotente"]
     SAVE --> SEM["Regla semántica persistente"]
     SEM --> GUARD
@@ -521,17 +527,30 @@ flowchart LR
 Protecciones:
 
 - `ToolPolicy` entrega solamente `hablar`.
-- La cancelacion de tareas y el efecto de descanso se omiten en este origen.
+- La cancelacion de tareas se omite en este origen. El descanso queda limitado a
+  estado biologico interno; no produce una accion fisica.
 - Persona sabe que no hay cuerpo disponible y no debe fingir acciones fisicas.
 - El cliente no imprime pensamiento privado ni razonamiento.
 - El cliente rechaza cualquier accion final distinta de `hablar`.
 - El texto visible se limpia de secuencias ANSI basadas en ESC y controles
   C0/DEL.
 
+Una peticion explicita de descanso abre el periodo despues de contestar. La
+energia se recupera a `0.10` puntos por segundo hasta el siguiente
+`comando_usuario` terminal nuevo, con tope de `100`. Solo existe un periodo
+activo y la tasa no se apila. `/estado` calcula una proyeccion sin mutar ni
+despertar; `/ayuda`, `/salir` y retries del mismo ID tampoco despiertan. El
+siguiente mensaje normal o `CONVERSATION_SAVE` liquida la recuperacion una sola
+vez antes de procesarse. No hay herramientas fisicas ni consolidacion de
+memoria. El periodo desaparece al reiniciar el backend y no cuenta tiempo con el
+proceso detenido.
+
 Los turnos conservan acceso a recuerdos y entran en la RAM conversacional. Las
 frases `guarda lo que hemos hablado` y
 `guarda lo que tengas en ram en tu mente` activan el guardado manual después de
 normalizar mayúsculas, acentos, puntuación y espacios. No existe `/guardar`.
+Si una de esas frases es el primer mensaje nuevo después de un descanso, primero
+despierta a Lazzaro; el guardado no inicia un descanso nuevo.
 
 El artefacto Random Forest desplegado aún no contiene
 `CONVERSATION_SAVE`; admitir más variantes con ML requiere reentrenarlo y
@@ -622,7 +641,7 @@ de la prueba de campo terminal aún no se ha registrado.
 | `ai_engine/spatial_reasoner.py` | Utilidades espaciales deterministas. |
 | `ai_engine/motor_schemas.py` | Esquemas estrictos de acciones fisicas. |
 | `ai_engine/motor_engine.py` | Capa 1 motora. |
-| `ai_engine/identity_state.py` | Energia, estres y enfoque para Persona. |
+| `ai_engine/identity_state.py` | Adaptador de energia, estres y enfoque entre Persona y el `StateEngine` canonico. |
 | `ai_engine/persona_prompt_buider.py` | Prompt social. Mantiene typo historico `buider`. |
 | `ai_engine/persona_engine.py` | Capa 2 social, parser robusto y verbalización determinista del resultado de guardado. |
 | `ai_engine/oracle_client.py` | Cliente API externa para Oraculo. |
@@ -640,7 +659,7 @@ de la prueba de campo terminal aún no se ha registrado.
 | Archivo | Hace |
 |---|---|
 | `system_prompt.txt` | Reglas base del sistema cognitivo general. |
-| `local_system_prompt.txt` | Reglas para modelos locales, identidad y expresiones. |
+| `local_system_prompt.txt` | Ajustes de identidad y formato para modelos locales. |
 | `personality_prompt.txt` | Bloque de rasgos. |
 | `estado_prompt.txt` | Bloque emocional. |
 | `memoria_prompt.txt` | Bloque de recuerdos. |
@@ -738,7 +757,7 @@ de la prueba de campo terminal aún no se ha registrado.
 | `docs/chat_terminal.md` | Guía de uso, guardado natural y límites del cliente conversacional. |
 | `docs/cognitive_contracts.md` | Contratos e invariantes del Core, las capas y ambos clientes. |
 | `docs/estado_actual_proyecto_2026-07-06.md` | Snapshot histórico, reemplazado como estado vigente. |
-| `docs/estado_actual_proyecto_2026-07-29.md` | Estado vigente y validaciones de ambos entregables. |
+| `docs/estado_actual_proyecto_2026-07-29.md` | Snapshot de ambos entregables al 2026-07-29, con nota de vigencia sobre el descanso posterior. |
 | `docs/plan_guardado_ram_conversacional.md` | Contrato, implementación y pruebas del guardado manual de RAM. |
 
 ### Datos Generados
@@ -836,6 +855,8 @@ Checks manuales en Unity:
 - `routing_rules.py` usa keywords y puede clasificar mal frases ambiguas.
 - El cliente terminal comparte `TaskContext`: cada mensaje puede aparecer como
   tarea actual. Se usa con Unity cerrado hasta implementar separacion de canales.
+- El descanso terminal solo vive en RAM: reiniciar el backend elimina el periodo
+  y no acredita el tiempo durante el que el proceso estuvo apagado.
 - El Random Forest desplegado no contiene `CONVERSATION_SAVE`; únicamente las
   dos frases base deterministas activan hoy el guardado manual.
 - La memoria manual persiste la transcripción pública, pero no repuebla la RAM

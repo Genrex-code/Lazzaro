@@ -258,7 +258,6 @@ def main() -> None:
         accion="hablar",
         parametros={"texto_a_comunicar": "Claro, te digo Lazz."},
         razon="Responder con continuidad.",
-        emocion_facial="Fcl_ALL_Joy",
     )
     accion = AccionSaliente(
         id_accion="accion-test",
@@ -266,7 +265,6 @@ def main() -> None:
         parametros=respuesta.parametros,
         razonamiento=respuesta.razon,
         pensamiento_privado=respuesta.pensamiento,
-        emocion_facial=respuesta.emocion_facial,
     )
 
     orquestador._registrar_turno_conversacional_si_aplica(
