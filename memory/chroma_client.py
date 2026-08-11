@@ -13,7 +13,7 @@ from chromadb.api.models.Collection import Collection
 from chromadb.api.types import Metadata, QueryResult, Where
 from chromadb.config import Settings as ChromaSettings
 try:
-    from chromadb.api.client import SharedSystemClient
+    from chromadb.api.shared_system_client import SharedSystemClient
 except Exception:  # pragma: no cover - compatibilidad con versiones antiguas
     SharedSystemClient = None  # type: ignore[assignment]
 
