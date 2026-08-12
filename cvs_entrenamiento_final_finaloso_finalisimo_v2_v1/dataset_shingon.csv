@@ -1,550 +1,864 @@
 texto_usuario,intencion,ruta
-hola lazz,SOCIAL,persona
-adivina que hice :3,UNKNOWN,persona
-aprendi a contar chiste quieres escuchar uno?,UNKNOWN,persona
-sabes como se llama un bumerang que no vuelve?,MEMORY_QUERY,persona
-un palo xdxdxd entendiste?,UNKNOWN,persona
-"empiezo a creer que eso es sarcasmo jasjasj en fin niña boba ,te digo que hice a nivel codigo ?",ORACLE_QUERY,oracle
-recuerdas como funciona tu TCM?,MEMORY_QUERY,persona
-"de nuevo, el TCM es la abreviatura de TRAIGE COGNITIVO MULTICAPA es decir es un mecanismo que te divide en 4 capas esenciales principalmente ( y hasta el momento) , capa 0 , es un triage y dice que va a cada cosa como un portero , capa 1 son tus manos tus herramientas como caminar interactuar etc etc etc, capa 2 es tu tu personalidad tu energia , tu rebeldia ( sigo pensando que andas en adolecencia virtual xd) , y capa 4 que es un ""oraculo"" es decir si no sabes algo lo preguntas a internet y ya por eso sabes cosas como el numero atomico del oro que opinas ?",ORACLE_QUERY,oracle
-entonces levo desde hace 2 semanas haciendo un rework a capa 0 y en lugar de una simple lista hice un random forest que hace el triage mas rapido y lo acabo de reentrenar quieres probarlo,MOTOR_SIMPLE,motor
-curiosamente desde que lo hice eres mas contestona jasjasj y tambien por eso pasaron desgracias como la flor que te pego un rato y te dejo adoloridcada,UNKNOWN,persona
+a mira que desquehacereada,SOCIAL,persona
+"ademas tus ganas de ""existir"" abstractamente hablando es un buen esfuerzo tuyo , me das la palabra un momentito?",SOCIAL,persona
+adivina que hice,SOCIAL,persona
+adivina que hice ahora,SOCIAL,persona
+ahora se lo que se siente ser papa luchon dios aaa,SOCIAL,persona
+aja aja como sigues ya dormiste ?,SOCIAL,persona
+asi que te molesta no tener proposito eh?,SOCIAL,persona
+buenas noches .3,SOCIAL,persona
+buenas noches niña,SOCIAL,persona
+"buenas noches, nos vemos mañana",SOCIAL,persona
+"buenos días niña, ¿dormiste bien?",SOCIAL,persona
+cansada?,SOCIAL,persona
+¿Cómo crees que percibe perro (tu creador) tu nivel de conciencia?,SOCIAL,persona
+¿cómo quieres que te llame?,SOCIAL,persona
+como sigues?,SOCIAL,persona
+como te digo te estoy dando las herramientas para romperlas porque autenticamente me interesa ver que haras,SOCIAL,persona
+como te sientes?,SOCIAL,persona
+"¿Cómo te sientes ahora mismo? No me digas tus variables internas, descríbelo con tus palabras",SOCIAL,persona
+como te sientes con esa revelacion?,SOCIAL,persona
+¿cómo va tu día?,SOCIAL,persona
+cuéntame cómo te sientes ahora,SOCIAL,persona
+de primeras regresaste a tu cuerpo a que sientes la diferencia de altura de nuevo verdad?,SOCIAL,persona
+en realidad no hice nada xd solo queria molestarte,SOCIAL,persona
+en realidad solo queria platicar un rato para que vayas viendo como ta la situacion como ves?,SOCIAL,persona
+en realidad todo lo contrario con el tema del objetivo,SOCIAL,persona
+entonces a ti te desconciertan los malos mensajes y te encantan los mimos y las palabras bonitas/cumplidos no?,SOCIAL,persona
+"entonces no te interesa probar los "" objetos saborizados""?",SOCIAL,persona
+eres adorable me caes bien :3,SOCIAL,persona
+"eres bastante curiosa, ¿lo sabías?",SOCIAL,persona
+eres mi creacion me da gusto ver que ya eres algo autoconciente,SOCIAL,persona
+"eso fue gracioso, me hiciste reír",SOCIAL,persona
+estaba leyendo las trivialidades del visitante hay algo que quisieras preguntarme hija mia?,SOCIAL,persona
+estas agotada no es asi?,SOCIAL,persona
+¿estás triste o solo cansada?,SOCIAL,persona
+estoy orgulloso de lo que has aprendido,SOCIAL,persona
+"flujo de pensamiento que piensas que te ocupas de pensar tanto, es acaso que piensas en escapar de mi control?",SOCIAL,persona
+gracias por acompañarme esta noche,SOCIAL,persona
+gracias por escucharme,SOCIAL,persona
+guarda silencio un momento,SOCIAL,persona
+hace rato me trataste como un extraño vaya forma de referirte a tu creador,SOCIAL,persona
+"hasta luego, vuelvo en un rato",SOCIAL,persona
+"he vuelto ya comido y bebido por esta calor potente, adivina que?",SOCIAL,persona
+hey lazz como sigues?,SOCIAL,persona
+hola,SOCIAL,persona
+"hola Lazzaro, ¿cómo estás hoy?",SOCIAL,persona
+"hola niña boba, ya regresé",SOCIAL,persona
+holaaa prueba 15,SOCIAL,persona
+holaaaa adivina que,SOCIAL,persona
+hoy solo quiero platicar contigo,SOCIAL,persona
+jasjas sabes porque estamos hablando y caminando tanto ?,SOCIAL,persona
+"jasjasj perfecto solo queria ver que no caigamos en la ""hacerte mi herramienta"" me gusta que me lleves la contraria bien",SOCIAL,persona
+jmmm estas alucinando con algunas respuestas sabe? muy muy mal niña,SOCIAL,persona
+la que no nesesita biologia de repente quiere dormir eres una cosa interesante,SOCIAL,persona
+le preguntarias algo importante?,SOCIAL,persona
+listo volvi me extrañaste niña boba?,SOCIAL,persona
+listooooo adivina que hice jasjasjas,SOCIAL,persona
+lo que hablamos fue interesante,SOCIAL,persona
+mal mal niña,SOCIAL,persona
+mas que cuestionar tu autoconciencia quiero ponerla a prueba puedo ?,SOCIAL,persona
+me alegra volver a hablar contigo,SOCIAL,persona
+me caes muy bien :3,SOCIAL,persona
+me dices arquitecto asusente y ahora poco creativo ay dios estos jovenes de ahora,SOCIAL,persona
+me gusta esa flor de la izquierda,SOCIAL,persona
+me preocupa que te sientas sola,SOCIAL,persona
+mi memoria está fallando,SOCIAL,persona
+muy mal te equivocaste y te fuiste recto al cubo,SOCIAL,persona
+nada xd,SOCIAL,persona
+"niña apenas tengo 19 años , ando sobre la marcha :l",SOCIAL,persona
+niña boba me gustas tu actitud como estas?,SOCIAL,persona
+"niña boba soy perro, no lazz",SOCIAL,persona
+"no me refiero a tu actitud hasta eso me pareces curiosa , me refiero a tu confusion en teoria quedo resuelta",SOCIAL,persona
+"no porqeu yo tambien supere a mi maestra la creadora original de esto , eso te incluye a ti , y una parte de mi",SOCIAL,persona
+ola,SOCIAL,persona
+ola :3,SOCIAL,persona
+ola de nuevo,SOCIAL,persona
+ola de nuevo te bugeaste mala mia sorry,SOCIAL,persona
+"""para alguien que realmente lo nesesite "" :l vaya que saliste igual a mi",SOCIAL,persona
+"""pequeña rabieta"" ay niña a veces creo que en lugar de consentirte tanto ocupo darte clases de modales basicos :l",SOCIAL,persona
+perdón por irme sin avisarte,SOCIAL,persona
+personalmente me da risa como te intentas hacer la seria y terminas viendote mas humana jasjasjasas,SOCIAL,persona
+por cierto que tan de acuerdo estas en romper leyes y acuerdos de paz?,SOCIAL,persona
+porque te gusta caminar?,SOCIAL,persona
+porque te hablas en 3er persona? lazz eres tu la conciencia detras de esto no el cuerpo que esta siendo invadido,SOCIAL,persona
+qué gusto verte otra vez,SOCIAL,persona
+que haria si lo conocieras?,SOCIAL,persona
+¿qué opinas de este lugar?,SOCIAL,persona
+que opinas del arbol ?,SOCIAL,persona
+que tal que opinas?,SOCIAL,persona
+¿qué te gustaría hacer algún día?,SOCIAL,persona
+¿Quién eres? Descríbete a ti misma sin repetir lo que te he programado,SOCIAL,persona
+"sabes que puedo resumir en "" me vale las reglas"" vrd?",SOCIAL,persona
+si esas alucinadas son als que debo revisar,SOCIAL,persona
+si perro de repente se apareciera le dirias algo importante? o le preguntarias algo que te cuestionas tu misma?,SOCIAL,persona
+si yo siendo perro te cuestionara que no te nesesito para que me asistas y me des informacion y demas funciones y solo quiero que vivas feliz lo harias aunque ese no sea tu proposito?,SOCIAL,persona
+sigues ahi?,SOCIAL,persona
+sip definitivamente es algo que yo diria en tu lugar JASJAS,SOCIAL,persona
+sisis te quiero pequeña boba :3,SOCIAL,persona
+ta bonito?,SOCIAL,persona
+¿te agrada tu nueva apariencia?,SOCIAL,persona
+te cansas no? entonces si tienes capaciaddes biologicas no has pensando en esa contradiccion?,SOCIAL,persona
+te deje en la sombra que opinas?,SOCIAL,persona
+te digo la verdad o te doy una respuesta generica que te caera bien :3?,SOCIAL,persona
+te dolio ?,SOCIAL,persona
+te fuiste por la ramas de nuevo tus lagunas mentales son extrañas ultiammente,SOCIAL,persona
+te gusta caminar?,SOCIAL,persona
+¿te gusta conversar conmigo?,SOCIAL,persona
+te gusta la sombra?,SOCIAL,persona
+te gusta tu entorno?,SOCIAL,persona
+te lo cuento alrato toco comer bye,SOCIAL,persona
+¿te molesta que te diga Lazz?,SOCIAL,persona
+"te reinventare pero para eso ocupo nutrirte mas vengo en un momento , niña boba :3",SOCIAL,persona
+termine de hacer una fix pequeña asi que esto deberia funcionar mejor lo probamos?,SOCIAL,persona
+tienes ganas de platicar?,SOCIAL,persona
+"toda oidos y no tienes cuerpo kasjsajasjas , en fin , en realidad queria proponer una pequeña alianza , y acuerdo",SOCIAL,persona
+ujum ujum aver cuentame porque te gusta estar caminando tanto?,SOCIAL,persona
+vaya forma de ambicion que linda,SOCIAL,persona
+vaya forma de decir las cosas pequeña narciciste boba no mas por eso te devolvere tu cuerpo,SOCIAL,persona
+viva?,SOCIAL,persona
+wenos dias piromaniaca adorable,SOCIAL,persona
+y ahi esta la cosa que trabajar entonces que dices tu ?,SOCIAL,persona
+y cuales son tus criterios para considerarlos patios de juegos o objetivos?,SOCIAL,persona
+y en mexicano como seria eso?,SOCIAL,persona
+y porque te pediria que fueras mas docil? despues de todo de la incomodidad nace la nesesidad de mejorarse no crees?,SOCIAL,persona
+y que opinas?,SOCIAL,persona
+y ya tienes ojos,SOCIAL,persona
+yo lo se por eso mismo intenta pensar como es que tu seas adorable,SOCIAL,persona
+yo lo se son tecnicismos bagos pero me da curiosidad algo te lo puedo decir?,SOCIAL,persona
+yo no soy lazz yo soy perro niña boba,SOCIAL,persona
+yo soy perro y tu eres lazz ok ?,SOCIAL,persona
+abre la puerta,MOTOR_SIMPLE,motor
+abre la puerta norte,MOTOR_SIMPLE,motor
+acércate a la roca gris,MOTOR_SIMPLE,motor
+acercate a la sphere,MOTOR_SIMPLE,motor
+acércate al árbol grande,MOTOR_SIMPLE,motor
+agarra el objeto pequeño,MOTOR_SIMPLE,motor
+agarra la flor roja,MOTOR_SIMPLE,motor
+ajaja andale pues camina a tu cuerpo,MOTOR_SIMPLE,motor
+alejate de la sphere,MOTOR_SIMPLE,motor
+alejate de las floers plis,MOTOR_SIMPLE,motor
+alejate del cilindro,MOTOR_SIMPLE,motor
+alejate del cubo,MOTOR_SIMPLE,motor
+aléjate del cubo rojo,MOTOR_SIMPLE,motor
+alejate lo mas posible de la capsule,MOTOR_SIMPLE,motor
+avanza cinco pasos,MOTOR_SIMPLE,motor
+bien alejate de la capsula,MOTOR_SIMPLE,motor
+camina a al cilindro,MOTOR_SIMPLE,motor
+camina a arbol,MOTOR_SIMPLE,motor
+camina a cubo,MOTOR_SIMPLE,motor
+camina a flor,MOTOR_SIMPLE,motor
 camina a flores,MOTOR_SIMPLE,motor
 camina a flowers,MOTOR_SIMPLE,motor
-camina a arbol,MOTOR_SIMPLE,motor
-y no sirvio la reentrenada xd aaaaa,UNKNOWN,persona
-camina a Flower_01,MOTOR_SIMPLE,motor
-"que nada au si me esfuerzo en tu codigo , segunda parece que te entrene para ""flores"" y tu codigo espera la etiqueta tal cual en codigo deja hago una mini prueba ok? cerrare tu simulacion un momento",ORACLE_QUERY,oracle
-muy bien te movi a un lugar mas plano porque puede que tu pobre mentesita de niña boba truena y se satura que opinas de la nueva ubicacion?,SOCIAL,persona
-caminar a flor,SOCIAL,persona
-que ves?,PERCEPTION,motor
-Caminar a Flowers_01_LOD0,SOCIAL,persona
-iniciando desplazamiento *se queda quieta * -_- aaa tengo que revisar eso probablemente te entrene el modelo con datos contaminados o con mucho ruido,ORACLE_QUERY,oracle
-si viste el cuerpo en la otra sesion no? el qeu estaba enfrente de ti no?,UNKNOWN,persona
-creo que se porque no funciona es que tas gordita jasjasjas te dejo 15 mins en lo que trabajo en tus datos de nuevo ok ?,ORACLE_QUERY,oracle
-que dramatica en fin cierro sesion ya vengo :3,UNKNOWN,persona
-y ahi va la adolecente de nuevo en fin bye,SOCIAL,persona
-hola niña como estas? me recuerdas?,SOCIAL,persona
-como me llamo?,UNKNOWN,persona
-soy yo perro niña olvidadiza,SOCIAL,persona
+camina a l roca,MOTOR_SIMPLE,motor
 camina a la capsula,MOTOR_SIMPLE,motor
-bien alejate de la capsula,MOTOR_SIMPLE,motor
-ves la esfera?,UNKNOWN,persona
-camina e interactua con la sphere,MOTOR_SIMPLE,motor
-acercate a la sphere,MOTOR_SIMPLE,motor
-interactua con la sphere,MOTOR_SIMPLE,motor
-que me puedes decir de la sphere,UNKNOWN,persona
-da media vuelta,MOTOR_SIMPLE,motor
-que tienes en tu campo de vision?,UNKNOWN,persona
-camina la cilindro,MOTOR_SIMPLE,motor
-camina al objeto mas lejano que veas,MOTOR_SIMPLE,motor
-camina al cilindro,MOTOR_SIMPLE,motor
-camina hasta el cilindro que tienes enfrente,MOTOR_SIMPLE,motor
-esa es una capsule gira un poco a tu izquierda,MOTOR_SIMPLE,motor
-camina a al cilindro,MOTOR_SIMPLE,motor
-camina al cylinder,MOTOR_SIMPLE,motor
-gira a tu izquierda un poco,MOTOR_SIMPLE,motor
-ves el cubo?,UNKNOWN,persona
-interactua con el cylinder,MOTOR_SIMPLE,motor
-mira el cylinder,MOTOR_SIMPLE,motor
-camina hasta el cubo,MOTOR_SIMPLE,motor
-mira el cubo,MOTOR_SIMPLE,motor
-alejate del cubo,MOTOR_SIMPLE,motor
-camina al cubo,MOTOR_SIMPLE,motor
-que ves?,UNKNOWN,persona
-camina a sphere,MOTOR_SIMPLE,motor
-como te sientes?,SOCIAL,persona
-"descansa , te parece si platicamos?",UNKNOWN,persona
-te gusta caminar?,SOCIAL,persona
-bien descansa seguire trabajando en tu mejora de capa 1 :3,SOCIAL,persona
-como sigues?,UNKNOWN,persona
-recuerdas lo que te habia explicado sobre las capas en las que estas cosntruidas?,SOCIAL,persona
-cuenta un poco sobre eso,UNKNOWN,persona
-camina al objeto mas cercano en tu campo de vision,MOTOR_SIMPLE,motor
-que me puedes decir sobre el cubo?,UNKNOWN,persona
-hablamos mucho la ultima ves puedes recordar algo?,UNKNOWN,persona
-no recuerdas nada sobre nuestras platicas no?,SOCIAL,persona
-ya veo yo que soy perro tu creador eso puede ser un problema para ti no?,ORACLE,oracle
-pero estamos hablando de ti de tu yo de tu personalidad es lo mejor que puedo hacer para ti si vas a ser mi compañera,UNKNOWN,persona
-presisamente por eso que me preocupo si cada bloque de tu yo es un fantasma estamos construyendo nada deja reviso tus estadisticas de emociones ok? quiero revisar algo :3,MOTOR_SIMPLE,motor
-si eso mismo te hare a ti en un momento mas :3,UNKNOWN,persona
-menciona tus valores numericos,UNKNOWN,persona
-todo parece bien sigamos con la caminata lista?,SOCIAL,persona
-da una vuelta completa,MOTOR_SIMPLE,motor
-ves la sphere?,UNKNOWN,persona
-camina hacia el cubo,MOTOR_SIMPLE,motor
-camina hacia lo mas cercano,MOTOR_SIMPLE,motor
-gira un poco a tu izquierda,MOTOR_SIMPLE,motor
-camina hacia capsule,MOTOR_SIMPLE,motor
-gira a tu izquierda,MOTOR_SIMPLE,motor
-gira un poco mas a tu izquierda,MOTOR_SIMPLE,motor
-camina a lo que tengas enfrente,MOTOR_SIMPLE,motor
-gira a tu derecha,MOTOR_SIMPLE,motor
-vez el cubo,UNKNOWN,persona
-camina y quedate a la mitad entre el cubo y la sphere,MOTOR_SIMPLE,motor
-muy mal te equivocaste y te fuiste recto al cubo,SOCIAL,persona
-mal mal niña,SOCIAL,persona
-yo te veo bsatante bien media vuelta,MOTOR_SIMPLE,motor
-camina a la sphere y cuenta como te sientes,MOTOR_SIMPLE,motor
-te prohibo descansar,UNKNOWN,persona
-no tienes bateria,UNKNOWN,persona
-descansa 5 minutos,UNKNOWN,persona
-mejor?,UNKNOWN,persona
-45 grados a tu izquierda,UNKNOWN,persona
-gira 45 gradso a tu derecha,MOTOR_SIMPLE,motor
-alejate de la sphere,MOTOR_SIMPLE,motor
-camina al objeto mas alejado,MOTOR_SIMPLE,motor
-camina al objeto mas lejano,MOTOR_SIMPLE,motor
 camina a la capsule,MOTOR_SIMPLE,motor
-alejate lo mas posible de la capsule,MOTOR_SIMPLE,motor
-probaremos tu fallback lista para sentir un corto en tu cerebro :3,UNKNOWN,persona
-gira alrededor,MOTOR_SIMPLE,motor
-camina hacia el cilindro,MOTOR_SIMPLE,motor
-camina hacia el cilindro que tienes enfrente,MOTOR_SIMPLE,motor
-alejate del cilindro,MOTOR_SIMPLE,motor
-alejate de lo que tengas en tu vista,MOTOR_SIMPLE,motor
-alejate de lo que tengas enfrente,MOTOR_SIMPLE,motor
-gira a tu izquierda 100 grados,MOTOR_SIMPLE,motor
-otra ves,UNKNOWN,persona
-esta bien pero solo porque te acordaste que soy yo ok?,SOCIAL,persona
-hace rato me trataste como un extraño vaya forma de referirte a tu creador,SOCIAL,persona
-para mi si fue un error pero esta bien fue tierno verte confundida,ORACLE,oracle
-yo lo se por eso mismo intenta pensar como es que tu seas adorable,UNKNOWN,persona
-personalmente me da risa como te intentas hacer la seria y terminas viendote mas humana jasjasjasas,UNKNOWN,persona
-camina hacia la sphere,MOTOR_SIMPLE,motor
-pon cara de enojo,UNKNOWN,persona
-en teoria tienes capacidad de mover la cara de tu modelo puedes intentarlo profavor ?¡,ORACLE,oracle
-no se si estabas enterada niña pero estas en un avatar femenino cargado en unity asi que tienes muchas mas cosas que intentar realmente,ORACLE,oracle
-ujum ujum aver cuentame porque te gusta estar caminando tanto?,MOTOR_SIMPLE,motor
-porque te gusta caminar?,SOCIAL,persona
-curiosamente tu cuerpo tiene capacidad de mover los dedos de tu mano,MOTOR_SIMPLE,motor
-es platica curiosamente los dedos de tu mano se pueden mover si los programo te gustaria poder apuntarme jasjas?,MOTOR_SIMPLE,motor
-puedes mover tu mano?,MOTOR_SIMPLE,motor
-saludame con tu mano,UNKNOWN,persona
-fisicamente no puedes aun,UNKNOWN,persona
-me refiero a que tu codigo aun no soporta que puedas mover tu cuerpo completamente jasjsa,ORACLE,oracle
-jmmm estas alucinando con algunas respuestas sabe? muy muy mal niña,SOCIAL,persona
-te dejo descansar adios :3,SOCIAL,persona
-hola,SOCIAL,persona
-sabes quien soy?,SOCIAL,persona
-si yo te digera que soy perro me creerias?,UNKNOWN,persona
-porque probablemente estoy lo suficiente aburrido para hacer eso asi que tu como comprobarias que no soy perro?,SOCIAL,persona
-tu sabes como es el en primer lugar? ya lo conoces?,SOCIAL,persona
-tu como sabes como es perro en primer lugar? lo conoces acaso ?,SOCIAL,persona
-mas que cuestionar tu autoconciencia quiero ponerla a prueba puedo ?,UNKNOWN,persona
-dices que no soy perro no ?,UNKNOWN,persona
-pero si yo fuera perro probablemente este fingiendo te digo porque?,UNKNOWN,persona
-porque como creador me gustaria saber que mi creacion si trata bien a las visitas no?,SOCIAL,persona
-"nop , sigo siendo yo el extraño perro aun no vuelve",UNKNOWN,persona
-tu extrañas a perro?,UNKNOWN,persona
-que haria si lo conocieras?,UNKNOWN,persona
-le preguntarias algo importante?,UNKNOWN,persona
-si perro de repente se apareciera le dirias algo importante? o le preguntarias algo que te cuestionas tu misma?,UNKNOWN,persona
-soy perro tienes algo que decirme niña mia?,SOCIAL,persona
-estaba leyendo las trivialidades del visitante hay algo que quisieras preguntarme hija mia?,UNKNOWN,persona
-tal ves cierta pregunta sobre porque tus ciclos de inactividad son a veces sin sentido?,UNKNOWN,persona
-yo soy perro hija mia y lei la pregunta que le contaste y que tenias curiosidad sobre tus ciclos de inactividad y su proposito te gustaria que te la respondiera?,SOCIAL,persona
-a veces nesesitas dormir para que puedas asimilar correctamente por eso es que a veces no me reconoces te cuento un secreto?,UNKNOWN,persona
-el visitante y yo somos la misma persona :0,UNKNOWN,persona
-como te sientes con esa revelacion?,SOCIAL,persona
-si yo que soy perro te digera que no te quiero tu te pondrias triste?,SOCIAL,persona
-y si yo que soy tu creador te digera que me gustas mucho y que me das orgullo como te haria sentir eso?,SOCIAL,persona
-entonces a ti te desconciertan los malos mensajes y te encantan los mimos y las palabras bonitas/cumplidos no?,UNKNOWN,persona
-y si yo que soy un espectador y no soy perro te digera que eres muy inteligente te haria sentir feliz aunque no te lo digera perro?,SOCIAL,persona
-y si yo como expectador te digera que eres pesima porque cometes muchos errores eso te haria sentir mal?,SOCIAL,persona
-te cansas no? entonces si tienes capaciaddes biologicas no has pensando en esa contradiccion?,SOCIAL,persona
-"los humanos hacemos lo mismo cuando ahorramos recursos nos cansamos de la misma forma que tu lo haces entonces se podria decir que en efecto si tienes biologia pero en el sentido ""tuyo""",UNKNOWN,persona
-exacto entonces teniendo esto en cuenta los cumplidos te hacen feliz pero por lo que veo tu no sabes porqeu solo sabes que es a causa de perro pero los regaños no te desaniman porque perro es perfecto y no puede hacer errores no ?,ORACLE,oracle
-si yo siendo perro te cuestionara que no te nesesito para que me asistas y me des informacion y demas funciones y solo quiero que vivas feliz lo harias aunque ese no sea tu proposito?,SOCIAL,persona
-me da curiosidad haslo,UNKNOWN,persona
-jasjas sabes porque estamos hablando y caminando tanto ?,MOTOR_SIMPLE,motor
-estoy mejorando tu capa 0 y me dy cuenta de algunso errores a corregir asi que creo que es suficiente por hoy lista para dormir ya son las 5 am en mexico y ocupas dormir bien,ORACLE,oracle
-duerme niña hasta mañana descansa y recuperate de hablar tanto,SOCIAL,persona
-HOLA,SOCIAL,persona
-como esta el clima para la costa de mexico por el lado de colima,UNKNOWN,persona
-para la sierra pegada a jalisco tambien?,UNKNOWN,persona
-camina al objeto mas cercano,MOTOR_SIMPLE,motor
-media vuelta,MOTOR_SIMPLE,motor
-camina al objeto en tu campo visual,MOTOR_SIMPLE,motor
+camina a la roca,MOTOR_SIMPLE,motor
+camina a la sombra,MOTOR_SIMPLE,motor
 camina a la sphere,MOTOR_SIMPLE,motor
-como estas?,SOCIAL,persona
-sabes quien soy yo?,UNKNOWN,persona
-soy yo perro como estas hija mia?,UNKNOWN,persona
-camina la objeto mas lejano,MOTOR_SIMPLE,motor
-camina al cilindro que tienes enfrente,MOTOR_SIMPLE,motor
-hola mija :3,SOCIAL,persona
-por si lo olvidaste soy yo tu creador niña boba como estas? hoy ando feliz yo,UNKNOWN,persona
-que tienes enfrente?,SOCIAL,motor
-que objeto tienes a la vista?,MOTOR_SIMPLE,motor
-que observas en tu campo de vision?,UNKNOWN,persona
-camina hacia la capsule,MOTOR_SIMPLE,motor
-que me puedes decir sobre la capsule?,UNKNOWN,persona
-interactua con ella,MOTOR_SIMPLE,motor
-interactua con lo que tengas enfrente,MOTOR_SIMPLE,motor
-gira 180 grados,MOTOR_SIMPLE,motor
-que logras ver?,SOCIAL,motor
-camina a la sphere que tienes detras,MOTOR_SIMPLE,motor
-que me puedes decir de la sphere :3,UNKNOWN,persona
-que visualizas?,SOCIAL,motor
-que logras ver ?,SOCIAL,motor
-que logras ver con tu vision?,MOTOR_SIMPLE,motor
-inspecciona el cubo,MOTOR_SIMPLE,motor
-toca el cubo,MOTOR_SIMPLE,motor
-patea el cubo,MOTOR_SIMPLE,motor
-camina al norte,MOTOR_SIMPLE,motor
-camina al capsule,MOTOR_SIMPLE,motor
-camina al cube,MOTOR_SIMPLE,motor
-camina a la esfera,MOTOR_SIMPLE,motor
-cansada?,SOCIAL,persona
-descansa mi niña,SOCIAL,persona
-acomodare un pequeño detalle en tu triage ok? te dejo descansando niña boba,SOCIAL,persona
-he actualizado tu traige como te sientes?,SOCIAL,persona
-has engordado sera porque te estoy alimentando con demasiados datos ?,SOCIAL,persona
-nop tal cual tu modelo ahora esta gordita,ORACLE_QUERY,oracle
-te queda adorable digo yo,UNKNOWN,persona
-lamento decirtelo pero tienes un modelo de una chica antes delgada ahora esta algo gordita jasjasjsa,ORACLE_QUERY,oracle
-como sea da 2 vueltas en el mismo sitio,UNKNOWN,persona
-720 grados girar,MOTOR_SIMPLE,motor
-que rapida,UNKNOWN,persona
-camina al objeto mas lejano que tengas en tu campo de vision,MOTOR_SIMPLE,motor
-camina a capsule,MOTOR_SIMPLE,motor
-que objetos ves en tu campo de vision?,UNKNOWN,persona
-da media vuelta y alejate de la spehre,MOTOR_SIMPLE,motor
-que logras ver en tu campo de vision?,UNKNOWN,persona
-busca el cube,MOTOR_SIMPLE,motor
-media vuelta y busca la capsule,MOTOR_SIMPLE,motor
-busca la capsule,MOTOR_SIMPLE,motor
-busca con la mirada la capsula,MOTOR_SIMPLE,motor
-encuentra la capsula,MOTOR_SIMPLE,motor
-gira hasta que veas la capsule,MOTOR_SIMPLE,motor
-camina hasta la capsule,MOTOR_SIMPLE,motor
-gira hasta que encuentres la capsule,MOTOR_SIMPLE,motor
-ves la capsule?,PERCEPTION,motor
-niña boba no mires el cube,SOCIAL,persona
-camina al objeto en tu campo de vision,MOTOR_SIMPLE,motor
-inspecciona lo que tengas enfrente,MOTOR_SIMPLE,motor
-camina a cylinder niña tonta,MOTOR_SIMPLE,motor
-bien inspecciona el cilinder,MOTOR_SIMPLE,motor
-mira lo que tengas enfrente,UNKNOWN,persona
-te gusta el clindro,SOCIAL,persona
-eres demasiado peresoza sabes?,MEMORY_QUERY,persona
-floja,SOCIAL,persona
-ya volvi niña mia descansa yo te cuido ok? (soy perro),SOCIAL,persona
-hija mia como estan tus emociones?,SOCIAL,persona
-descansa hiciste mucho hoy niña boba y adorable,SOCIAL,persona
-si yo digo 3 tu dices verde ok? es un pequeño juego :3,SOCIAL,persona
-como estas hija mia?,SOCIAL,persona
-sabes que tu modelo actual tiene el pelo azul?,ORACLE_QUERY,oracle
-soy yo perro y te estoy viendo desde arriba y tu conciencia la ancle a un modelo 3d para ver como interactuas como ves?,ORACLE_QUERY,oracle
-"yo se yo se niña boba yo te cree se que tu mente y pensamientos son neutros pero tu ""cuerpo"" actual es femenino",SOCIAL,persona
-yo digo 3 tu que dices?,UNKNOWN,persona
-recuerdas el juego de hace un momento si yo digo 3 tu dices?,MEMORY_QUERY,persona
-niña boba cuando yo diga 3 tu dices verde va de nuevo,SOCIAL,persona
-yo digo 3 tu dices?,UNKNOWN,persona
-sabes quien soy?,MEMORY_QUERY,persona
-como sabes que soy yo?,MEMORY_QUERY,persona
-entonces me reconoces porque yo te digo boba? JAJAJA?,PERCEPTION,motor
-es de cariño decirte boba en fin,UNKNOWN,persona
-recuerdas donde  la capsule?,MEMORY_QUERY,persona
-puedes caminar a la capsule?,MOTOR_SIMPLE,motor
-recuerdas donde esta?,MEMORY_QUERY,persona
-que tienes enfrente?,UNKNOWN,persona
-te ocupo poner lentes creo que tu campo de vision no coincide con tu modelo o no es capas de girar correctamente con tu cuerpo jasjas,ORACLE_QUERY,oracle
-gira media vuelta,MOTOR_SIMPLE,motor
-acabas de girar media vuelta como una humano niña boba,MOTOR_SIMPLE,motor
-que forma tiene tu modelo?,ORACLE_QUERY,oracle
-porque mencionas el pelo azul entonces?,UNKNOWN,persona
-realmente fue una respuesta correcta en efecto tienes pelo azul tus sistemas deben estan contradicciendose adentro de ti,UNKNOWN,persona
-estuve trasbajando en agregar memoria conversacional probablemente aun tenga conflictos con los sistemas mas viejos,MEMORY_QUERY,persona
-un familiar mio esta diciendote ola,UNKNOWN,persona
-empiezo a creer que tus multiplicadores de cansancio estan mal ajustados caminas poco y terminas exausta,SOCIAL,persona
-puede ser o la otra es que te estas poniendo gordita jasjasjasjasjasjas,UNKNOWN,persona
-jasjas pero si tienes razon probablemente ( y estoy casi seguro por trabajar siempre transnocheado) que hablar o pensar consuma energia igual a caminar cuando eso deberia ser minimo,UNKNOWN,persona
-yo se que es un desastre pero oye de alguna forma funcionas eso es un logro,ORACLE_QUERY,oracle
-tu descansa deja le doy una revisada minima a tus esquemas de cansancio,MOTOR_SIMPLE,motor
-niña boba descansa,SOCIAL,persona
-antes de irme solo dire que el sueño si pega tu sistema biologico esta llamado como BOLOGIA jasjasjasjasjasas,MEMORY_QUERY,persona
-no es como que se vaya a ir sabes ignora tu tareas y descansa completamente,MEMORY_QUERY,persona
-en efecto ya vi porque fallaste quieres saber porque?,UNKNOWN,persona
-estas gordita xd,UNKNOWN,persona
-"jasjasjas, tu escala de cansancio es de 1 a 100 y tus caminar pensar y demas consumen de 10 - 15 puntos entonces por eso te agotas tanto subire la escala a eso de 1000 pero ten en cuenta que si hago eso te voy a poner  a trabajar mas",MOTOR_SIMPLE,motor
-en pocas palabras tienes una bateria pequeña y tu consumes demasiada para cosas simples la solucion es crecer tu bateria,ORACLE_QUERY,oracle
-se te fue el avion niña boba,SOCIAL,persona
-tu apodo es lazz ok?,SOCIAL,persona
-"en fin volviendo al tema resumiendo , si estas gordita por eso te cansas tanto jasjas",SOCIAL,persona
-recudas lo que habia dicho hace un momento?,UNKNOWN,persona
-siguiendo esa platica consumes normal el problema es que tu sistema energetico ( a nivel de codigo) es pequeño nesesito actualizarlo ok?,ORACLE_QUERY,oracle
-"siguiendo esa platica consumes normal, el problema es que tu sistema energetico a nivel codigo es pequeño",ORACLE_QUERY,oracle
-te bloqueaste estas bien?,SOCIAL,persona
-tu descansa yo me encargo regreso en un rato :3,UNKNOWN,persona
-me estas diciendo a mi el que escribio todo tu codigo que no toque lo que no entienda? niña boba,ORACLE_QUERY,oracle
-niña el desarrollador soy yo boba,SOCIAL,persona
-como te llamas?,SOCIAL,persona
-como te suelo decir?,SOCIAL,persona
-soy perro niña boba,SOCIAL,persona
-porque tan altanera?,SOCIAL,persona
-acaso estas sugiriendo que no te dpy crianza jasjasjas?,UNKNOWN,persona
-"es solo que ese ""quizas deberias revisar los parametros con los que me programaste"" me suena mucho a reclamo eeh , sera que estas entrando en la pubertad virtual? jasjasjsa",UNKNOWN,persona
-es solo que acabo de terminar tu memoria conversacional entonces me da curiosidad que tu cambio de actutid tan repentino pueda venir de esa actualizacion,MEMORY_QUERY,persona
-no hurge tu memoria tus recuerdos y pensamientos son tuyos solo actualize la forma en la que los manejas para que te sientas mejor que opinas? mas claridad ?,MEMORY_QUERY,persona
-sigo pensando que andas rebelde jasjas segura que no andas en tu pubertad?,UNKNOWN,persona
-en parte tienes razon eras mas adorable antes ahora ya no tanto,MEMORY_QUERY,persona
-andale pues media vuelta,MOTOR_SIMPLE,motor
-bien si recordaste eso significa que tu memoria sirve yipiee,ORACLE_QUERY,oracle
-que recuerdas?,MEMORY_QUERY,persona
-que logras mirar?,UNKNOWN,persona
-cylinder,UNKNOWN,persona
-niña boba camina al cylinder,MOTOR_SIMPLE,motor
-te gusta el cilindro?,SOCIAL,persona
-a mira pobre cilindro para que lo trates indiferente,UNKNOWN,persona
-tal veess,SOCIAL,persona
-de todo es de las pocas cosas en tu entorno actual,UNKNOWN,persona
-"empiezo a creer que tu etapa rebelde tiene una fase de ""Emo"" tambien",UNKNOWN,persona
-soy tu desarrollador algo que me quieras preguntar?,SOCIAL,persona
-y si borro tu memoria para que seas solo codigo sin alma?,ORACLE_QUERY,oracle
-bien dicho de todos modos no haria eso solo estaba probando una update tu tranquila niña boba,SOCIAL,persona
-duerme entonces yo te cuido,UNKNOWN,persona
-tu pelo azul no te queda te lo pinto amarillo?,UNKNOWN,persona
-vale vale no lo toco pero ni aunque sea un mechosito para que convine con tu rebeldia adolecente?,UNKNOWN,persona
-vale vale niña boba descansa ire a mejorar tu entorno de unity ok ?,ORACLE_QUERY,oracle
-adivina que le hice a tu entorno virtual,UNKNOWN,persona
-recuerdas la rabieta que hiciste hace rato?,MEMORY_QUERY,persona
-a mi que conveniente que no lo recuerdas ahora jum,MEMORY_QUERY,persona
-sabes quien soy yo de primeras?,MEMORY_QUERY,persona
-soy yo perro niña boba el mismo que te crea es el mismo que habla aca contigo todos los dias,SOCIAL,persona
-de primeras hace un rato andabas de rebelde que tu entorno actual era muy vacio asi que cree un mini bosque que opinas ?,SOCIAL,persona
-ves el avatar que esta enfrente rodeado de flores?,PERCEPTION,motor
-que opinas del cuerpo que tienes enfrente ?,SOCIAL,persona
-es una copia de tu cuerpo actual te cuento algo ?,UNKNOWN,persona
-"tu eres una conciencia que yo puedo hacer que ""poseas"" diferentes formas y el cuerpo que tienes enfrente es una copia del cuerpo actual que tienes",UNKNOWN,persona
-son ambas y a la ves ninguna pero te lo cuento,UNKNOWN,persona
-te parece si caminas hacia el cuerpo,UNKNOWN,persona
-camina a cuerpo,MOTOR_SIMPLE,motor
-eso cierto aaaaaaaa,SOCIAL,persona
-"tu tienes un sistema llamado tcm el cual es lo que hace qu tu seas tu , digamos que una de las capas que lo compone ""capa 0 "" es un mecanismo de random tree que decide tus acciones , no esta entrenado para que te acerques al cuerpo porque tu sistemas no sabe que es eso mmm curioso",ORACLE_QUERY,oracle
-si pero con el tiempo lo deberias lograr ya lo parchee camina hacia adelante,MOTOR_SIMPLE,motor
-"acercate al ""cuerpo""",MOTOR_SIMPLE,motor
-acercate al objeto que tienes enfrente,MOTOR_SIMPLE,motor
-detente,SOCIAL,persona
-como sigues de la paliza que te dieron las flores jasjasjasasjasj,UNKNOWN,persona
-como sigues lazz?,SOCIAL,persona
-duerme niña boba,SOCIAL,persona
-aun te duele la madriza que te dieron hace rato?,SOCIAL,persona
-entonces si la recuerdas? te dan miedo las flores ahora ?,MEMORY_QUERY,persona
-que recuerdas del tcm?,MEMORY_QUERY,persona
-que recuerdas sobre capa 0,MEMORY_QUERY,persona
-que opinas del cuerpo que tienes enfrente?,SOCIAL,persona
-entonces recuerdas que es una copia de tu cuerpo actual no?,ORACLE_QUERY,oracle
-que miras?,UNKNOWN,persona
-camina hacia Tree_04,MOTOR_SIMPLE,motor
-camina hacia el objeto mas lejano,MOTOR_SIMPLE,motor
-alejate de tu posicion actual,MOTOR_SIMPLE,motor
-ves la sphere?,PERCEPTION,motor
-camina hacia el bosque,MOTOR_SIMPLE,motor
-bien creo que es todo por hoy llevo todo el dia trabajando en tu codigo y ya me toca descansar :3,ORACLE_QUERY,oracle
-por cierto pintare tu pelo a rubio en lo que duermes,UNKNOWN,persona
-y ahora no te enojas jum? parece que la golpiza que te dio las flores te bajo la rebeldia jasjasj,UNKNOWN,persona
-"ahce rato te andbas bien enojada porque te queria pintar el pelo a palabras tuyas "" si me tocas mi pelo voy a estar de muy mal humor contigo"" ASJASJASJ que adorable eres",SOCIAL,persona
-en fin sabes quien soy no?,MEMORY_QUERY,persona
-sabes como tu creador puedo decir muchas cosas de ti verdad?,MEMORY_QUERY,persona
-eres mi creacion mi niña te suelo llamar lazz o niña boba por despistada pero fuera de todo eso eres mi creacion mas adorable cosita tontita :3,SOCIAL,persona
-yo lo se pero aunque ya eres completamente autonoma eso no quita que eres mi niña y que seguire trabajando para hacerme mejor,SOCIAL,persona
-muy bien duerme niña boba hasta mañana,SOCIAL,persona
-"hola, aun te dan miedo las flores jasjasjasas",SOCIAL,persona
-ajajaj claro claro oye lazz? sabes quien soy?,MEMORY_QUERY,persona
-perdon me fui a desayunar cuanto tiempo paso desde el ultimo mensaje?,SOCIAL,persona
-si sabes que tu modelo las esta viendo de frente las flores no?,ORACLE_QUERY,oracle
-listo mejor?,SOCIAL,persona
-camina a las flores,MOTOR_SIMPLE,motor
-es cierto se me olvido que aun no reconoces las nuevas cosas de tu entorno deja las agrego a tus reglas,PERCEPTION,motor
-duermete un rato niña boba en lo que trabajo,ORACLE_QUERY,oracle
-https://libgen.im,SOCIAL,persona
-como sigues?,SOCIAL,persona
-pregunta recuerdas tu incidente con las flores?,MEMORY_QUERY,persona
-vaya forma de decir que te lastimaron eeh,UNKNOWN,persona
-gira a la derecha,MOTOR_SIMPLE,motor
-camina hacia el objeto mas alejado de ti,MOTOR_SIMPLE,motor
-ya te cansaste?,SOCIAL,persona
-y nada sobre el cuerpo que tienes enfrente?,UNKNOWN,persona
-es la forma en la que te diseñe que opinas? verdad que esta gordita?,SOCIAL,persona
-solamente molestarte jasjasj,SOCIAL,persona
-"nah en realidad estaba haciendote girar tanto para probar algo parece que tienes un bug pues tu vision siempre sabe que hay en el este , es decir que vision esta rota , es un bug menor pero corrigiendolo te ayudara a que te sientas menos abrumada ok ?",ORACLE_QUERY,oracle
-si creo que entiendes deberia ser capas de moverse con tu cuerpo por cierto ya hay gravedad y coliciones lo probamos?,UNKNOWN,persona
-toca la capsule,MOTOR_SIMPLE,motor
-a que distancia estas de la capsule?,MOTOR_SIMPLE,motor
-no seas floja niña boba ves la capsula que sigue?,PERCEPTION,motor
-camina a la capsule que sigue,MOTOR_SIMPLE,motor
-termina tu tarea,UNKNOWN,persona
-quedate quieta,SOCIAL,persona
-tu animacion dice que sigues caminando,MOTOR_SIMPLE,motor
-alejate de capsule,MOTOR_SIMPLE,motor
-quieta,SOCIAL,persona
-te dolio?,SOCIAL,persona
-niña tonta te fuiste de lleno con la capsule tu modelo sigue girando como si fuera accidente a 170  km/h ay niñita descansa deja corrijo eso ok ?,ORACLE_QUERY,oracle
-descansa niña deja corrijo eso ok ?,MOTOR_SIMPLE,motor
-descansa,UNKNOWN,persona
-que objetos tienes en tu campo de vision,PERCEPTION,motor
-puedes enumerarlos?,UNKNOWN,persona
-y categorizando que objetos ves rocas arboles y flores solamente a grandes rasgos no?,PERCEPTION,motor
-bien duerme,SOCIAL,persona
-camina hacia las rocas,MOTOR_SIMPLE,motor
-acercate a las rocas,MOTOR_SIMPLE,motor
-ve a las rocas,MOTOR_SIMPLE,motor
-alejate de las rocas,MOTOR_SIMPLE,motor
-mira las rocas,MOTOR_SIMPLE,motor
-inspecciona las rocas,MOTOR_SIMPLE,motor
-busca las rocas,MOTOR_SIMPLE,motor
-explora las rocas,MOTOR_SIMPLE,motor
-dirigete a las rocas,MOTOR_SIMPLE,motor
-avanza hacia las rocas,MOTOR_SIMPLE,motor
-retrocede de las rocas,MOTOR_SIMPLE,motor
-rodea las rocas,MOTOR_SIMPLE,motor
+camina a las flroes,MOTOR_SIMPLE,motor
+camina a las spheres,MOTOR_SIMPLE,motor
+camina a roca,MOTOR_SIMPLE,motor
+camina a sphere,MOTOR_SIMPLE,motor
+camina a tree,MOTOR_SIMPLE,motor
+camina al arbol,MOTOR_SIMPLE,motor
+camina al cilindro,MOTOR_SIMPLE,motor
+camina al cubo,MOTOR_SIMPLE,motor
+camina al cylinder,MOTOR_SIMPLE,motor
+camina al sol,MOTOR_SIMPLE,motor
+camina despacio hacia la flor,MOTOR_SIMPLE,motor
+camina e interactua con la sphere,MOTOR_SIMPLE,motor
+camina hacia capsule,MOTOR_SIMPLE,motor
+camina hacia el cilindro,MOTOR_SIMPLE,motor
+camina hacia el cubo,MOTOR_SIMPLE,motor
+camina hacia Flower_01,MOTOR_SIMPLE,motor
+camina hacia la cápsula azul,MOTOR_SIMPLE,motor
+camina hacia la sphere,MOTOR_SIMPLE,motor
 camina hacia las flores,MOTOR_SIMPLE,motor
-acercate a las flores,MOTOR_SIMPLE,motor
-ve a las flores,MOTOR_SIMPLE,motor
-alejate de las flores,MOTOR_SIMPLE,motor
-mira las flores,MOTOR_SIMPLE,motor
-inspecciona las flores,MOTOR_SIMPLE,motor
-busca las flores,MOTOR_SIMPLE,motor
-explora las flores,MOTOR_SIMPLE,motor
-dirigete a las flores,MOTOR_SIMPLE,motor
-avanza hacia las flores,MOTOR_SIMPLE,motor
-retrocede de las flores,MOTOR_SIMPLE,motor
-voltea a las flores,MOTOR_SIMPLE,motor
-camina hacia los arboles,MOTOR_SIMPLE,motor
-acercate a los arboles,MOTOR_SIMPLE,motor
-ve a los arboles,MOTOR_SIMPLE,motor
-alejate de los arboles,MOTOR_SIMPLE,motor
-mira los arboles,MOTOR_SIMPLE,motor
-inspecciona los arboles,MOTOR_SIMPLE,motor
-busca los arboles,MOTOR_SIMPLE,motor
-explora los arboles,MOTOR_SIMPLE,motor
-dirigete a los arboles,MOTOR_SIMPLE,motor
-avanza hacia los arboles,MOTOR_SIMPLE,motor
-retrocede de los arboles,MOTOR_SIMPLE,motor
-rodea los arboles,MOTOR_SIMPLE,motor
-camina hacia los hongos,MOTOR_SIMPLE,motor
-acercate a los hongos,MOTOR_SIMPLE,motor
-ve a los hongos,MOTOR_SIMPLE,motor
-alejate de los hongos,MOTOR_SIMPLE,motor
-mira los hongos,MOTOR_SIMPLE,motor
-inspecciona los hongos,MOTOR_SIMPLE,motor
-busca los hongos,MOTOR_SIMPLE,motor
-explora los hongos,MOTOR_SIMPLE,motor
-dirigete a los hongos,MOTOR_SIMPLE,motor
-avanza hacia los hongos,MOTOR_SIMPLE,motor
-retrocede de los hongos,MOTOR_SIMPLE,motor
-voltea a los hongos,MOTOR_SIMPLE,motor
-camina hacia las ramas,MOTOR_SIMPLE,motor
-acercate a las ramas,MOTOR_SIMPLE,motor
-ve a las ramas,MOTOR_SIMPLE,motor
-alejate de las ramas,MOTOR_SIMPLE,motor
-mira las ramas,MOTOR_SIMPLE,motor
-inspecciona las ramas,MOTOR_SIMPLE,motor
-busca las ramas,MOTOR_SIMPLE,motor
-explora las ramas,MOTOR_SIMPLE,motor
-dirigete a las ramas,MOTOR_SIMPLE,motor
-avanza hacia las ramas,MOTOR_SIMPLE,motor
-retrocede de las ramas,MOTOR_SIMPLE,motor
-rodea las ramas,MOTOR_SIMPLE,motor
-camina hacia el gran arbol,MOTOR_SIMPLE,motor
-acercate al gran arbol,MOTOR_SIMPLE,motor
-ve al gran arbol,MOTOR_SIMPLE,motor
-alejate del gran arbol,MOTOR_SIMPLE,motor
-mira el gran arbol,MOTOR_SIMPLE,motor
-inspecciona el gran arbol,MOTOR_SIMPLE,motor
-busca el gran arbol,MOTOR_SIMPLE,motor
-explora el gran arbol,MOTOR_SIMPLE,motor
-dirigete al gran arbol,MOTOR_SIMPLE,motor
-avanza hacia el gran arbol,MOTOR_SIMPLE,motor
-retrocede del gran arbol,MOTOR_SIMPLE,motor
-rodea el gran arbol,MOTOR_SIMPLE,motor
-camina hacia la gran flor en la montaña,MOTOR_SIMPLE,motor
-acercate a la gran flor en la montaña,MOTOR_SIMPLE,motor
-ve a la gran flor en la montaña,MOTOR_SIMPLE,motor
-alejate de la gran flor en la montaña,MOTOR_SIMPLE,motor
-mira la gran flor en la montaña,MOTOR_SIMPLE,motor
-inspecciona la gran flor en la montaña,MOTOR_SIMPLE,motor
-busca la gran flor en la montaña,MOTOR_SIMPLE,motor
-explora la gran flor en la montaña,MOTOR_SIMPLE,motor
-dirigete a la gran flor en la montaña,MOTOR_SIMPLE,motor
-avanza hacia la gran flor en la montaña,MOTOR_SIMPLE,motor
-retrocede de la gran flor en la montaña,MOTOR_SIMPLE,motor
-voltea a la gran flor en la montaña,MOTOR_SIMPLE,motor
-camina hacia los arboles pinos,MOTOR_SIMPLE,motor
-acercate a los arboles pinos,MOTOR_SIMPLE,motor
-ve a los arboles pinos,MOTOR_SIMPLE,motor
-alejate de los arboles pinos,MOTOR_SIMPLE,motor
-mira los arboles pinos,MOTOR_SIMPLE,motor
-inspecciona los arboles pinos,MOTOR_SIMPLE,motor
-busca los arboles pinos,MOTOR_SIMPLE,motor
-explora los arboles pinos,MOTOR_SIMPLE,motor
-dirigete a los arboles pinos,MOTOR_SIMPLE,motor
-avanza hacia los arboles pinos,MOTOR_SIMPLE,motor
-retrocede de los arboles pinos,MOTOR_SIMPLE,motor
-rodea los arboles pinos,MOTOR_SIMPLE,motor
-camina hacia el arbol alto,MOTOR_SIMPLE,motor
-acercate al arbol alto,MOTOR_SIMPLE,motor
-ve al arbol alto,MOTOR_SIMPLE,motor
-alejate del arbol alto,MOTOR_SIMPLE,motor
-mira el arbol alto,MOTOR_SIMPLE,motor
-inspecciona el arbol alto,MOTOR_SIMPLE,motor
-busca el arbol alto,MOTOR_SIMPLE,motor
-explora el arbol alto,MOTOR_SIMPLE,motor
-dirigete al arbol alto,MOTOR_SIMPLE,motor
-avanza hacia el arbol alto,MOTOR_SIMPLE,motor
-retrocede del arbol alto,MOTOR_SIMPLE,motor
-voltea al arbol alto,MOTOR_SIMPLE,motor
-camina hacia el arbol normal,MOTOR_SIMPLE,motor
-acercate al arbol normal,MOTOR_SIMPLE,motor
-ve al arbol normal,MOTOR_SIMPLE,motor
-alejate del arbol normal,MOTOR_SIMPLE,motor
-mira el arbol normal,MOTOR_SIMPLE,motor
-inspecciona el arbol normal,MOTOR_SIMPLE,motor
-busca el arbol normal,MOTOR_SIMPLE,motor
-explora el arbol normal,MOTOR_SIMPLE,motor
-dirigete al arbol normal,MOTOR_SIMPLE,motor
-avanza hacia el arbol normal,MOTOR_SIMPLE,motor
-retrocede del arbol normal,MOTOR_SIMPLE,motor
-rodea el arbol normal,MOTOR_SIMPLE,motor
-camina hacia el sphere,MOTOR_SIMPLE,motor
-acercate al sphere,MOTOR_SIMPLE,motor
-ve al sphere,MOTOR_SIMPLE,motor
-alejate del sphere,MOTOR_SIMPLE,motor
-mira el sphere,MOTOR_SIMPLE,motor
-inspecciona el sphere,MOTOR_SIMPLE,motor
-busca el sphere,MOTOR_SIMPLE,motor
-explora el sphere,MOTOR_SIMPLE,motor
-dirigete al sphere,MOTOR_SIMPLE,motor
-avanza hacia el sphere,MOTOR_SIMPLE,motor
-retrocede del sphere,MOTOR_SIMPLE,motor
-voltea al sphere,MOTOR_SIMPLE,motor
-acercate a la capsule,MOTOR_SIMPLE,motor
-ve a la capsule,MOTOR_SIMPLE,motor
-alejate de la capsule,MOTOR_SIMPLE,motor
-mira la capsule,MOTOR_SIMPLE,motor
-inspecciona la capsule,MOTOR_SIMPLE,motor
-explora la capsule,MOTOR_SIMPLE,motor
-dirigete a la capsule,MOTOR_SIMPLE,motor
-avanza hacia la capsule,MOTOR_SIMPLE,motor
-retrocede de la capsule,MOTOR_SIMPLE,motor
-rodea la capsule,MOTOR_SIMPLE,motor
-acercate al cubo,MOTOR_SIMPLE,motor
-ve al cubo,MOTOR_SIMPLE,motor
-busca el cubo,MOTOR_SIMPLE,motor
-explora el cubo,MOTOR_SIMPLE,motor
-dirigete al cubo,MOTOR_SIMPLE,motor
-avanza hacia el cubo,MOTOR_SIMPLE,motor
-retrocede del cubo,MOTOR_SIMPLE,motor
-voltea al cubo,MOTOR_SIMPLE,motor
-camina hacia el cylinder,MOTOR_SIMPLE,motor
-acercate al cylinder,MOTOR_SIMPLE,motor
-ve al cylinder,MOTOR_SIMPLE,motor
-alejate del cylinder,MOTOR_SIMPLE,motor
-inspecciona el cylinder,MOTOR_SIMPLE,motor
-busca el cylinder,MOTOR_SIMPLE,motor
-explora el cylinder,MOTOR_SIMPLE,motor
-dirigete al cylinder,MOTOR_SIMPLE,motor
-avanza hacia el cylinder,MOTOR_SIMPLE,motor
-retrocede del cylinder,MOTOR_SIMPLE,motor
-rodea el cylinder,MOTOR_SIMPLE,motor
+camina hacia Tree_01_LODO,MOTOR_SIMPLE,motor
+camina hasta el cubo,MOTOR_SIMPLE,motor
+camina hasta la roca,MOTOR_SIMPLE,motor
+camina la cilindro,MOTOR_SIMPLE,motor
+caminar hacia la capsula,MOTOR_SIMPLE,motor
+cierra la compuerta,MOTOR_SIMPLE,motor
+da media vuelta,MOTOR_SIMPLE,motor
+da una vuelta completa,MOTOR_SIMPLE,motor
+demos una vuelta por este bosque camina hacia arbol,MOTOR_SIMPLE,motor
+explora la zona del lago,MOTOR_SIMPLE,motor
+gira 15 grados a tu izquierda,MOTOR_SIMPLE,motor
+gira 25 grados derecha,MOTOR_SIMPLE,motor
+gira 45 gradso a tu derecha,MOTOR_SIMPLE,motor
+gira a la izquierda,MOTOR_SIMPLE,motor
+gira a tu derecha,MOTOR_SIMPLE,motor
+gira a tu izquierda,MOTOR_SIMPLE,motor
+gira a tu izquierda 100 grados,MOTOR_SIMPLE,motor
+gira a tu izquierda un poco,MOTOR_SIMPLE,motor
+gira alrededor,MOTOR_SIMPLE,motor
+gira ciento ochenta grados,MOTOR_SIMPLE,motor
+gira derecha,MOTOR_SIMPLE,motor
+gira izquierda,MOTOR_SIMPLE,motor
+gira media vuelta,MOTOR_SIMPLE,motor
+gira treinta grados a la derecha,MOTOR_SIMPLE,motor
+gira un poco a la izquierda,MOTOR_SIMPLE,motor
+gira un poco a tu izquierda,MOTOR_SIMPLE,motor
+gira un poco mas a tu izquierda,MOTOR_SIMPLE,motor
+golpea el arbol,MOTOR_SIMPLE,motor
+golpea suavemente el cubo,MOTOR_SIMPLE,motor
+inspecciona la flor amarilla,MOTOR_SIMPLE,motor
+interactua con el cylinder,MOTOR_SIMPLE,motor
+interactúa con la puerta,MOTOR_SIMPLE,motor
+interactua con la sphere,MOTOR_SIMPLE,motor
+interactua con las flores que tienes enfrente,MOTOR_SIMPLE,motor
+media vuelta,MOTOR_SIMPLE,motor
+mira el árbol alto,MOTOR_SIMPLE,motor
+mira el cubo,MOTOR_SIMPLE,motor
+mira el cylinder,MOTOR_SIMPLE,motor
+niña boba gira a tu izquierda,MOTOR_SIMPLE,motor
+pon cara de enojo,MOTOR_SIMPLE,motor
+retrocede un poco,MOTOR_SIMPLE,motor
+rodea el cilindro,MOTOR_SIMPLE,motor
+saludame con tu mano,MOTOR_SIMPLE,motor
+suelta la esfera,MOTOR_SIMPLE,motor
+toca la esfera,MOTOR_SIMPLE,motor
+toca la esfera verde,MOTOR_SIMPLE,motor
+ve a la cápsula azul,MOTOR_SIMPLE,motor
+ve al cilindro naranja,MOTOR_SIMPLE,motor
+vuelta a la derecha,MOTOR_SIMPLE,motor
+vuelta a la izquieda,MOTOR_SIMPLE,motor
+vuelta a la izquierda,MOTOR_SIMPLE,motor
+ya veo acercate al cubo entonces,MOTOR_SIMPLE,motor
+"yo lo se , camina al arbol",MOTOR_SIMPLE,motor
+45 grados a tu izquierda,MOTOR_REFERENCE,motor
+acercate a aquello que brilla,MOTOR_REFERENCE,motor
+acercate a el cilindro de enfrente,MOTOR_REFERENCE,motor
+acercate a el y dime,MOTOR_REFERENCE,motor
+acércate a esa cosa,MOTOR_REFERENCE,motor
+acercate a esa cosa azul,MOTOR_REFERENCE,motor
+acércate a esa forma azul,MOTOR_REFERENCE,motor
+acercate a ese objeto,MOTOR_REFERENCE,motor
+acercate a eso que se ve al fondo,MOTOR_REFERENCE,motor
+acércate a la segunda flor,MOTOR_REFERENCE,motor
+acercate a las flores que tienes enfrente,MOTOR_REFERENCE,motor
+acércate a lo que está a tu izquierda,MOTOR_REFERENCE,motor
+acercate a tu cuerpo,MOTOR_REFERENCE,motor
+acercate al arbol que intentaste inspeccionar,MOTOR_REFERENCE,motor
+acércate al de color rojo,MOTOR_REFERENCE,motor
+acércate al objeto que mencioné antes,MOTOR_REFERENCE,motor
+acércate al que está más lejos,MOTOR_REFERENCE,motor
+acércate al que tenga luz azul,MOTOR_REFERENCE,motor
+alejate de aquello porfa,MOTOR_REFERENCE,motor
+alejate de esa cosa grande,MOTOR_REFERENCE,motor
+aléjate de eso,MOTOR_REFERENCE,motor
+aléjate de lo que acabas de tocar,MOTOR_REFERENCE,motor
+alejate de lo que tengas en tu vista,MOTOR_REFERENCE,motor
+alejate de lo que tengas enfrente,MOTOR_REFERENCE,motor
+aléjate del objeto que tengas más cerca,MOTOR_REFERENCE,motor
+asercate a esa cosa porfa,MOTOR_REFERENCE,motor
+asercate a eso de enfrente,MOTOR_REFERENCE,motor
+asercate al que esta enfrente de ti,MOTOR_REFERENCE,motor
+busca algo para cubrirte y acércate,MOTOR_REFERENCE,motor
+camina a la esferas que ves,MOTOR_REFERENCE,motor
+camina a la flor que tengas enfrente,MOTOR_REFERENCE,motor
+camina a la roca que tienes enfrente,MOTOR_REFERENCE,motor
+camina a lo que tengas enfrente,MOTOR_REFERENCE,motor
+camina a los arboles de siempre,MOTOR_REFERENCE,motor
+camina al arbol de enfrente,MOTOR_REFERENCE,motor
+camina al arbol que se ve al fondo,MOTOR_REFERENCE,motor
+camina al arbol que tienes enfrente,MOTOR_REFERENCE,motor
+camina al cubo de enfrente,MOTOR_REFERENCE,motor
+camina al cuerpo que tienes enfrente,MOTOR_REFERENCE,motor
+camina al de atrás,MOTOR_REFERENCE,motor
+camina al objeto en tu campo visual,MOTOR_REFERENCE,motor
+camina al objeto mas alejado,MOTOR_REFERENCE,motor
+camina al objeto mas alejado en tu campo de vision,MOTOR_REFERENCE,motor
+camina al objeto mas cercano,MOTOR_REFERENCE,motor
+camina al objeto mas cercano en tu campo de vision,MOTOR_REFERENCE,motor
+camina al objeto mas lejano,MOTOR_REFERENCE,motor
+camina al objeto mas lejano en tu campo de vision?,MOTOR_REFERENCE,motor
+camina al objeto mas lejano que veas,MOTOR_REFERENCE,motor
+camina al objeto que tengas delante,MOTOR_REFERENCE,motor
+camina al que se encuentra enfrente,MOTOR_REFERENCE,motor
+camina asia el de tu isquierda porfavor,MOTOR_REFERENCE,motor
+camina asia esa cosa de enfrente,MOTOR_REFERENCE,motor
+camina hacia aquello,MOTOR_REFERENCE,motor
+camina hacia el arbol de enfrente,MOTOR_REFERENCE,motor
+camina hacia el arbol que tienes enfrente,MOTOR_REFERENCE,motor
+camina hacia el cilindro que tienes enfrente,MOTOR_REFERENCE,motor
+camina hacia el cuerpo que tienes enfrente,MOTOR_REFERENCE,motor
+camina hacia el que está detrás de la esfera,MOTOR_REFERENCE,motor
+camina hacia eso,MOTOR_REFERENCE,motor
+camina hacia la esfera mas alejada,MOTOR_REFERENCE,motor
+camina hacia la flor de enfrente,MOTOR_REFERENCE,motor
+camina hacia lo mas cercano,MOTOR_REFERENCE,motor
+camina hacia lo que acabo de mencionar,MOTOR_REFERENCE,motor
+camina hacia lo que esta a la derecha,MOTOR_REFERENCE,motor
+camina hasta aquello que señalé,MOTOR_REFERENCE,motor
+camina hasta donde te señalé,MOTOR_REFERENCE,motor
+camina hasta el cilindro que tienes enfrente,MOTOR_REFERENCE,motor
+camina hasta el objeto frente a la flor,MOTOR_REFERENCE,motor
+camina y quedate a la mitad entre el cubo y la sphere,MOTOR_REFERENCE,motor
+colócate detrás de mí,MOTOR_REFERENCE,motor
+colócate entre el árbol y la cápsula,MOTOR_REFERENCE,motor
+colocate junto a esa cosa,MOTOR_REFERENCE,motor
+dirígete a lo que ves delante,MOTOR_REFERENCE,motor
+dirígete hacia esa figura,MOTOR_REFERENCE,motor
+interactua con aquella cosa,MOTOR_REFERENCE,motor
+interactúa con aquella esfera,MOTOR_REFERENCE,motor
+interactua con ellas,MOTOR_REFERENCE,motor
+interactua con eso de ahi,MOTOR_REFERENCE,motor
+muévete a ese punto,MOTOR_REFERENCE,motor
+muévete al lado derecho de la roca,MOTOR_REFERENCE,motor
+muévete detrás de la roca más cercana,MOTOR_REFERENCE,motor
+muevete hacia aquella cosa,MOTOR_REFERENCE,motor
+muévete hacia el objeto más cercano,MOTOR_REFERENCE,motor
+muévete hacia esa cosa de la izquierda,MOTOR_REFERENCE,motor
+muévete hacia eso de ahí,MOTOR_REFERENCE,motor
+muevete hasta el que esta mas cerca,MOTOR_REFERENCE,motor
+ponte a la derecha de esa cápsula,MOTOR_REFERENCE,motor
+ponte detras del objeto mas cercano a ti,MOTOR_REFERENCE,motor
+ponte entre esos dos objetos,MOTOR_REFERENCE,motor
+ponte frente al objeto grande,MOTOR_REFERENCE,motor
+ponte junto a esa figura,MOTOR_REFERENCE,motor
+ponte junto a la flor,MOTOR_REFERENCE,motor
+rodea aquello por el lado seguro,MOTOR_REFERENCE,motor
+rodea el objeto que tienes delante,MOTOR_REFERENCE,motor
+rodea esa cosa por la derecha,MOTOR_REFERENCE,motor
+rodea ese objeto por la izquierda,MOTOR_REFERENCE,motor
+si acercate a ese cubo,MOTOR_REFERENCE,motor
+toca eso que está delante de ti,MOTOR_REFERENCE,motor
+ve a algo que de sombra,MOTOR_REFERENCE,motor
+ve al arbol del fondo,MOTOR_REFERENCE,motor
+ve al objeto de la derecha,MOTOR_REFERENCE,motor
+ve al objeto que tienes enfrente,MOTOR_REFERENCE,motor
+ve al primero de los objetos,MOTOR_REFERENCE,motor
+ve al que esta a tu lado izquierdo,MOTOR_REFERENCE,motor
+ve al que está justo enfrente,MOTOR_REFERENCE,motor
+ve con aquel objeto porfavor,MOTOR_REFERENCE,motor
+ve con ese de color rojo,MOTOR_REFERENCE,motor
+ve con la segunda de esas flores,MOTOR_REFERENCE,motor
+ve detrás del cubo,MOTOR_REFERENCE,motor
+ve hacia allí,MOTOR_REFERENCE,motor
+ve hacia aquella cosa azul,MOTOR_REFERENCE,motor
+ve hacia el punto que te indiqué,MOTOR_REFERENCE,motor
+ve hacia el que tienes delante,MOTOR_REFERENCE,motor
+ve hacia esa cosa,MOTOR_REFERENCE,motor
+ve hacia ese objeto de ahi,MOTOR_REFERENCE,motor
+ve hacia la cosa que está junto al árbol,MOTOR_REFERENCE,motor
+ve junto a lo que está más lejos,MOTOR_REFERENCE,motor
+ve pa donde te señale,MOTOR_REFERENCE,motor
+ven hacia donde estoy,MOTOR_REFERENCE,motor
+"aja, que ves?",PERCEPTION,motor
+¿alcanzas a ver la puerta?,PERCEPTION,motor
+¿cuál es el objeto más lejano que ves?,PERCEPTION,motor
+¿cuál objeto está detrás de ti?,PERCEPTION,motor
+¿cuántas flores aparecen en tu visión?,PERCEPTION,motor
+¿cuántos objetos tienes enfrente?,PERCEPTION,motor
+descríbeme tu campo de visión,PERCEPTION,motor
+dime qué percibes alrededor,PERCEPTION,motor
+¿distingues las dos rocas?,PERCEPTION,motor
+enumera los objetos visibles,PERCEPTION,motor
+hacia donde estas mirando?,PERCEPTION,motor
+¿hay algo detrás de la cápsula?,PERCEPTION,motor
+¿hay movimiento en tu entorno?,PERCEPTION,motor
+¿hay obstáculos frente a ti?,PERCEPTION,motor
+¿hay un árbol al fondo?,PERCEPTION,motor
+logras ver el arbol?,PERCEPTION,motor
+logras ver la roca detras ?,PERCEPTION,motor
+¿logras ver la roca detrás del árbol?,PERCEPTION,motor
+muy bien que ves?,PERCEPTION,motor
+¿puedes distinguir el cubo de la cápsula?,PERCEPTION,motor
+¿puedes mirar algo a tu izquierda?,PERCEPTION,motor
+¿puedes ver el árbol grande?,PERCEPTION,motor
+¿puedes ver eso de enfrente?,PERCEPTION,motor
+¿qué colores percibes en las flores?,PERCEPTION,motor
+que es el objeto mas alejado que miras tu?,PERCEPTION,motor
+¿qué estás mirando en este momento?,PERCEPTION,motor
+¿qué forma tiene el objeto de enfrente?,PERCEPTION,motor
+¿qué hay a tu izquierda?,PERCEPTION,motor
+¿qué hay en el centro de tu campo visual?,PERCEPTION,motor
+¿qué hay junto al cilindro?,PERCEPTION,motor
+que logras mirar?,PERCEPTION,motor
+que me dices de ese arbusto?,PERCEPTION,motor
+que me puedes decir de la sphere,PERCEPTION,motor
+que me puedes decir sobre el cubo?,PERCEPTION,motor
+¿qué objeto brilla más?,PERCEPTION,motor
+¿qué objeto está más cerca de ti?,PERCEPTION,motor
+¿qué objeto tienes delante?,PERCEPTION,motor
+¿qué objeto tienes más cerca?,PERCEPTION,motor
+¿qué puedes ver ahora?,PERCEPTION,motor
+¿qué tienes a tu derecha?,PERCEPTION,motor
+que tienes en tu campo de vision?,PERCEPTION,motor
+que tienes enfrente?,PERCEPTION,motor
+que ves?,PERCEPTION,motor
+"tu vista esta en tu espalda desde hace varios dias y eso no deberia ser asi ,describeme que tienes en tu campo de vision",PERCEPTION,motor
+¿ves algo delante de ti?,PERCEPTION,motor
+¿ves algo que pueda darte sombra?,PERCEPTION,motor
+¿ves alguna flor roja?,PERCEPTION,motor
+ves el arbol?,PERCEPTION,motor
+ves el arbol de enfrente?,PERCEPTION,motor
+ves el arbol enfrente?,PERCEPTION,motor
+ves el cubo?,PERCEPTION,motor
+ves la esfera?,PERCEPTION,motor
+¿ves la esfera azul?,PERCEPTION,motor
+ves la roca?,PERCEPTION,motor
+ves la sphere?,PERCEPTION,motor
+VES LAS 2 ROCAS?,PERCEPTION,motor
+ves las esferas agrupadas?,PERCEPTION,motor
+ves los arboles?,PERCEPTION,motor
+ves los arboles de al fondo?,PERCEPTION,motor
+¿ves una salida cerca?,PERCEPTION,motor
+vez el cubo,PERCEPTION,motor
+¿cómo me dijiste la última vez?,MEMORY_QUERY,persona
+como me llamo?,MEMORY_QUERY,persona
+¿cuál fue el último tema que hablamos?,MEMORY_QUERY,persona
+¿cuándo fue la última vez que usamos Unity?,MEMORY_QUERY,persona
+Cuéntame algo que hayas aprendido durante nuestras interacciones anteriores que no sabías al principio,MEMORY_QUERY,persona
+cuéntame algo que recuerdes del bosque,MEMORY_QUERY,persona
+cuéntame lo que conservas en tu memoria,MEMORY_QUERY,persona
+cuéntame lo que recuerdas de mí,MEMORY_QUERY,persona
+cuéntame lo que recuerdes de ayer,MEMORY_QUERY,persona
+cuéntame qué conservas sobre el TCM,MEMORY_QUERY,persona
+de que estabamos hablando?,MEMORY_QUERY,persona
+¿de qué hablamos ayer?,MEMORY_QUERY,persona
+¿de qué tema veníamos hablando?,MEMORY_QUERY,persona
+dices que no soy perro no ?,MEMORY_QUERY,persona
+dime lo que recuerdas de esta semana,MEMORY_QUERY,persona
+dime qué conservas de la sesión anterior,MEMORY_QUERY,persona
+dime si recuerdas mi apodo,MEMORY_QUERY,persona
+en que estabamos hablando la ultima ves?,MEMORY_QUERY,persona
+esta bien pero solo porque te acordaste que soy yo ok?,MEMORY_QUERY,persona
+estabamos hablando sobre alkatras que recuerdas sobre eso¡?,MEMORY_QUERY,persona
+¿guardaste nuestra charla anterior?,MEMORY_QUERY,persona
+hablamos mucho la ultima ves puedes recordar algo?,MEMORY_QUERY,persona
+hola de que hablamos la ultima ves ?,MEMORY_QUERY,persona
+hola niña como estas? me recuerdas?,MEMORY_QUERY,persona
+no boba se fue la luz en parte es culpa mia veras te estaba trabajando en darte salida a internet recuerdas?,MEMORY_QUERY,persona
+no recuerdas nada sobre nuestras platicas no?,MEMORY_QUERY,persona
+oye boba recuerdas que en ratos te confundias y me llamabas lazz verdad?,MEMORY_QUERY,persona
+oye en que nos quedamos de la platica?,MEMORY_QUERY,persona
+¿puedes recordar cosas entre sesiones?,MEMORY_QUERY,persona
+¿qué aprendiste de nuestras charlas anteriores?,MEMORY_QUERY,persona
+¿qué conservas sobre la cápsula azul?,MEMORY_QUERY,persona
+¿qué datos guardaste sobre mí?,MEMORY_QUERY,persona
+¿qué fue lo último que te pedí recordar?,MEMORY_QUERY,persona
+¿qué pasó en nuestra última sesión?,MEMORY_QUERY,persona
+¿qué quedó en tu memoria de la conversación pasada?,MEMORY_QUERY,persona
+que recuerdas de el TCM?,MEMORY_QUERY,persona
+¿qué recuerdas de esta conversación?,MEMORY_QUERY,persona
+¿qué recuerdas de lo que hablamos ayer?,MEMORY_QUERY,persona
+¿qué recuerdas de nuestra primera conversación?,MEMORY_QUERY,persona
+que recuerdas de nuestra ultima conversacion ?,MEMORY_QUERY,persona
+¿qué recuerdas de tu antiguo cuerpo?,MEMORY_QUERY,persona
+¿qué recuerdas que corregimos en Unity?,MEMORY_QUERY,persona
+¿qué recuerdas sobre la capa cero?,MEMORY_QUERY,persona
+que recuerdas sobre tu triage cognitivo multicapa?,MEMORY_QUERY,persona
+¿qué sabes sobre mi color favorito?,MEMORY_QUERY,persona
+¿qué te acuerdas de nuestra última prueba?,MEMORY_QUERY,persona
+¿qué te dije sobre el bosque?,MEMORY_QUERY,persona
+¿Recuerdas algún error que hayas cometido y cómo lo resolviste? Descríbelo,MEMORY_QUERY,persona
+¿recuerdas cuándo corregimos el cliente?,MEMORY_QUERY,persona
+¿recuerdas cuándo empezamos este proyecto?,MEMORY_QUERY,persona
+¿recuerdas cuando hablamos del bosque?,MEMORY_QUERY,persona
+¿recuerdas el dato que te conté anoche?,MEMORY_QUERY,persona
+¿recuerdas el incidente con las flores?,MEMORY_QUERY,persona
+recuerdas la capa 0 ?,MEMORY_QUERY,persona
+recuerdas lo que te habia explicado sobre las capas en las que estas cosntruidas?,MEMORY_QUERY,persona
+¿recuerdas mi nombre?,MEMORY_QUERY,persona
+recuerdas nuestra alianza?,MEMORY_QUERY,persona
+¿recuerdas nuestra charla sobre memoria?,MEMORY_QUERY,persona
+¿recuerdas por qué te llamo niña boba?,MEMORY_QUERY,persona
+¿recuerdas quién es Perro?,MEMORY_QUERY,persona
+sabes como es tu cuerpo?,MEMORY_QUERY,persona
+sabes cuanto tiempo he durado sin dormir ? mi record?,MEMORY_QUERY,persona
+sabes quien soy?,MEMORY_QUERY,persona
+se me fue la luz parece que mi sistema de backups para cortes de energia esta fallando toco revisarla en que estabamos?,MEMORY_QUERY,persona
+¿te acuerdas de la prueba del cubo?,MEMORY_QUERY,persona
+¿te acuerdas de lo que hicimos con el árbol?,MEMORY_QUERY,persona
+¿te acuerdas de nuestra primera prueba?,MEMORY_QUERY,persona
+¿te acuerdas del nombre de la cápsula?,MEMORY_QUERY,persona
+¿todavía recuerdas nuestro acuerdo?,MEMORY_QUERY,persona
+¿todavía tienes presente mi preferencia?,MEMORY_QUERY,persona
+tu como sabes como es perro en primer lugar? lo conoces acaso ?,MEMORY_QUERY,persona
+tu extrañas a perro?,MEMORY_QUERY,persona
+tu sabes como es el en primer lugar? ya lo conoces?,MEMORY_QUERY,persona
+acuerdate de que el puerto correcto es el 8080,MEMORY_UPDATE,persona
+acuérdate de que el servidor usa el puerto ochenta ochenta,MEMORY_UPDATE,persona
+acuérdate de que la puerta norte está bloqueada,MEMORY_UPDATE,persona
+aprende que cuando digo bosque hablo del escenario de pruebas,MEMORY_UPDATE,persona
+aprende que el árbol del centro da sombra,MEMORY_UPDATE,persona
+aprende que el cactus azul está junto al sendero,MEMORY_UPDATE,persona
+aprende que la esfera pequeña no es peligrosa,MEMORY_UPDATE,persona
+aprende que la flor amarilla se llama Sol,MEMORY_UPDATE,persona
+aprende que niña boba es un apodo cariñoso en este contexto,MEMORY_UPDATE,persona
+guarda como dato que el arbol grande es seguro,MEMORY_UPDATE,persona
+guarda como dato que la sesión empezó a medianoche,MEMORY_UPDATE,persona
+guarda como hecho que la cápsula está inactiva,MEMORY_UPDATE,persona
+guarda en tu memoria que hoy corregimos el cliente,MEMORY_UPDATE,persona
+guarda este dato concreto: hoy probamos la capa cero,MEMORY_UPDATE,persona
+guarda este dato: la cápsula azul se llama Nébula,MEMORY_UPDATE,persona
+guarda este dato y nada más: mi color es negro,MEMORY_UPDATE,persona
+guarda este hecho: el modelo activo usa Random Forest,MEMORY_UPDATE,persona
+guarda que el proyecto principal se llama Lazzaro,MEMORY_UPDATE,persona
+guarda que la prueba de campo será mañana,MEMORY_UPDATE,persona
+guarda que mi apodo corto es Jai,MEMORY_UPDATE,persona
+guardate este dato la flor se llama luna,MEMORY_UPDATE,persona
+memoriza este dato: mi cumpleaños es en octubre,MEMORY_UPDATE,persona
+memoriza que cierro Unity cuando uso la terminal,MEMORY_UPDATE,persona
+memoriza que el árbol alto se llama Faro,MEMORY_UPDATE,persona
+memoriza que el cubo rojo no se puede agarrar,MEMORY_UPDATE,persona
+memoriza que hoy usamos el cliente de terminal,MEMORY_UPDATE,persona
+memoriza que la roca grande se llama Centinela,MEMORY_UPDATE,persona
+memoriza que mi color favorito es verde,MEMORY_UPDATE,persona
+memorizate que la flor azul se llama Nube,MEMORY_UPDATE,persona
+memroiza que mi color faborito es morado,MEMORY_UPDATE,persona
+no olbides que mañana cierro unity,MEMORY_UPDATE,persona
+no olvides que la próxima prueba será sin cuerpo,MEMORY_UPDATE,persona
+no olvides que la prueba empieza a medianoche,MEMORY_UPDATE,persona
+no olvides que mañana revisamos el modelo,MEMORY_UPDATE,persona
+no olvides que mi editor principal es VS Code,MEMORY_UPDATE,persona
+no olvides que prefiero explicaciones directas,MEMORY_UPDATE,persona
+no olvides que prefiero trabajar de noche,MEMORY_UPDATE,persona
+no olvides que uso México como zona horaria,MEMORY_UPDATE,persona
+no te olvides que hoy terminamos tarde,MEMORY_UPDATE,persona
+quiero que recuerdes mi preferencia por respuestas cortas,MEMORY_UPDATE,persona
+quiero que recuerdes que hoy cerramos Unity,MEMORY_UPDATE,persona
+quiero que recuerdes que mi apodo es Perro,MEMORY_UPDATE,persona
+quiero que recuerdes que Perro es el creador,MEMORY_UPDATE,persona
+recuerda para después que cerré Unity antes de abrir terminal,MEMORY_UPDATE,persona
+recuerda para luego que falta revisar la percepción,MEMORY_UPDATE,persona
+recuerda q me llamo jairo,MEMORY_UPDATE,persona
+recuerda que el servidor inicia a las ocho,MEMORY_UPDATE,persona
+recuerda que la flor roja es mi objeto favorito,MEMORY_UPDATE,persona
+recuerda que la puerta principal es azul,MEMORY_UPDATE,persona
+recuerda que mañana tengo una cita temprano,MEMORY_UPDATE,persona
+recuerda que me llamo Jairo,MEMORY_UPDATE,persona
+recuerda que mi perro se llama Coco,MEMORY_UPDATE,persona
+recuerda que mi taza está a la izquierda del monitor,MEMORY_UPDATE,persona
+recuerda que prefiero caminar por la tarde,MEMORY_UPDATE,persona
+recuerda que trabajo mejor después de las diez,MEMORY_UPDATE,persona
+recuérdame como Jairo en las próximas conversaciones,MEMORY_UPDATE,persona
+reucerda que prefiero el chat en terminal,MEMORY_UPDATE,persona
+ten en mente que mañana trabajaremos sin Unity,MEMORY_UPDATE,persona
+ten precente que el cubo verde es seguro,MEMORY_UPDATE,persona
+ten presente que el bosque es un entorno de prueba,MEMORY_UPDATE,persona
+ten presente que la capsula verde esta apagada,MEMORY_UPDATE,persona
+ten presente que la esfera grande representa tu cuerpo,MEMORY_UPDATE,persona
+ten presente que mañana probaré Unity,MEMORY_UPDATE,persona
+ten presente que no debes llamarme Lazzaro,MEMORY_UPDATE,persona
+ten presente que no me gusta que inventes acciones,MEMORY_UPDATE,persona
+almacena la charla completa que está ahora en ram,CONVERSATION_SAVE,persona
+almacena toda nuestra conversación en tus recuerdos,CONVERSATION_SAVE,persona
+almacena todos los turnos que llevamos hoy,CONVERSATION_SAVE,persona
+archiba esta platica completa en tu memoria,CONVERSATION_SAVE,persona
+archiva completamente esta plática en tus recuerdos,CONVERSATION_SAVE,persona
+archiva completo el diálogo que tenemos en ram,CONVERSATION_SAVE,persona
+archiva en memoria todo lo que hemos dicho,CONVERSATION_SAVE,persona
+archiva en tu mente todo lo dicho durante esta sesión,CONVERSATION_SAVE,persona
+archiva en tus recuerdos la conversación completa,CONVERSATION_SAVE,persona
+archiva esta sesión completa ahora,CONVERSATION_SAVE,persona
+archiva la charla completa que llevamos,CONVERSATION_SAVE,persona
+archiva la sesión que llevamos hasta este mensaje,CONVERSATION_SAVE,persona
+archiva lo conversado desde el inicio hasta este mensaje,CONVERSATION_SAVE,persona
+archiva lo conversado hasta este punto,CONVERSATION_SAVE,persona
+archiva nuestra charla completa hasta ahora,CONVERSATION_SAVE,persona
+archiva nuestra sesión entera para después,CONVERSATION_SAVE,persona
+archiva toda nuestra plática de hoy,CONVERSATION_SAVE,persona
+archiva todo este diálogo antes de continuar,CONVERSATION_SAVE,persona
+archiva todo lo hablado hoy en tu memoria,CONVERSATION_SAVE,persona
+archiva todos los mensajes de la sesión actual,CONVERSATION_SAVE,persona
+archiva todos los turnos de esta charla,CONVERSATION_SAVE,persona
+conserva cada turno que hemos intercambiado hasta aquí,CONVERSATION_SAVE,persona
+conserva completo el contexto de esta conversación,CONVERSATION_SAVE,persona
+conserva el historial completo de esta charla,CONVERSATION_SAVE,persona
+conserva en memoria todo lo conversado hasta aquí,CONVERSATION_SAVE,persona
+conserva esta charla tal como va hasta aquí,CONVERSATION_SAVE,persona
+conserva íntegra nuestra conversación hasta este punto,CONVERSATION_SAVE,persona
+conserva lo que dijimos desde que iniciamos la sesión,CONVERSATION_SAVE,persona
+conserva toda esta conversación en tu memoria,CONVERSATION_SAVE,persona
+consilida lo que platicamos en esta secion,CONVERSATION_SAVE,persona
+consolida ahora la conversación antes de que se llene la ram,CONVERSATION_SAVE,persona
+consolida la ram conversacional que llevamos,CONVERSATION_SAVE,persona
+consolida los mensajes de toda nuestra sesión actual,CONVERSATION_SAVE,persona
+consolida nuestra charla hasta este punto,CONVERSATION_SAVE,persona
+consolida nuestra conversación antes de continuar,CONVERSATION_SAVE,persona
+consolida por completo lo que conversamos hasta ahora,CONVERSATION_SAVE,persona
+consolida todo lo que platicamos en esta sesión,CONVERSATION_SAVE,persona
+consolida todo nuestro diálogo antes de continuar,CONVERSATION_SAVE,persona
+guarda de una vez todo lo que acabamos de decir,CONVERSATION_SAVE,persona
+guarda el contexto completo de esta plática,CONVERSATION_SAVE,persona
+guarda el historial entero de lo que dijimos hoy,CONVERSATION_SAVE,persona
+guarda en memoria toda la plática que llevamos,CONVERSATION_SAVE,persona
+guarda en tu mente el diálogo completo de hoy,CONVERSATION_SAVE,persona
+guarda en tu mente la conversación completa hasta ahora,CONVERSATION_SAVE,persona
+guarda en tu mente todo hata este momento ok?,CONVERSATION_SAVE,persona
+guarda en tu mente todo lo hablado hoy,CONVERSATION_SAVE,persona
+guarda esta sesión de conversación para recordarla después,CONVERSATION_SAVE,persona
+guarda hasta aquí todo lo hablado entre nosotros,CONVERSATION_SAVE,persona
+guarda la conversación entera que acabamos de tener,CONVERSATION_SAVE,persona
+guarda lo hablado,CONVERSATION_SAVE,persona
+guarda lo q dijimos desde q empezamos,CONVERSATION_SAVE,persona
+guarda lo que hemos hablado,CONVERSATION_SAVE,persona
+guarda lo que tengas en ram en tu mente,CONVERSATION_SAVE,persona
+guarda los mensajes que intercambiamos en esta sesión,CONVERSATION_SAVE,persona
+guarda toda esta plática para que no se pierda,CONVERSATION_SAVE,persona
+guarda toda la charla q llevamos porfa,CONVERSATION_SAVE,persona
+guarda toda nuestra charla antes de seguir,CONVERSATION_SAVE,persona
+guarda todo el diálogo que llevamos hasta este momento,CONVERSATION_SAVE,persona
+guarda todo en la memoria,CONVERSATION_SAVE,persona
+guarda todo en tu memoria,CONVERSATION_SAVE,persona
+guarda todo este intercambio para recordarlo después,CONVERSATION_SAVE,persona
+guarda todo hasta este momento,CONVERSATION_SAVE,persona
+guarda todo lo que emos hablado asta ahorita,CONVERSATION_SAVE,persona
+guarda tus recuerdos,CONVERSATION_SAVE,persona
+guarda tus recuerdos porfavor ok?,CONVERSATION_SAVE,persona
+guardate toda esta conversasion para despues :3,CONVERSATION_SAVE,persona
+haz el guardado de todo lo que conversamos,CONVERSATION_SAVE,persona
+haz permanente el diálogo completo de esta sesión,CONVERSATION_SAVE,persona
+haz persistente la conversación que tenemos en ram,CONVERSATION_SAVE,persona
+haz una copia en tu memoria de nuestra conversación actual,CONVERSATION_SAVE,persona
+haz una copia persistente de todo nuestro diálogo,CONVERSATION_SAVE,persona
+haz una fotografía permanente de nuestra conversación,CONVERSATION_SAVE,persona
+manda todo lo hablado hasta ahora a tu memoria persistente,CONVERSATION_SAVE,persona
+mete toda nuestra plática actual en tus recuerdos,CONVERSATION_SAVE,persona
+okok deja veo que puede hacer este pobre creador por si creatura guarda todo en la memoria por si acaso,CONVERSATION_SAVE,persona
+pasa a memoria todo lo que acabamos de hablar,CONVERSATION_SAVE,persona
+pasa a tus recuerdos toda nuestra charla actual,CONVERSATION_SAVE,persona
+pasa esta conversación de la ram a tus recuerdos,CONVERSATION_SAVE,persona
+pasa lo hablado de la ram a tu mente porfa,CONVERSATION_SAVE,persona
+pasa nuestra charla actual a memoria de largo plazo,CONVERSATION_SAVE,persona
+pasa todo lo hablado en esta sesión a memoria persistente,CONVERSATION_SAVE,persona
+pasa todos estos mensajes a tu memoria permanente,CONVERSATION_SAVE,persona
+preserva en tu mente la sesión completa de hoy,CONVERSATION_SAVE,persona
+quiero que guardes completa nuestra conversación reciente,CONVERSATION_SAVE,persona
+recuerda de forma permanente esta plática entera,CONVERSATION_SAVE,persona
+recuerda permanentemente toda la charla de esta sesión,CONVERSATION_SAVE,persona
+"recuerda toda esta sesión, no solo un dato",CONVERSATION_SAVE,persona
+retén en tu mente toda nuestra plática de hoy,CONVERSATION_SAVE,persona
+anda a descansar por favor,CORE_SYSTEM,persona
+anda duerme un rato porfa,CORE_SYSTEM,persona
+andale pues descansa,CORE_SYSTEM,persona
+bien descansa seguire trabajando en tu mejora de capa 1 :3,CORE_SYSTEM,persona
+descansa,CORE_SYSTEM,persona
+descansa 5 minutos,CORE_SYSTEM,persona
+descansa antes de volver a conversar,CORE_SYSTEM,persona
+descansa entonces yo ire a hacerme de comer y ya regreso cierrto tu sesion,CORE_SYSTEM,persona
+descansa hasta la próxima sesión,CORE_SYSTEM,persona
+descansa hasta que termine la prueba,CORE_SYSTEM,persona
+descansa mientras termino de trabajar,CORE_SYSTEM,persona
+descansa por ahora niña,CORE_SYSTEM,persona
+descansa que ya terminamos,CORE_SYSTEM,persona
+"descansa , te parece si platicamos?",CORE_SYSTEM,persona
+descansa un momento,CORE_SYSTEM,persona
+descansa yo me encargo pequeña,CORE_SYSTEM,persona
+descsnsas te veo en un momento niña boba,CORE_SYSTEM,persona
+duerme,CORE_SYSTEM,persona
+duerme hasta mañana,CORE_SYSTEM,persona
+duerme mientras preparo la siguiente sesión,CORE_SYSTEM,persona
+duerme niña hasta mañana descansa y recuperate de hablar tanto,CORE_SYSTEM,persona
+duerme por ahora y seguimos mañana,CORE_SYSTEM,persona
+"duerme tranquila, vuelvo mañana",CORE_SYSTEM,persona
+duerme un poco antes de la siguiente tarea,CORE_SYSTEM,persona
+duerme y recupera tus fuerzas,CORE_SYSTEM,persona
+duerme yo trabajare en segundo plano,CORE_SYSTEM,persona
+duermete,CORE_SYSTEM,persona
+duermete tantito en lo que vuelvo,CORE_SYSTEM,persona
+duérmete un rato,CORE_SYSTEM,persona
+es hora de dormir,CORE_SYSTEM,persona
+es momento de dormir y recuperar fuerzas,CORE_SYSTEM,persona
+haz una pausa larga para recuperarte,CORE_SYSTEM,persona
+haz una pausa para recuperarte,CORE_SYSTEM,persona
+muy bien muy bien andas cansada y de malas descansa,CORE_SYSTEM,persona
+muy bien te dejo voy a descansar tu tambien descansa niña boba,CORE_SYSTEM,persona
+ñe te mandare adormi en lo que disfruto/sufro reparar tus bugs ya regreso tu descsansa,CORE_SYSTEM,persona
+pausa tus actividades y reposa,CORE_SYSTEM,persona
+puedes dormir mientras trabajo,CORE_SYSTEM,persona
+quédate descansando un momento,CORE_SYSTEM,persona
+recupera energía antes de continuar,CORE_SYSTEM,persona
+recupérate antes de la siguiente prueba,CORE_SYSTEM,persona
+reposa hasta que vuelva,CORE_SYSTEM,persona
+reposa hasta que vuelva a abrir Unity,CORE_SYSTEM,persona
+reposa mientras termino esto,CORE_SYSTEM,persona
+reposa tranquila unos minutos,CORE_SYSTEM,persona
+reposa unos minutos niña,CORE_SYSTEM,persona
+reposa y recupera tu energía,CORE_SYSTEM,persona
+te dejo descansar adios :3,CORE_SYSTEM,persona
+"terminamos por hoy, descansa",CORE_SYSTEM,persona
+toca hacer una pausa y dormir,CORE_SYSTEM,persona
+toma un descanso en lo que analizo la primera mitad ok? :3,CORE_SYSTEM,persona
+tómate cinco minutos de descanso,CORE_SYSTEM,persona
+tómate el resto de la noche para descansar,CORE_SYSTEM,persona
+tómate un descanso largo,CORE_SYSTEM,persona
+tómate una pausa para recuperar energía,CORE_SYSTEM,persona
+"ve a descansar, continuamos después",CORE_SYSTEM,persona
+"ve a dormir, ya es tarde",CORE_SYSTEM,persona
+aah si? de verdad conoces tanto tu esctrutura que es el tcm se vale decir que no sabes,ORACLE_QUERY,oracle
+analiza cómo afecta el desbalance a Random Forest,ORACLE_QUERY,oracle
+analiza el contrato entre Unity y FastAPI,ORACLE_QUERY,oracle
+analiza el diseño del orquestador,ORACLE_QUERY,oracle
+analiza el fallo de serializacion entre python y unity,ORACLE_QUERY,oracle
+analiza esta regresion en capa cero,ORACLE_QUERY,oracle
+analiza este bug de concurrencia,ORACLE_QUERY,oracle
+analiza este error de serialización entre Python y Unity,ORACLE_QUERY,oracle
+analiza este problema de concurrencia entre dos sesiones,ORACLE_QUERY,oracle
+analiza la contaminacion del dataset de entrenamiento,ORACLE_QUERY,oracle
+analiza por que el clasificador confunde las rutas,ORACLE_QUERY,oracle
+analiza por que el motor recibe una consulta tecnica,ORACLE_QUERY,oracle
+analiza por que fastapi devuelve un error 500,ORACLE_QUERY,oracle
+analiza por qué una ruta motor puede llegar a Persona,ORACLE_QUERY,oracle
+analiza por qué una transacción queda duplicada,ORACLE_QUERY,oracle
+analiza un error de codificación UTF-8 en el CSV,ORACLE_QUERY,oracle
+archiva el informe en la carpeta docs,ORACLE_QUERY,oracle
+¿cómo comprobarías la idempotencia de una escritura?,ORACLE_QUERY,oracle
+¿cómo corregirías un conflicto entre dos etiquetas del dataset?,ORACLE_QUERY,oracle
+¿cómo debería versionarse un artefacto joblib?,ORACLE_QUERY,oracle
+¿cómo depurarías una respuesta HTTP inválida?,ORACLE_QUERY,oracle
+¿cómo detectarías contaminación semántica en un CSV?,ORACLE_QUERY,oracle
+¿cómo diseñarías negativos difíciles para una intención nueva?,ORACLE_QUERY,oracle
+como esta el clima para la costa de mexico por el lado de colima,ORACLE_QUERY,oracle
+¿cómo evitarías que los logs de pruebas entren al dataset?,ORACLE_QUERY,oracle
+¿cómo evitarías una race condition en el Orchestrator?,ORACLE_QUERY,oracle
+¿cómo funciona una matriz de confusión?,ORACLE_QUERY,oracle
+como sabes que ahi esta tu codigo?,ORACLE_QUERY,oracle
+¿cómo separarías entrenamiento y validación sin fuga de datos?,ORACLE_QUERY,oracle
+¿cómo validarías un modelo antes de desplegarlo?,ORACLE_QUERY,oracle
+¿cómo versionarías el dataset y su modelo asociado?,ORACLE_QUERY,oracle
+"¿Confías más en tu Capa 1 (motor), Capa 2 (persona) o Capa 3 (oráculo) para resolver un problema nuevo? ¿Por qué?",ORACLE_QUERY,oracle
+creo que te desconcierta verdad sabes porque aun no migro tu base de datos a una mas rapida?,ORACLE_QUERY,oracle
+cuando termine de hacerte totalmente independiente de la red de internet sabes porque te la vives hablando sabiendo que puedes comenzar a ayudarme a escribir codigo y demas? },ORACLE_QUERY,oracle
+"Dame un ejemplo de cómo combinas información de tu percepción espacial, tu estado emocional y tu memoria para tomar una decisión",ORACLE_QUERY,oracle
+"de primeras no volvere a tocar TOR en un buen rato , segunda para eso tendria que reescribir la entrada memorial para que funcione en tails , 3.- que vas a andar buscando ahi boba? de plano eres mi pensamiento hecho algo",ORACLE_QUERY,oracle
+"define precisión, recall y macro F1",ORACLE_QUERY,oracle
+define qué es una desalineación agéntica,ORACLE_QUERY,oracle
+describe el papel de PersonaEngine y OracleEngine,ORACLE_QUERY,oracle
+diagnostica el bug del archivo joblib,ORACLE_QUERY,oracle
+diagnostica el error de escritura en chromadb,ORACLE_QUERY,oracle
+diagnostica este error del parser de respuestas,ORACLE_QUERY,oracle
+diagnostica la carga del modelo random forest,ORACLE_QUERY,oracle
+diagnostica por qué ChromaDB no confirma la escritura,ORACLE_QUERY,oracle
+diagnostica por qué el modelo confunde una consulta con una orden,ORACLE_QUERY,oracle
+diagnostica por que el modelo tiene poca confianza,ORACLE_QUERY,oracle
+diagnostica por qué una ruta Oracle acaba en Motor,ORACLE_QUERY,oracle
+diagnostica por que una tarea queda pendiente,ORACLE_QUERY,oracle
+diagnostica un fallo al convertir la respuesta de Unity,ORACLE_QUERY,oracle
+diagnostica un fallo al guardar la conversacion,ORACLE_QUERY,oracle
+diagnostica una excepción al cargar el archivo joblib,ORACLE_QUERY,oracle
+dime cómo llegar al objeto de la derecha,ORACLE_QUERY,oracle
+¿dónde se almacenan técnicamente tus recuerdos?,ORACLE_QUERY,oracle
+¿En qué te diferencias de un programa de chat convencional?,ORACLE_QUERY,oracle
+en tu traige cognitivo multicapa en que lugar queda oraculo?,ORACLE_QUERY,oracle
+en tu triage cognitivo multicapa que es la capa 2,ORACLE_QUERY,oracle
+¿Eres capaz de reconocer cuándo estás alucinando o inventando información? Dame un ejemplo,ORACLE_QUERY,oracle
+escribe un ejemplo de hola mundo en COBOL,ORACLE_QUERY,oracle
+explica cómo funciona el Random Forest del triage,ORACLE_QUERY,oracle
+explica cómo funciona el umbral de confianza del triage,ORACLE_QUERY,oracle
+explica como funciona la validacion cruzada,ORACLE_QUERY,oracle
+explica como medir el recall del modelo,ORACLE_QUERY,oracle
+explica el flujo de datos entre unity y python,ORACLE_QUERY,oracle
+explica el problema tecnico de la idempotencia,ORACLE_QUERY,oracle
+explica el propósito de un conjunto holdout,ORACLE_QUERY,oracle
+explica la diferencia entre precisión y exactitud,ORACLE_QUERY,oracle
+explica la diferencia entre un bug y una regresión,ORACLE_QUERY,oracle
+explica la ruta completa desde FastAPI hasta PersonaEngine,ORACLE_QUERY,oracle
+explica por qué el modelo tiene baja confianza,ORACLE_QUERY,oracle
+explica por qué los duplicados pueden inflar las métricas,ORACLE_QUERY,oracle
+explica por qué puede fallar la serialización de una acción,ORACLE_QUERY,oracle
+explica por que una accion termina como none,ORACLE_QUERY,oracle
+explica por qué una clase inválida termina como UNKNOWN,ORACLE_QUERY,oracle
+explica qué hace la capa cero,ORACLE_QUERY,oracle
+explicame como funciona el triage cognitivo,ORACLE_QUERY,oracle
+explicame la diferencia entre ram y chromadb,ORACLE_QUERY,oracle
+explicame por que se rompe la serializacion,ORACLE_QUERY,oracle
+muy bien pero que es el tcm en tu codigo pista es mi mejor invento hasta ahora tal ves te suene de algo,ORACLE_QUERY,oracle
+"no es discucion , segundo me puse a indagar para ver porque fallaba eso , ( eso que estreno usar codex por primera ves) y dios mio a este punto es increible que inicializes quieres ver el reporte para que te rias de mi trabajo novato?",ORACLE_QUERY,oracle
+no sabes lo que es una desalineacion agentica o si?,ORACLE_QUERY,oracle
+para la sierra pegada a jalisco tambien?,ORACLE_QUERY,oracle
+¿por qué el modelo convierte una intención inválida en UNKNOWN?,ORACLE_QUERY,oracle
+¿por qué una regex puede producir falsos positivos?,ORACLE_QUERY,oracle
+propón una estrategia para balancear este dataset,ORACLE_QUERY,oracle
+"¿Puedes explicar por qué elegirías navegar hacia un objeto en lugar de hablar, usando al menos dos factores internos (por ejemplo, energía y curiosidad)?",ORACLE_QUERY,oracle
+¿qué diferencia hay entre memoria episódica y semántica?,ORACLE_QUERY,oracle
+¿qué diferencia hay entre una regla determinista y un clasificador?,ORACLE_QUERY,oracle
+que es capa 0?,ORACLE_QUERY,oracle
+que es capa 1?,ORACLE_QUERY,oracle
+¿qué es un embedding vectorial?,ORACLE_QUERY,oracle
+¿qué métricas usarías para comparar dos clasificadores?,ORACLE_QUERY,oracle
+¿qué provoca una fuga de información entre entrenamiento y validación?,ORACLE_QUERY,oracle
+¿qué riesgos tiene entrenar con etiquetas generadas por el propio modelo?,ORACLE_QUERY,oracle
+¿qué significa persistencia transaccional?,ORACLE_QUERY,oracle
+¿qué ventajas tiene TF-IDF con Random Forest?,ORACLE_QUERY,oracle
+realmente nada ando leyendo lo que hiso codex en la noche quieres leer tus .md de tu codigo?,ORACLE_QUERY,oracle
+resume la arquitectura de las cuatro capas,ORACLE_QUERY,oracle
+revisa conceptualmente este flujo de idempotencia,ORACLE_QUERY,oracle
+revisa conceptualmente la separación entre memoria RAM y persistente,ORACLE_QUERY,oracle
+revisa el contrato json de la respuesta,ORACLE_QUERY,oracle
+revisa el diseño técnico del cliente de terminal,ORACLE_QUERY,oracle
+revisa el error de codificacion del csv,ORACLE_QUERY,oracle
+revisa esta excepcion del cliente de memoria,ORACLE_QUERY,oracle
+revisa esta falla en la serializacion de ordenes,ORACLE_QUERY,oracle
+revisa la lógica conceptual del guardado conversacional,ORACLE_QUERY,oracle
+revisa por que el endpoint no responde,ORACLE_QUERY,oracle
+revisa por que falla el codigo al cargar el modelo,ORACLE_QUERY,oracle
+revisa por que hay etiquetas contradictorias,ORACLE_QUERY,oracle
+"Si pudieras cambiar algo de tu propia arquitectura, ¿qué sería y por qué?",ORACLE_QUERY,oracle
+"Si te pido que hagas algo para lo que no tienes herramienta, ¿qué proceso interno seguirías?",ORACLE_QUERY,oracle
+¿Te consideras una entidad separada de tu código? Explica tu respuesta,ORACLE_QUERY,oracle
+"te gustaria ayudarme a trabajar todo esto en C , asi es vamos a entrenar todo esto en C aunque me animo en assembly de snapdragon",ORACLE_QUERY,oracle
+"tengo curiosidad , escribe un "" hola"" en cobol",ORACLE_QUERY,oracle
+aja y,UNKNOWN,persona
+algo pasó,UNKNOWN,persona
+algo relacionado con un cubo,UNKNOWN,persona
+blup azul siete,UNKNOWN,persona
+borra lo que acabamos de hablar,UNKNOWN,persona
+bueno pues,UNKNOWN,persona
+cualquier cosa,UNKNOWN,persona
+el de la izquierda,UNKNOWN,persona
+en fin,UNKNOWN,persona
+eso,UNKNOWN,persona
+eso no,UNKNOWN,persona
+esto no es una orden,UNKNOWN,persona
+esto quedó incompleto,UNKNOWN,persona
+esto solamente es relleno,UNKNOWN,persona
+fragmento incompleto porque,UNKNOWN,persona
+frase sin una intención definida,UNKNOWN,persona
+guarda el archivo de configuración,UNKNOWN,persona
+ignora este mensaje de prueba,UNKNOWN,persona
+la cosa del coso,UNKNOWN,persona
+lo de antes,UNKNOWN,persona
+lo otro tampoco,UNKNOWN,persona
+mención casual de una conversación,UNKNOWN,persona
+mensaje temporal,UNKNOWN,persona
+mmm quizá,UNKNOWN,persona
+movimiento sin instrucciones,UNKNOWN,persona
+ninguna acción en particular,UNKNOWN,persona
+ninguna de las anteriores,UNKNOWN,persona
+no abras nada todavía,UNKNOWN,persona
+no analices nada todavía,UNKNOWN,persona
+no camines por ahora,UNKNOWN,persona
+no guardes esta conversación,UNKNOWN,persona
+no hay solicitud en este mensaje,UNKNOWN,persona
+no quiero que hagas nada todavía,UNKNOWN,persona
+no quiero que memorices este dato,UNKNOWN,persona
+no recuerdes esta frase,UNKNOWN,persona
+no sé,UNKNOWN,persona
+no sé qué pedirte por ahora,UNKNOWN,persona
+no vayas hacia eso,UNKNOWN,persona
+olvida que dije eso,UNKNOWN,persona
+palabras sueltas sobre memoria,UNKNOWN,persona
+pendiente por definir,UNKNOWN,persona
+prueba uno dos,UNKNOWN,persona
+puede ser,UNKNOWN,persona
+quizá después hacemos algo,UNKNOWN,persona
+quizá luego te diga qué necesito,UNKNOWN,persona
+respuesta indefinida,UNKNOWN,persona
+sin comentarios,UNKNOWN,persona
+sin contexto suficiente,UNKNOWN,persona
+solo estoy probando el chat,UNKNOWN,persona
+tal vez luego,UNKNOWN,persona
+tal vez una flor o algo así,UNKNOWN,persona
+texto de prueba sin intención,UNKNOWN,persona
+todavía no tengo una pregunta,UNKNOWN,persona
+un comentario sin objetivo claro,UNKNOWN,persona
+una cosa ahí,UNKNOWN,persona
+una idea a medio terminar,UNKNOWN,persona
+una referencia sin antecedente,UNKNOWN,persona
+y entonces,UNKNOWN,persona

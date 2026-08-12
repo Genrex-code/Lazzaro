@@ -235,6 +235,18 @@ def test_eliminacion():
         assert client.contar() == 1, "Debe quedar un solo documento"
         datos = client.listar(limite=5)
         assert datos is not None and _ids(datos) == ["z"], "Solo debe aparecer el documento no eliminado"
+with ChromaTestContext("debug") as client:
+
+    print("ANTES:", client.contar())
+
+    ok = client.agregar(
+        documentos=["a", "b", "c"],
+        metadatos=[{}, {}, {}],
+        ids=["x", "y", "z"],
+    )
+
+    print("agregar() =", ok)
+    print("DESPUÉS:", client.contar())
 
 
 # ------------------------------------------------------------
