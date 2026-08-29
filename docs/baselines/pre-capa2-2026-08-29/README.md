@@ -1,6 +1,6 @@
 # Baseline pre-Capa 2 — 2026-08-29
 
-Estado: **Fase 0 y OBS-001 completados; listo para OBS-002.**
+Estado: **Fase 0 y OBS-001/OBS-002 completados; listo para OBS-003.**
 
 Este baseline captura el estado reproducible de LAZZARO antes de la auditoría y la estabilización. La evidencia cruda está en [`evidence/`](evidence/).
 
@@ -90,4 +90,4 @@ El historial conserva valores antiguos ya neutralizados. Reescribirlo requerirí
 - [x] Se capturó el entorno real instalado; `requirements.txt` ya no es la única referencia.
 - [x] Los fallos existentes están registrados sin intentar corregirlos.
 
-La rotación y revocación externas de `BASE-FIND-001` quedaron completadas y el gate posterior pasó. OBS-001 definió el contrato y la [serialización segura de AuditTrace v1](../../observability/audit_trace_v1.md). Siguiente paso: OBS-002, writer JSONL thread-safe y tolerante a fallos, manteniendo el logger humano existente.
+La rotación y revocación externas de `BASE-FIND-001` quedaron completadas y el gate posterior pasó. OBS-001 definió el contrato y la [serialización segura de AuditTrace v1](../../observability/audit_trace_v1.md); OBS-002 agregó el [writer JSONL thread-safe y tolerante a fallos](../../observability/audit_trace_writer.md), sin integrar todavía `Orchestrator`. Siguiente paso: OBS-003, correlacionar `event_start`/`event_end` manteniendo el logger humano existente.

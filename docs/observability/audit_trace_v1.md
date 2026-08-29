@@ -1,6 +1,6 @@
 # AuditTrace v1 — OBS-001
 
-Estado: **implementado y verificado.**
+Estado: **implementado y verificado; writer OBS-002 disponible.**
 
 AuditTrace es el contrato estructurado de auditoría de LAZZARO. Complementa el logger humano existente; no lo reemplaza. La persistencia JSONL, la concurrencia y la tolerancia a fallos de escritura pertenecen a OBS-002.
 
@@ -85,4 +85,4 @@ Resultado de OBS-001: **PASS**.
 - Pruebas específicas: 5 PASS.
 - Regresión directa del repositorio: 114 PASS, 0 fallos nuevos y 1 fallo conocido del baseline (`memory.test_chromadb_flow.test_eliminacion`).
 
-El siguiente ticket es OBS-002, writer JSONL thread-safe y tolerante a fallos.
+El writer de OBS-002 está documentado en [`audit_trace_writer.md`](audit_trace_writer.md). El siguiente ticket es OBS-003, integración acotada de `event_start`/`event_end` en `Orchestrator`.
