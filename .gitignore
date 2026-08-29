@@ -1,5 +1,7 @@
 # Runtime local
 .env
+.env.*
+!.env.example
 *.log
 
 # Python cache/test artifacts
