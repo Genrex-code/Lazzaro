@@ -1,6 +1,6 @@
 # Checklist de rotación de credenciales — incidente `.env`
 
-Estado: **contención local preparada; rotación externa pendiente.**
+Estado: **contención local aplicada; rotación externa en curso.**
 
 No escribir claves, fragmentos, últimos caracteres ni hashes de valores secretos en este documento, commits, tickets o capturas.
 
@@ -46,11 +46,18 @@ Para cada proveedor afectado:
 
 | Proveedor | Variable nueva | Crear | Validar | Revocar anterior |
 |---|---|:---:|:---:|:---:|
-| Google Gemini | `GEMINI_API_KEY` | [ ] | [ ] | [ ] |
-| Groq | `GROQ_API_KEY` | [ ] | [ ] | [ ] |
-| xAI | `XAI_API_KEY` | [ ] | [ ] | [ ] |
-| Moonshot/Kimi | `KIMI_API_KEY` | [ ] | [ ] | [ ] |
-| DeepSeek | `DEEPSEEK_API_KEY` | [ ] | [ ] | [ ] |
+| Google Gemini | `GEMINI_API_KEY` | [x] | [x] | [x] |
+| Groq | retirada localmente | N/A | N/A | [ ] |
+| xAI | retirada localmente | N/A | N/A | [ ] |
+| Moonshot/Kimi | retirada localmente | N/A | N/A | [ ] |
+| DeepSeek | retirada localmente | N/A | N/A | [ ] |
+
+Registro seguro:
+
+- Google Gemini — 2026-08-29 — responsable: Jairo/Codex — clave nueva validada antes y después de la revocación; health check HTTP 200; clave anterior revocada.
+- Decisión operativa — 2026-08-29 — LAZZARO queda en modo solo Gemini. Se retiraron del `.env` las credenciales de Groq, xAI, Moonshot/Kimi y DeepSeek, sin crear reemplazos; los fallbacks remotos quedaron deshabilitados.
+
+Las credenciales históricas de los proveedores retirados aún deben revocarse en sus portales para neutralizar el historial de Git. Esa revocación no requiere crear claves nuevas ni realizar llamadas de pago.
 
 Para Groq también se debe elegir un `GROQ_MODEL` actualmente habilitado en la cuenta; el baseline obtuvo `404 model_not_found` con `llama-3.1-8b-instant`.
 
