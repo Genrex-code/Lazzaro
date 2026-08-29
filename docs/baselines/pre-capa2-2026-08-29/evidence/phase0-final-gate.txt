@@ -1,0 +1,39 @@
+PHASE 0 FINAL GATE — SANITIZED EVIDENCE
+Date: 2026-08-29
+Branch: codex/stabilization/pre-capa2
+
+Security disposition
+- Runtime profile: Gemini only.
+- Remote LLM fallbacks: disabled.
+- External Oracle credential: not configured; Oracle route uses the active Gemini client.
+- Local .env: preserved, untracked and ignored.
+- Tracked example: .env.example contains placeholders only.
+- Active Gemini credential: absent from the tracked tree.
+- Historical Gemini credential: externally revoked after successful rotation.
+- Groq: account inactive and key deleted, per user verification.
+- xAI: portal showed no API keys.
+- Moonshot/Kimi: portal showed no API keys.
+- DeepSeek: revocation confirmed and portal showed no API keys.
+- External verification screenshots were reviewed but intentionally not committed because they contain personal browser details.
+
+Final verification
+- python -m compileall -q main.py api ai_engine config core memory terminal_client tools: PASS
+- Settings load with Gemini-only profile: PASS
+- python ai_engine/test_llm_fallbacks.py: PASS
+- python ai_engine/test_oracle.py: PASS
+- Backend startup: PASS
+- Gemini health check: HTTP 200
+- GET /api/v1/estado: HTTP 200
+- Backend graceful shutdown: PASS
+- Real POST /api/v1/comando routed as ORACLE_QUERY: HTTP 200
+- Oracle result action: hablar
+- Oracle provider behavior: active Gemini fallback
+- git diff --check: PASS before documentation closeout
+- Ignore/tracking checks for .env and .env.example: PASS
+- Secret scan of current tracked tree and pending diff: PASS
+
+Result: PHASE_0_GATE=PASS
+
+Notes
+- No secret values, fragments, suffixes or hashes are included in this evidence.
+- Historical Git objects still contain revoked/inert credentials; history rewriting was not authorized.

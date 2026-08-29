@@ -1,6 +1,6 @@
 # Baseline pre-Capa 2 — 2026-08-29
 
-Estado: **Fase 0 completada; hallazgos registrados, sin fixes aplicados.**
+Estado: **Fase 0 y gate de seguridad completados; listo para OBS-001/OBS-002.**
 
 Este baseline captura el estado reproducible de LAZZARO antes de la auditoría y la estabilización. La evidencia cruda está en [`evidence/`](evidence/).
 
@@ -24,8 +24,9 @@ Se preservaron fuera del commit. Los smokes reales abrieron la Chroma activa y u
 
 - Python: `3.11.9`
 - Pip: `24.0`
-- Proveedor primario: Gemini, modelo `gemini-3.1-flash-lite`
-- Fallbacks configurados: Groq, xAI, Kimi y DeepSeek API
+- Proveedor único: Gemini, modelo `gemini-3.1-flash-lite`
+- Fallbacks LLM remotos: deshabilitados
+- Oracle externo: no configurado; la ruta Oracle usa el cliente Gemini activo
 - Chroma: `./lazzaro_data`
 - `pip freeze` completo: [`evidence/pip-freeze.txt`](evidence/pip-freeze.txt)
 - Configuración activa redactada: [`evidence/config-active-redacted.txt`](evidence/config-active-redacted.txt)
@@ -48,19 +49,35 @@ Se preservaron fuera del commit. Los smokes reales abrieron la Chroma activa y u
 
 El smoke de Unity validó el contrato backend y la acción devuelta. No se abrió el editor/runtime de Unity ni se materializó movimiento físico.
 
-## Hallazgos iniciales — no corregidos
+## Gate final de Fase 0
 
-### BASE-FIND-001 — P0 confirmado — credenciales en archivo versionado
+| Control | Resultado |
+|---|---:|
+| Compilación de `main.py`, `api`, `ai_engine`, `config`, `core`, `memory`, `terminal_client` y `tools` | PASS |
+| Carga de `Settings()` con perfil solo Gemini | PASS |
+| Retiro local de credenciales de proveedores deshabilitados | PASS |
+| Arranque + health check Gemini + `/api/v1/estado` + apagado limpio | PASS |
+| Ruta Oracle real mediante Gemini, HTTP 200 y acción `hablar` | PASS |
+| Pruebas dirigidas de fallbacks y Oracle | PASS |
+| `.env` ignorado, `.env.example` versionado y escaneo del árbol actual | PASS |
 
-`IMPLEMENTADO/OBSERVADO`: `.env` estaba trackeado por Git aunque `.gitignore` lo excluía, contiene campos de credenciales configurados y aparece en el snapshot local de `origin/main`. No se copiaron sus valores a la evidencia. En la rama de estabilización ya se retiró del índice sin borrar la copia local, se endureció `.gitignore` y se agregó `.env.example`. La rotación externa sigue pendiente según el [checklist de credenciales](credential-rotation-checklist.md). No se debe reescribir historia ni revocar claves sin autorización explícita. El tag `pre-audit-2026-08` apunta al commit que contiene ese archivo y no debe publicarse ni empujarse antes de resolver el riesgo.
+Resumen reproducible y sanitizado: [`evidence/phase0-final-gate.txt`](evidence/phase0-final-gate.txt).
+
+## Estado de los hallazgos iniciales
+
+### BASE-FIND-001 — P0 remediado — credenciales en archivo versionado
+
+`REMEDIADO`: `.env` estaba trackeado por Git aunque `.gitignore` lo excluía y aparece en el snapshot local de `origin/main`. Se retiró del índice sin borrar la copia local, se endureció `.gitignore` y se agregó `.env.example`. Gemini fue rotado y la clave anterior revocada; Groq, xAI, Moonshot/Kimi y DeepSeek fueron retirados localmente y sus claves antiguas quedaron eliminadas, ausentes o revocadas según la verificación externa registrada en el [checklist de credenciales](credential-rotation-checklist.md). El árbol Git actual no contiene la credencial Gemini activa.
+
+El historial conserva valores antiguos ya neutralizados. Reescribirlo requeriría una operación destructiva coordinada y no está autorizado. Por ello no deben publicarse el tag local `pre-audit-2026-08` ni commits históricos sin decidir antes una política explícita de saneamiento remoto.
 
 ### MEM-AUDIT-001 — P2 provisional — fallo en flujo con metadatos vacíos
 
 `OBSERVADO`: `memory.test_chromadb_flow::test_eliminacion` falla porque la inserción previa con metadatos `{}` devuelve `False` tras un `ValueError`; el conteo queda en cero y la eliminación no llega a validarse. El smoke con metadatos no vacíos sí pasó completo. Antes de corregir hay que aislar si el contrato válido permite `{}` o si la prueba quedó desactualizada.
 
-### LLM-AUDIT-001 — P2 provisional — fallback Groq no utilizable
+### LLM-AUDIT-001 — retirado — fallback Groq no utilizable
 
-`OBSERVADO`: la consulta Oracle recibió `404 model_not_found` para `llama-3.1-8b-instant`. El Orchestrator degradó correctamente a Gemini y produjo respuesta pública, pero Groq no funciona actualmente como respaldo real.
+`RETIRADO POR DECISIÓN OPERATIVA`: el baseline recibió `404 model_not_found` para `llama-3.1-8b-instant`. LAZZARO ahora usa exclusivamente Gemini y los fallbacks remotos están deshabilitados, por lo que Groq dejó de formar parte del contrato operativo.
 
 ### TEST-AUDIT-001 — P2 provisional — no existe runner estándar operativo
 
@@ -73,4 +90,4 @@ El smoke de Unity validó el contrato backend y la acción devuelta. No se abri�
 - [x] Se capturó el entorno real instalado; `requirements.txt` ya no es la única referencia.
 - [x] Los fallos existentes están registrados sin intentar corregirlos.
 
-Siguiente paso obligatorio: completar la rotación externa de `BASE-FIND-001` antes de publicar la rama o continuar con trabajo ordinario. Después se inicia OBS-001/OBS-002 para definir `AuditTrace v1` y un writer JSONL tolerante a fallos, manteniendo el logger humano existente.
+La rotación y revocación externas de `BASE-FIND-001` quedaron completadas y el gate posterior pasó. Siguiente paso: iniciar OBS-001/OBS-002 para definir `AuditTrace v1` y un writer JSONL tolerante a fallos, manteniendo el logger humano existente.

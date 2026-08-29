@@ -1,6 +1,6 @@
 # Checklist de rotación de credenciales — incidente `.env`
 
-Estado: **contención local aplicada; rotación externa en curso.**
+Estado: **contención y revocación externas completadas; gate de seguridad de Fase 0 cerrado.**
 
 No escribir claves, fragmentos, últimos caracteres ni hashes de valores secretos en este documento, commits, tickets o capturas.
 
@@ -21,7 +21,7 @@ Nombres de credenciales presentes en alguna versión histórica, inspeccionados 
 - `KIMI_API_KEY`
 - `DEEPSEEEK_API_KEY` — alias histórico con typo; al reemplazar usar `DEEPSEEK_API_KEY`
 
-`ORACLE_API_KEY` no apareció en esas versiones. El runtime actual puede usar `GROQ_API_KEY` como credencial de Oracle.
+`ORACLE_API_KEY` no apareció en esas versiones. El baseline podía usar `GROQ_API_KEY` como credencial de Oracle; el runtime actual opera solo con Gemini.
 
 ## Contención local
 
@@ -47,28 +47,30 @@ Para cada proveedor afectado:
 | Proveedor | Variable nueva | Crear | Validar | Revocar anterior |
 |---|---|:---:|:---:|:---:|
 | Google Gemini | `GEMINI_API_KEY` | [x] | [x] | [x] |
-| Groq | retirada localmente | N/A | N/A | [ ] |
-| xAI | retirada localmente | N/A | N/A | [ ] |
-| Moonshot/Kimi | retirada localmente | N/A | N/A | [ ] |
-| DeepSeek | retirada localmente | N/A | N/A | [ ] |
+| Groq | retirada localmente | N/A | N/A | [x] |
+| xAI | retirada localmente | N/A | N/A | [x] |
+| Moonshot/Kimi | retirada localmente | N/A | N/A | [x] |
+| DeepSeek | retirada localmente | N/A | N/A | [x] |
 
 Registro seguro:
 
 - Google Gemini — 2026-08-29 — responsable: Jairo/Codex — clave nueva validada antes y después de la revocación; health check HTTP 200; clave anterior revocada.
 - Decisión operativa — 2026-08-29 — LAZZARO queda en modo solo Gemini. Se retiraron del `.env` las credenciales de Groq, xAI, Moonshot/Kimi y DeepSeek, sin crear reemplazos; los fallbacks remotos quedaron deshabilitados.
+- Groq — 2026-08-29 — responsable: Jairo — cuenta desactivada por inactividad y clave eliminada, según verificación del usuario.
+- xAI — 2026-08-29 — responsable: Jairo — portal verificado sin claves API presentes.
+- Moonshot/Kimi — 2026-08-29 — responsable: Jairo — portal verificado sin claves API presentes.
+- DeepSeek — 2026-08-29 — responsable: Jairo — revocación confirmada y portal verificado sin claves API presentes.
 
-Las credenciales históricas de los proveedores retirados aún deben revocarse en sus portales para neutralizar el historial de Git. Esa revocación no requiere crear claves nuevas ni realizar llamadas de pago.
-
-Para Groq también se debe elegir un `GROQ_MODEL` actualmente habilitado en la cuenta; el baseline obtuvo `404 model_not_found` con `llama-3.1-8b-instant`.
+Las capturas usadas para verificar xAI, Moonshot/Kimi y DeepSeek fueron revisadas, pero no se incorporaron al repositorio porque contienen detalles personales del navegador. La necesidad de elegir otro `GROQ_MODEL` queda anulada al haberse retirado ese proveedor.
 
 ## Validación posterior
 
-- [ ] La carga de `Settings()` termina sin exponer valores.
-- [ ] El backend arranca y el health check del primario pasa.
-- [ ] `/api/v1/estado` devuelve HTTP 200.
-- [ ] La consulta Oracle usa el proveedor esperado o un fallback documentado.
-- [ ] `git status --ignored --short .env .env.example` muestra `.env` ignorado y `.env.example` versionado.
-- [ ] Un escaneo de secretos del diff y del árbol actual no encuentra credenciales.
+- [x] La carga de `Settings()` termina sin exponer valores.
+- [x] El backend arranca y el health check del primario pasa.
+- [x] `/api/v1/estado` devuelve HTTP 200.
+- [x] La consulta Oracle usa el proveedor esperado o un fallback documentado.
+- [x] `git status --ignored --short .env .env.example` muestra `.env` ignorado y `.env.example` versionado.
+- [x] Un escaneo de secretos del diff y del árbol actual no encuentra credenciales.
 
 ## Historial remoto
 
