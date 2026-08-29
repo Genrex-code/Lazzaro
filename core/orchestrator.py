@@ -23,6 +23,8 @@ from ai_engine.schemas import ActionResponse, OracleResult
 from ai_engine.subjective_effort import SubjectiveEffortCalculator
 from ai_engine.triage_router import TriageRouter
 from api.schemas import AccionSaliente, EstadoAgente, EventoEntrante, NotificacionSaliente
+from core.audit_trace import AuditTrace
+from core.audit_writer import AuditTraceJSONLWriter
 from core.logger import get_logger
 from core.tool_policy import ToolPolicy
 from memory.memory_manager import ManualConversationSaveResult
@@ -39,7 +41,14 @@ class Orchestrator:
 
     MAX_TRANSACCIONES_CACHE = 2000
 
-    def __init__(self, behavior_core, memory_manager, reasoning_engine, tool_registry):
+    def __init__(
+        self,
+        behavior_core,
+        memory_manager,
+        reasoning_engine,
+        tool_registry,
+        audit_writer: AuditTraceJSONLWriter | None = None,
+    ):
         self.behavior = behavior_core
         self.memory = memory_manager
         self.reasoning = reasoning_engine
@@ -70,6 +79,9 @@ class Orchestrator:
         self._transacciones_locks: dict[str, dict[str, object]] = {}
         self._descanso_terminal_lock = threading.RLock()
         self._descanso_terminal_pendiente: dict[str, str] | None = None
+        self.audit_writer = (
+            audit_writer if audit_writer is not None else AuditTraceJSONLWriter()
+        )
         logger.info("Orchestrator inicializado.")
 
     def _conectar_aliases_aprendidos(self) -> None:
@@ -82,31 +94,77 @@ class Orchestrator:
 
     def procesar_evento(self, evento: EventoEntrante) -> Optional[AccionSaliente]:
         """Serializa únicamente retries solapados de la misma transacción."""
-        guard = getattr(self, "_transacciones_lock_guard", None)
-        locks = getattr(self, "_transacciones_locks", None)
-        if guard is None or not isinstance(locks, dict):
-            guard = threading.Lock()
-            locks = {}
-            self._transacciones_lock_guard = guard
-            self._transacciones_locks = locks
-
         transaction_id = str(evento.id_transaccion)
-        with guard:
-            state = locks.get(transaction_id)
-            if state is None:
-                state = {"lock": threading.RLock(), "users": 0}
-                locks[transaction_id] = state
-            state["users"] = int(state.get("users", 0)) + 1
-            transaction_lock = state["lock"]
+        trace_id = str(uuid.uuid4())
+        self._registrar_limite_audit(evento, trace_id, "event_start")
 
         try:
-            with transaction_lock:  # type: ignore[attr-defined]
-                return self._procesar_evento_serializado(evento)
-        finally:
+            guard = getattr(self, "_transacciones_lock_guard", None)
+            locks = getattr(self, "_transacciones_locks", None)
+            if guard is None or not isinstance(locks, dict):
+                guard = threading.Lock()
+                locks = {}
+                self._transacciones_lock_guard = guard
+                self._transacciones_locks = locks
+
             with guard:
-                state["users"] = int(state.get("users", 1)) - 1
-                if state["users"] <= 0 and locks.get(transaction_id) is state:
-                    locks.pop(transaction_id, None)
+                state = locks.get(transaction_id)
+                if state is None:
+                    state = {"lock": threading.RLock(), "users": 0}
+                    locks[transaction_id] = state
+                state["users"] = int(state.get("users", 0)) + 1
+                transaction_lock = state["lock"]
+
+            try:
+                with transaction_lock:  # type: ignore[attr-defined]
+                    return self._procesar_evento_serializado(evento)
+            finally:
+                with guard:
+                    state["users"] = int(state.get("users", 1)) - 1
+                    if state["users"] <= 0 and locks.get(transaction_id) is state:
+                        locks.pop(transaction_id, None)
+        finally:
+            self._registrar_limite_audit(evento, trace_id, "event_end")
+
+    def _registrar_limite_audit(
+        self,
+        evento: EventoEntrante,
+        trace_id: str,
+        stage: str,
+    ) -> bool:
+        """Emite solo los limites OBS-003; stages internos pertenecen a tickets posteriores."""
+        writer = getattr(self, "audit_writer", None)
+        write = getattr(writer, "write", None)
+        if not callable(write):
+            return False
+
+        input_data = {}
+        if stage == "event_start":
+            input_data = {
+                "origin": evento.origen,
+                "event_type": evento.tipo_evento,
+                "message_preview": self._extraer_mensaje_usuario(evento),
+            }
+
+        try:
+            result = write(
+                AuditTrace(
+                    trace_id=trace_id,
+                    id_transaccion=str(evento.id_transaccion),
+                    stage=stage,
+                    input=input_data,
+                )
+            )
+            return bool(result)
+        except Exception as exc:
+            # El writer concreto ya contiene sus fallos. Esta barrera protege
+            # tambien ante dobles de prueba o implementaciones inyectadas.
+            logger.warning(
+                "No se pudo emitir AuditTrace %s; la ejecucion continuara. error_type=%s",
+                stage,
+                type(exc).__name__,
+            )
+            return False
 
     def _procesar_evento_serializado(
         self,
