@@ -50,9 +50,9 @@ El smoke de Unity validó el contrato backend y la acción devuelta. No se abri�
 
 ## Hallazgos iniciales — no corregidos
 
-### BASE-FIND-001 — P0 provisional — credenciales en archivo versionado
+### BASE-FIND-001 — P0 confirmado — credenciales en archivo versionado
 
-`IMPLEMENTADO/OBSERVADO`: `.env` está trackeado por Git aunque `.gitignore` lo excluye, y contiene campos de credenciales configurados. No se copiaron sus valores a la evidencia. Requiere retirar el archivo del tracking, sustituirlo por un ejemplo seguro y rotar las credenciales que hayan salido del equipo. No se debe reescribir historia ni revocar claves sin autorización explícita. El tag `pre-audit-2026-08` apunta al commit que contiene ese archivo y no debe publicarse ni empujarse antes de resolver el riesgo.
+`IMPLEMENTADO/OBSERVADO`: `.env` está trackeado por Git aunque `.gitignore` lo excluye, contiene campos de credenciales configurados y aparece en el snapshot local de `origin/main`. No se copiaron sus valores a la evidencia. Requiere retirar el archivo del tracking, sustituirlo por un ejemplo seguro y rotar las credenciales que hayan salido del equipo. No se debe reescribir historia ni revocar claves sin autorización explícita. El tag `pre-audit-2026-08` apunta al commit que contiene ese archivo y no debe publicarse ni empujarse antes de resolver el riesgo.
 
 ### MEM-AUDIT-001 — P2 provisional — fallo en flujo con metadatos vacíos
 
@@ -73,4 +73,4 @@ El smoke de Unity validó el contrato backend y la acción devuelta. No se abri�
 - [x] Se capturó el entorno real instalado; `requirements.txt` ya no es la única referencia.
 - [x] Los fallos existentes están registrados sin intentar corregirlos.
 
-Siguiente paso del plan: iniciar OBS-001/OBS-002 para definir `AuditTrace v1` y un writer JSONL tolerante a fallos, manteniendo el logger humano existente.
+Siguiente paso obligatorio: resolver `BASE-FIND-001` antes de publicar la rama o continuar con trabajo ordinario. Después se inicia OBS-001/OBS-002 para definir `AuditTrace v1` y un writer JSONL tolerante a fallos, manteniendo el logger humano existente.
