@@ -77,9 +77,12 @@ class AuditTraceJSONLWriter:
                 flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY | getattr(os, "O_BINARY", 0)
                 file_descriptor = os.open(self.path, flags, 0o600)
                 try:
-                    written = os.write(file_descriptor, encoded_line)
-                    if written != len(encoded_line):
-                        raise OSError("append JSONL incompleto")
+                    total_written = 0
+                    while total_written < len(encoded_line):
+                        written = os.write(file_descriptor, encoded_line[total_written:])
+                        if written == 0:
+                            raise OSError("os.write devolvio 0 bytes")
+                        total_written += written
                 finally:
                     os.close(file_descriptor)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -169,6 +170,49 @@ def test_writer_delegates_serialization_to_audit_trace() -> None:
         assert_true(calls == [trace], "El writer debe llamar AuditTrace.to_json() una sola vez.")
 
 
+def test_partial_write_retries_remaining_bytes() -> None:
+    with TemporaryDirectory(prefix="lazzaro-audit-partial-") as temp_dir:
+        path = Path(temp_dir) / "audit.jsonl"
+        trace = AuditTrace(
+            id_transaccion="partial-write",
+            stage="event_end",
+            post={"state": {"mensaje": "línea UTF-8 completa"}},
+        )
+        expected_line = trace.to_json()
+        writer = AuditTraceJSONLWriter(path)
+        real_os_write = os.write
+        write_sizes: list[int] = []
+
+        def partial_write(file_descriptor: int, data: bytes) -> int:
+            chunk_size = min(17, len(data))
+            written = real_os_write(file_descriptor, data[:chunk_size])
+            write_sizes.append(written)
+            return written
+
+        with patch("core.audit_writer.os.write", side_effect=partial_write):
+            result = writer.write(trace)
+
+        assert_true(result.success, "El writer debe completar un append parcial.")
+        assert_true(len(write_sizes) > 1, "La simulacion debe requerir varios os.write.")
+        assert_true(path.read_text(encoding="utf-8") == expected_line + "\n", "No debe perder bytes.")
+
+
+def test_zero_byte_write_is_reported_as_os_error() -> None:
+    with TemporaryDirectory(prefix="lazzaro-audit-zero-") as temp_dir:
+        logger = RecordingLogger()
+        writer = AuditTraceJSONLWriter(
+            Path(temp_dir) / "audit.jsonl",
+            human_logger=logger,
+        )
+
+        with patch("core.audit_writer.os.write", return_value=0):
+            result = writer.write(AuditTrace(stage="error"))
+
+        assert_true(not result.success, "Cero bytes debe producir fallo observable.")
+        assert_true(result.error_type == "OSError", "El retorno cero debe tratarse como OSError.")
+        assert_true(len(logger.warnings) == 1, "El fallo debe avisarse por el logger humano.")
+
+
 def main() -> None:
     tests = [
         test_utf8_append_only_and_reused_trace_id,
@@ -176,6 +220,8 @@ def main() -> None:
         test_failure_warns_and_returns_false_without_raising,
         test_logger_recursion_is_stopped,
         test_writer_delegates_serialization_to_audit_trace,
+        test_partial_write_retries_remaining_bytes,
+        test_zero_byte_write_is_reported_as_os_error,
     ]
     for test in tests:
         test()

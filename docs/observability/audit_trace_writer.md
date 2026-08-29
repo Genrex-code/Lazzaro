@@ -32,7 +32,8 @@ if not result.success:
 - Crea el directorio padre cuando no existe.
 - Codificación UTF-8 sin BOM y terminación LF.
 - Un `AuditTrace` por línea.
-- Apertura con `O_APPEND` y una única operación de escritura por registro.
+- Apertura con `O_APPEND`; si `os.write` escribe parcialmente, continúa desde el offset pendiente bajo el mismo lock hasta completar la línea.
+- Un retorno de cero bytes desde `os.write` se trata como `OSError` para evitar un bucle infinito.
 - Lock compartido entre instancias para impedir mezcla de líneas entre threads del proceso.
 - Usa exclusivamente `AuditTrace.to_json()`; no duplica sanitización ni contrato.
 - Conserva el `trace_id` recibido, por lo que puede reutilizarse entre distintos stages.
@@ -59,11 +60,13 @@ El runner [`core/test_audit_writer.py`](../../core/test_audit_writer.py) comprue
 3. creación del directorio padre;
 4. warning humano y resultado fallido sin excepción;
 5. corte de recursión logger → AuditTrace → logger;
-6. delegación directa a `AuditTrace.to_json()`.
+6. delegación directa a `AuditTrace.to_json()`;
+7. reintento del segmento restante ante escrituras parciales simuladas;
+8. tratamiento de un retorno de cero bytes como `OSError`.
 
 Resultado de OBS-002: **PASS**.
 
-- Pruebas específicas: 5 PASS.
-- Regresión directa del repositorio: 119 PASS, 0 fallos nuevos y 1 fallo conocido del baseline (`memory.test_chromadb_flow.test_eliminacion`).
+- Pruebas específicas: 7 PASS.
+- Regresión directa del repositorio: 121 PASS, 0 fallos nuevos y 1 fallo conocido del baseline (`memory.test_chromadb_flow.test_eliminacion`).
 
 El siguiente ticket es OBS-003, integración acotada de `event_start`/`event_end` en `Orchestrator`.
