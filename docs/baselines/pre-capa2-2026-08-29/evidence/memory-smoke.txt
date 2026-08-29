@@ -1,0 +1,25 @@
+2026-08-29 02:06:53,083 | INFO | memory.chroma_client | ChromaDB inicializado en 'C:\Users\JAIRO\AppData\Local\Temp\lazzaro-phase0-memory-dkijwa0l', coleccion 'phase0_smoke' lista.
+2026-08-29 02:06:54,059 | INFO | memory.chroma_client | ChromaDB inicializado en 'C:\Users\JAIRO\AppData\Local\Temp\lazzaro-phase0-memory-dkijwa0l', coleccion 'phase0_smoke' lista.
+{
+  "open_1": true,
+  "write": true,
+  "count_before_close": 2,
+  "search_ids_before_close": [
+    [
+      "phase0-a",
+      "phase0-b"
+    ]
+  ],
+  "open_2": true,
+  "count_after_reopen": 2,
+  "search_ids_after_reopen": [
+    [
+      "phase0-a",
+      "phase0-b"
+    ]
+  ],
+  "delete": true,
+  "count_after_delete": 0,
+  "smoke_ok": true
+}
+exit_code=0

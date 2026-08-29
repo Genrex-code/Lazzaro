@@ -1,0 +1,11 @@
+C:/Users/JAIRO/Entidades/Lazzaro
+## codex/stabilization/pre-capa2
+ M lazzaro_data/644d5fee-fd11-4187-a03b-37c6b2ade6de/data_level0.bin
+ M lazzaro_data/644d5fee-fd11-4187-a03b-37c6b2ade6de/length.bin
+ M lazzaro_data/chroma.sqlite3
+commit=c2ff114ab655c196a519ef9c5d436035f3bbcf0b
+date=2026-08-12T15:23:35-06:00
+author=genrex-code <jairo2030antonio007@gmail.com>
+subject=Remove legacy security scripts and add new ChromaDB test cases
+decorations=HEAD -> codex/stabilization/pre-capa2, tag: pre-audit-2026-08, origin/main, origin/HEAD, main
+baseline_tag_target=c2ff114ab655c196a519ef9c5d436035f3bbcf0b

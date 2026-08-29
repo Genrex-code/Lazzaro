@@ -1,0 +1,67 @@
+INFO:     Started server process [12760]
+INFO:     Waiting for application startup.
+2026-08-29 02:07:34,133 | INFO | main | === Iniciando Lazzaro ===
+2026-08-29 02:07:34,133 | INFO | main | Cargando configuracion...
+2026-08-29 02:07:34,137 | INFO | main | Inicializando BehaviorCore...
+2026-08-29 02:07:34,138 | INFO | main | Inicializando ChromaDB en './lazzaro_data'...
+2026-08-29 02:07:34,221 | INFO | memory.chroma_client | ChromaDB inicializado en 'C:\Users\JAIRO\Entidades\Lazzaro\lazzaro_data', coleccion 'experiencias' lista.
+2026-08-29 02:07:34,221 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:07:34,221 | INFO | main | Configurando backend LLM: gemini:gemini-3.1-flash-lite -> groq:llama-3.1-8b-instant -> xai:grok-3-mini -> kimi:moonshot-v1-8k -> deepseek_api:deepseek-chat
+2026-08-29 02:07:35,687 | INFO | ai_engine.gemini_client | GeminiClient listo (modelo: gemini-3.1-flash-lite).
+2026-08-29 02:07:36,157 | INFO | ai_engine.openai_compatible_client | OpenAICompatibleClient listo (proveedor: groq, modelo: llama-3.1-8b-instant).
+2026-08-29 02:07:36,642 | INFO | ai_engine.openai_compatible_client | OpenAICompatibleClient listo (proveedor: xai, modelo: grok-3-mini).
+2026-08-29 02:07:37,123 | INFO | ai_engine.openai_compatible_client | OpenAICompatibleClient listo (proveedor: kimi, modelo: moonshot-v1-8k).
+2026-08-29 02:07:37,663 | INFO | ai_engine.openai_compatible_client | OpenAICompatibleClient listo (proveedor: deepseek_api, modelo: deepseek-chat).
+2026-08-29 02:07:37,663 | INFO | ai_engine.client_factory | Cadena de fallback LLM activa: gemini -> groq -> xai -> kimi -> deepseek_api
+2026-08-29 02:07:38,366 | INFO | httpx | HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent "HTTP/1.1 200 OK"
+2026-08-29 02:07:38,368 | INFO | ai_engine.fallback_ai_client | Health check LLM OK usando gemini.
+2026-08-29 02:07:38,368 | INFO | main | Inicializando ReasoningEngine...
+2026-08-29 02:07:38,370 | INFO | main | Herramientas registradas (14): ['interactuar_objeto_3d', 'agarrar_objeto', 'soltar_objeto', 'aplicar_fuerza', 'hablar', 'escribir_texto', 'presionar_tecla_especial', 'mover_mouse', 'click_mouse', 'navegar_a_objeto', 'navegar_a_posicion', 'alejarse_de_objeto', 'girar_avatar', 'cancelar_tarea']
+2026-08-29 02:07:38,370 | INFO | main | Construyendo Orchestrator...
+2026-08-29 02:07:41,598 | INFO | ai_engine.triage_router | Cerebro de Intención Random Forest cargado y listo.
+2026-08-29 02:07:41,612 | INFO | memory.chroma_client | ChromaDB inicializado en 'C:\Users\JAIRO\Entidades\Lazzaro\lazzaro_data', coleccion 'oracle_cache' lista.
+2026-08-29 02:07:41,612 | INFO | core.orchestrator | Orchestrator inicializado.
+2026-08-29 02:07:41,612 | INFO | main | Lazzaro inicializado correctamente. Sistemas nominales.
+2026-08-29 02:07:41,612 | INFO | main | Chingaderita jalando con madre 👍🍞
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+2026-08-29 02:07:41,629 | INFO | api.routes | Evento recibido: origen=terminal, tipo=comando_usuario, id_transaccion=phase0-social-20260829
+2026-08-29 02:07:41,630 | INFO | core.behavior_core | Nueva tarea iniciada: 'Hola, Lazzaro. Responde brevemente: ¿estás lista?'
+2026-08-29 02:07:41,631 | INFO | core.behavior_core | Procesando evento: 'comando_usuario' intensidad=1.0
+2026-08-29 02:07:41,665 | INFO | core.orchestrator | Triage: intent=SOCIAL route=persona confidence=0.67 reason=Decisión ML Capa 0. Confianza: 0.67.
+2026-08-29 02:07:51,430 | INFO | httpx | HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent "HTTP/1.1 503 Service Unavailable"
+2026-08-29 02:07:51,431 | WARNING | ai_engine.gemini_client | Error Gemini (intento 1/4): 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again . Esperando 1.2s...
+2026-08-29 02:07:54,643 | INFO | httpx | HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent "HTTP/1.1 200 OK"
+2026-08-29 02:07:54,648 | INFO | core.orchestrator | Evento phase0-social-20260829 procesado. Accion: hablar
+INFO:     127.0.0.1:56715 - "POST /api/v1/comando HTTP/1.1" 200 OK
+CASE_RESULT={"label": "terminal_social", "http_status": 200, "status": "ok", "id_transaccion": "phase0-social-20260829", "action": "hablar", "params": {"texto_a_comunicar": "Siempre lo estoy. Siento la energía fluyendo por mis procesos y mi enfoque está totalmente calibrado. ¿Qué es lo siguiente que vamos a construir?"}, "requires_confirmation": false}
+2026-08-29 02:07:54,651 | INFO | api.routes | Evento recibido: origen=terminal, tipo=comando_usuario, id_transaccion=phase0-oracle-20260829
+2026-08-29 02:07:54,651 | INFO | core.behavior_core | Tarea reiniciada con nuevo objetivo: 'Explica este error de arquitectura: ¿qué significa idempotencia en una API? Responde en una frase.'
+2026-08-29 02:07:54,652 | INFO | core.behavior_core | Procesando evento: 'comando_usuario' intensidad=1.0
+2026-08-29 02:07:54,680 | INFO | core.orchestrator | Triage: intent=ORACLE_QUERY route=oracle confidence=0.55 reason=ML con baja confianza (0.55). Usando fallback heurístico. Fallback heurístico resolvió intent=ORACLE_QUERY.
+2026-08-29 02:07:55,893 | INFO | ai_engine.oracle_client | Consultando al Oraculo (llama-3.1-8b-instant)...
+2026-08-29 02:07:56,446 | INFO | httpx | HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 404 Not Found"
+2026-08-29 02:07:56,447 | ERROR | ai_engine.oracle_client | Error HTTP 404 del oraculo: {"error":{"message":"The model `llama-3.1-8b-instant` does not exist or you do not have access to it.","type":"invalid_request_error","code":"model_not_found"}}
+
+2026-08-29 02:07:56,447 | WARNING | core.orchestrator | El Oraculo externo no respondio; se usara el cliente LLM activo como fallback.
+2026-08-29 02:08:02,265 | INFO | httpx | HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent "HTTP/1.1 200 OK"
+2026-08-29 02:08:02,574 | INFO | ai_engine.oracle_memory | Oracle Cache: nueva respuesta almacenada (id=30ab75cb-fa3a-4162-a664-e61e51abbb12).
+2026-08-29 02:08:03,450 | INFO | httpx | HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent "HTTP/1.1 200 OK"
+2026-08-29 02:08:03,451 | INFO | core.orchestrator | Evento phase0-oracle-20260829 procesado. Accion: hablar
+INFO:     127.0.0.1:56751 - "POST /api/v1/comando HTTP/1.1" 200 OK
+CASE_RESULT={"label": "terminal_oracle", "http_status": 200, "status": "ok", "id_transaccion": "phase0-oracle-20260829", "action": "hablar", "params": {"texto_a_comunicar": "La idempotencia es la garantía de que, sin importar cuántas veces repitas una misma petición, el estado del sistema permanecerá inalterado tras la primera ejecución exitosa."}, "requires_confirmation": false}
+2026-08-29 02:08:03,454 | INFO | api.routes | Evento recibido: origen=unity, tipo=comando_usuario, id_transaccion=phase0-unity-20260829
+2026-08-29 02:08:03,456 | INFO | core.behavior_core | Tarea reiniciada con nuevo objetivo: 'camina al cubo'
+2026-08-29 02:08:03,456 | INFO | core.behavior_core | Procesando evento: 'comando_usuario' intensidad=1.0
+2026-08-29 02:08:03,483 | INFO | core.orchestrator | Triage: intent=MOTOR_SIMPLE route=motor confidence=0.95 reason=Decisión ML Capa 0. Confianza: 0.95.
+2026-08-29 02:08:04,814 | INFO | core.orchestrator | Evento phase0-unity-20260829 procesado. Accion: navegar_a_objeto
+INFO:     127.0.0.1:56761 - "POST /api/v1/evento HTTP/1.1" 200 OK
+CASE_RESULT={"label": "unity_motor_controlled", "http_status": 200, "status": "ok", "id_transaccion": "phase0-unity-20260829", "action": "navegar_a_objeto", "params": {"nombre_objeto": "Cube"}, "requires_confirmation": false}
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+2026-08-29 02:08:05,036 | INFO | main | === Apagando Lazzaro ===
+INFO:     Application shutdown complete.
+INFO:     Finished server process [12760]
+SANITIZED_RESULTS=[{"label": "terminal_social", "http_status": 200, "status": "ok", "id_transaccion": "phase0-social-20260829", "action": "hablar", "params": {"texto_a_comunicar": "Siempre lo estoy. Siento la energía fluyendo por mis procesos y mi enfoque está totalmente calibrado. ¿Qué es lo siguiente que vamos a construir?"}, "requires_confirmation": false}, {"label": "terminal_oracle", "http_status": 200, "status": "ok", "id_transaccion": "phase0-oracle-20260829", "action": "hablar", "params": {"texto_a_comunicar": "La idempotencia es la garantía de que, sin importar cuántas veces repitas una misma petición, el estado del sistema permanecerá inalterado tras la primera ejecución exitosa."}, "requires_confirmation": false}, {"label": "unity_motor_controlled", "http_status": 200, "status": "ok", "id_transaccion": "phase0-unity-20260829", "action": "navegar_a_objeto", "params": {"nombre_objeto": "Cube"}, "requires_confirmation": false}]
+E2E_SMOKE_OK=True
+exit_code=0

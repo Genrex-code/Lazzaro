@@ -1,0 +1,39 @@
+INFO:     Started server process [21520]
+INFO:     Waiting for application startup.
+2026-08-29 02:06:04,497 | INFO | main | === Iniciando Lazzaro ===
+2026-08-29 02:06:04,498 | INFO | main | Cargando configuracion...
+2026-08-29 02:06:04,502 | INFO | main | Inicializando BehaviorCore...
+2026-08-29 02:06:04,503 | INFO | main | Inicializando ChromaDB en './lazzaro_data'...
+2026-08-29 02:06:04,589 | INFO | memory.chroma_client | ChromaDB inicializado en 'C:\Users\JAIRO\Entidades\Lazzaro\lazzaro_data', coleccion 'experiencias' lista.
+2026-08-29 02:06:04,589 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:06:04,589 | INFO | main | Configurando backend LLM: gemini:gemini-3.1-flash-lite -> groq:llama-3.1-8b-instant -> xai:grok-3-mini -> kimi:moonshot-v1-8k -> deepseek_api:deepseek-chat
+2026-08-29 02:06:06,009 | INFO | ai_engine.gemini_client | GeminiClient listo (modelo: gemini-3.1-flash-lite).
+2026-08-29 02:06:06,458 | INFO | ai_engine.openai_compatible_client | OpenAICompatibleClient listo (proveedor: groq, modelo: llama-3.1-8b-instant).
+2026-08-29 02:06:06,915 | INFO | ai_engine.openai_compatible_client | OpenAICompatibleClient listo (proveedor: xai, modelo: grok-3-mini).
+2026-08-29 02:06:07,424 | INFO | ai_engine.openai_compatible_client | OpenAICompatibleClient listo (proveedor: kimi, modelo: moonshot-v1-8k).
+2026-08-29 02:06:07,867 | INFO | ai_engine.openai_compatible_client | OpenAICompatibleClient listo (proveedor: deepseek_api, modelo: deepseek-chat).
+2026-08-29 02:06:07,868 | INFO | ai_engine.client_factory | Cadena de fallback LLM activa: gemini -> groq -> xai -> kimi -> deepseek_api
+2026-08-29 02:06:08,559 | INFO | httpx | HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent "HTTP/1.1 200 OK"
+2026-08-29 02:06:08,561 | INFO | ai_engine.fallback_ai_client | Health check LLM OK usando gemini.
+2026-08-29 02:06:08,561 | INFO | main | Inicializando ReasoningEngine...
+2026-08-29 02:06:08,563 | INFO | main | Herramientas registradas (14): ['interactuar_objeto_3d', 'agarrar_objeto', 'soltar_objeto', 'aplicar_fuerza', 'hablar', 'escribir_texto', 'presionar_tecla_especial', 'mover_mouse', 'click_mouse', 'navegar_a_objeto', 'navegar_a_posicion', 'alejarse_de_objeto', 'girar_avatar', 'cancelar_tarea']
+2026-08-29 02:06:08,563 | INFO | main | Construyendo Orchestrator...
+2026-08-29 02:06:11,392 | INFO | ai_engine.triage_router | Cerebro de Intención Random Forest cargado y listo.
+2026-08-29 02:06:11,410 | INFO | memory.chroma_client | ChromaDB inicializado en 'C:\Users\JAIRO\Entidades\Lazzaro\lazzaro_data', coleccion 'oracle_cache' lista.
+2026-08-29 02:06:11,410 | INFO | core.orchestrator | Orchestrator inicializado.
+2026-08-29 02:06:11,410 | INFO | main | Lazzaro inicializado correctamente. Sistemas nominales.
+2026-08-29 02:06:11,410 | INFO | main | Chingaderita jalando con madre 👍🍞
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:60038 - "GET /api/v1/estado HTTP/1.1" 200 OK
+PROBE_STATUS=200
+PROBE_BODY={"dopamina":0.0,"estres":10.0,"energia":80.0,"confianza":0.0,"motivacion":15.0,"foco":70.0,"personalidad":{"resiliencia":0.0,"impulsividad":0.0,"paciencia":0.0,"sociabilidad":0.0,"metodico":0.0},"tarea_actual":null}
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+2026-08-29 02:06:11,651 | INFO | main | === Apagando Lazzaro ===
+INFO:     Application shutdown complete.
+INFO:     Finished server process [21520]
+SERVER_STARTED_FINAL=True
+SERVER_SHOULD_EXIT=True
+SMOKE_OK=True
+exit_code=0

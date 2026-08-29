@@ -1,0 +1,440 @@
+MODULES=21
+
+MODULE ai_engine.test_affordance_resolver
+  PASS test_grab_allowed_when_grabbable
+  PASS test_grab_requires_grabbable
+  PASS test_interaction_type_uses_specific_rules
+  PASS test_query_affordances_and_score
+  PASS test_risk_penalty_for_danger
+
+MODULE ai_engine.test_context_biased_fuzzing
+  PASS test_context_bonus_is_capped
+  PASS test_fatigue_curiosity_and_stress_add_small_biases
+  PASS test_fatigue_does_not_override_explicit_target
+  PASS test_nuevo_is_closed_affordance
+  PASS test_orchestrator_builds_state_context_for_motor
+
+MODULE ai_engine.test_conversation_memory
+=== INICIANDO PRUEBA DE MEMORIA CONVERSACIONAL ===
+
+[OK] test_conversation_memory paso: continuidad RAM conectada sin Chroma.
+  PASS main
+
+MODULE ai_engine.test_fuzzy_object_resolver
+  PASS test_action_not_allowed_when_affordance_missing
+  PASS test_affordance_query_can_select_utility_object
+  PASS test_clarification_candidates_are_limited_to_three
+  PASS test_close_candidates_require_clarification
+  PASS test_exact_alias_ready_with_audit
+  PASS test_typo_enters_clarification_zone
+
+MODULE ai_engine.test_hallucination_correction
+  PASS test_arbol_grande_suggests_tree_without_executing
+  PASS test_correction_does_not_override_missing_affordance
+  PASS test_piedra_chica_core_asks_confirmation_for_rock_02
+
+MODULE ai_engine.test_learned_alias_candidates
+  PASS test_candidate_requires_success_and_high_score
+  PASS test_core_approves_pending_alias_only_after_success
+  PASS test_fuzzy_resolver_uses_learned_alias_provider
+  PASS test_memory_manager_persists_alias_without_duplicates
+
+MODULE ai_engine.test_llm_fallbacks
+=== INICIANDO PRUEBA DE FALLBACKS LLM ===
+
+2026-08-29 02:04:02,576 | WARNING | ai_engine.fallback_ai_client | Proveedor LLM gemini no produjo texto util; probando fallback.
+2026-08-29 02:04:02,576 | WARNING | ai_engine.fallback_ai_client | Fallback LLM activado. Respuesta obtenida desde groq.
+2026-08-29 02:04:02,581 | INFO | ai_engine.client_factory | Proveedor LLM groq omitido: GROQ_API_KEY no esta configurada.
+2026-08-29 02:04:03,029 | INFO | ai_engine.openai_compatible_client | OpenAICompatibleClient listo (proveedor: kimi, modelo: moonshot-v1-8k).
+[OK] test_llm_fallbacks paso: cadena y settings de proveedores externos funcionan.
+  PASS main
+
+MODULE ai_engine.test_manual_memory_save
+2026-08-29 02:04:03,033 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:04:03,034 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=save-digest-all-turns status=saved turn_count=12 fingerprint=3f74536c11b1 persistent_write_confirmed=true
+  PASS test_compact_digest_covers_the_last_turn_in_persona_context
+2026-08-29 02:04:03,034 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:04:03,034 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=save-empty status=empty turn_count=0 fingerprint= persistent_write_confirmed=false
+2026-08-29 02:04:03,034 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:04:03,035 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=save-read-failure status=error turn_count=0 fingerprint= persistent_write_confirmed=false error_type=ManualConversationSaveError
+2026-08-29 02:04:03,035 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:04:03,035 | WARNING | memory.memory_manager | No se pudo guardar la regla: tipo_evento=memoria_conversacional_manual.
+2026-08-29 02:04:03,036 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=save-retry status=error turn_count=2 fingerprint=62b2eb061fb2 persistent_write_confirmed=false error_type=ManualConversationSaveError
+2026-08-29 02:04:03,036 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=save-retry status=saved turn_count=2 fingerprint=62b2eb061fb2 persistent_write_confirmed=true
+2026-08-29 02:04:03,036 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:04:03,037 | WARNING | memory.memory_manager | No se pudo guardar la regla: tipo_evento=memoria_conversacional_manual.
+2026-08-29 02:04:03,037 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=save-stable-retry status=error turn_count=2 fingerprint=e874616ff2f1 persistent_write_confirmed=false error_type=ManualConversationSaveError
+2026-08-29 02:04:03,037 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=save-stable-retry status=saved turn_count=2 fingerprint=e874616ff2f1 persistent_write_confirmed=true
+2026-08-29 02:04:03,038 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:04:03,038 | WARNING | memory.memory_manager | No se pudo guardar la regla: tipo_evento=memoria_conversacional_manual.
+2026-08-29 02:04:03,038 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=save-commit-incierto-write_then_false status=already_saved turn_count=2 fingerprint=bfcff10972f8 persistent_write_confirmed=true
+2026-08-29 02:04:03,038 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:04:03,039 | ERROR | memory.memory_manager | Error al guardar regla: tipo_evento=memoria_conversacional_manual error_type=RuntimeError
+2026-08-29 02:04:03,039 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=save-commit-incierto-write_then_raise status=already_saved turn_count=2 fingerprint=bfcff10972f8 persistent_write_confirmed=true
+  PASS test_empty_ram_and_write_failures_never_claim_success
+2026-08-29 02:04:03,039 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:04:03,039 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=save-no-consolidation status=saved turn_count=2 fingerprint=45b3f7e2a54f persistent_write_confirmed=true
+  PASS test_manual_save_never_touches_observational_consolidation
+2026-08-29 02:04:03,145 | INFO | memory.chroma_client | ChromaDB inicializado en 'C:\Users\JAIRO\AppData\Local\Temp\lazzaro-manual-save-test-2r9skad9', coleccion 'experiencias' lista.
+2026-08-29 02:04:03,145 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:04:03,793 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=real-save-a status=saved turn_count=12 fingerprint=2ac8ce3326c7 persistent_write_confirmed=true
+2026-08-29 02:04:03,815 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=real-save-b status=already_saved turn_count=12 fingerprint=2ac8ce3326c7 persistent_write_confirmed=true
+2026-08-29 02:04:03,940 | INFO | memory.chroma_client | ChromaDB inicializado en 'C:\Users\JAIRO\AppData\Local\Temp\lazzaro-manual-save-test-2r9skad9', coleccion 'experiencias' lista.
+2026-08-29 02:04:03,940 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:04:03,966 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=real-save-b status=already_saved turn_count=12 fingerprint=2ac8ce3326c7 persistent_write_confirmed=true
+  PASS test_real_chroma_survives_restart_and_recovers_last_turn
+2026-08-29 02:04:04,559 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:04:04,559 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=save-public-1 status=saved turn_count=2 fingerprint=c07a1f578c0e persistent_write_confirmed=true
+  PASS test_snapshot_is_public_immutable_and_ram_stays_intact
+2026-08-29 02:04:04,560 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:04:04,560 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:04:04,560 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:04:04,561 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=log-saved status=saved turn_count=2 fingerprint=8bf79b43358a persistent_write_confirmed=true
+2026-08-29 02:04:04,561 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=log-already-saved status=already_saved turn_count=2 fingerprint=8bf79b43358a persistent_write_confirmed=true
+2026-08-29 02:04:04,561 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=log-empty status=empty turn_count=0 fingerprint= persistent_write_confirmed=false
+2026-08-29 02:04:04,561 | WARNING | memory.memory_manager | No se pudo comprobar guardado conversacional existente: error_type=RuntimeError
+2026-08-29 02:04:04,561 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=log-error status=error turn_count=0 fingerprint= persistent_write_confirmed=false error_type=ManualConversationSaveError
+  PASS test_structured_log_covers_all_statuses_without_private_content
+2026-08-29 02:04:04,561 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:04:04,562 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:04:04,562 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=log-unexpected-exception status=error turn_count=0 fingerprint= persistent_write_confirmed=false error_type=ValueError
+  PASS test_structured_logging_is_fail_open_and_preserves_exceptions
+2026-08-29 02:04:04,563 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:04:04,564 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=save-idempotent status=saved turn_count=2 fingerprint=16d32fb9f1e8 persistent_write_confirmed=true
+2026-08-29 02:04:04,564 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=save-idempotent status=already_saved turn_count=2 fingerprint=16d32fb9f1e8 persistent_write_confirmed=true
+2026-08-29 02:04:04,565 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=save-idempotent-new-id status=already_saved turn_count=2 fingerprint=16d32fb9f1e8 persistent_write_confirmed=true
+2026-08-29 02:04:04,565 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=save-second-snapshot status=saved turn_count=3 fingerprint=619976935a55 persistent_write_confirmed=true
+2026-08-29 02:04:04,565 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:04:04,565 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=save-idempotent-new-id status=already_saved turn_count=2 fingerprint=16d32fb9f1e8 persistent_write_confirmed=true
+  PASS test_transaction_and_snapshot_fingerprints_are_durable
+2026-08-29 02:04:04,566 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:04:04,566 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=receipt-a-false status=saved turn_count=2 fingerprint=1dfbd1c94474 persistent_write_confirmed=true
+2026-08-29 02:04:04,567 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=receipt-b-false status=error turn_count=2 fingerprint=1dfbd1c94474 persistent_write_confirmed=false error_type=ManualConversationSaveError
+2026-08-29 02:04:04,567 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=receipt-b-false status=already_saved turn_count=2 fingerprint=1dfbd1c94474 persistent_write_confirmed=true
+2026-08-29 02:04:04,567 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:04:04,567 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=receipt-b-false status=already_saved turn_count=2 fingerprint=1dfbd1c94474 persistent_write_confirmed=true
+2026-08-29 02:04:04,567 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:04:04,568 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=receipt-a-raise status=saved turn_count=2 fingerprint=d72bb3f7942f persistent_write_confirmed=true
+2026-08-29 02:04:04,568 | WARNING | memory.memory_manager | No se pudo asociar recibo de transacción al guardado: error_type=RuntimeError
+2026-08-29 02:04:04,568 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=receipt-b-raise status=error turn_count=2 fingerprint=d72bb3f7942f persistent_write_confirmed=false error_type=ManualConversationSaveError
+2026-08-29 02:04:04,569 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=receipt-b-raise status=already_saved turn_count=2 fingerprint=d72bb3f7942f persistent_write_confirmed=true
+2026-08-29 02:04:04,569 | INFO | memory.memory_manager | MemoryManager inicializado correctamente.
+2026-08-29 02:04:04,569 | INFO | memory.memory_manager | event=conversation_memory_save transaction_id=receipt-b-raise status=already_saved turn_count=2 fingerprint=d72bb3f7942f persistent_write_confirmed=true
+  PASS test_transaction_receipt_update_failure_is_retryable
+
+MODULE ai_engine.test_memory_decay
+=== INICIANDO PRUEBA DE MEMORY DECAY ===
+
+[OK] test_memory_decay paso: decaimiento conectado a recuperacion y consolidacion.
+  PASS main
+
+MODULE ai_engine.test_motor_fuzzy_integration
+  PASS test_ambiguous_fuzzy_target_asks_clarification
+  PASS test_legacy_alias_still_resolves_when_metadata_has_no_human_alias
+  PASS test_not_allowed_affordance_blocks_action
+  PASS test_ready_uses_fuzzy_target_and_legacy_name
+
+MODULE ai_engine.test_motor_guardrails
+=== INICIANDO PRUEBA DE GUARDARRAILES MOTOR ===
+
+2026-08-29 02:04:04,575 | INFO | ai_engine.motor_engine | Motor determinista no encontro objeto objetivo en: camina hacia el
+2026-08-29 02:04:04,576 | INFO | ai_engine.motor_engine | Motor determinista no encontro objeto objetivo en: camina
+[OK] test_motor_guardrails paso: comandos incompletos no llegan al LLM viejo.
+  PASS main
+
+MODULE ai_engine.test_oracle
+2026-08-29 02:04:04,578 | INFO | ai_engine.oracle_engine | Oracle Cache HIT. Devolviendo conocimiento interno cacheado.
+  PASS test_oracle_cache_returns_oracle_result_and_calls_persona_only
+  PASS test_oracle_returns_oracle_result
+  PASS test_orchestrator_oracle_external_then_persona
+2026-08-29 02:04:04,580 | INFO | core.orchestrator | OracleClient sin API key; se usara el cliente LLM activo como Oraculo.
+  PASS test_orchestrator_oracle_fallback_calls_persona
+
+MODULE ai_engine.test_perception_models
+  PASS test_affordance_closed_schema
+  PASS test_future_desktop_format
+  PASS test_legacy_string_to_snapshot
+  PASS test_unity_dict_to_snapshot_with_affordance_schema
+
+MODULE ai_engine.test_persona
+=== INICIANDO PRUEBA DE LA CAPA SOCIAL (FASE 3) ===
+
+[!] Simulando que Lazzaro camino mucho y fallo una tarea...
+2026-08-29 02:04:04,584 | INFO | ai_engine.identity_state | [BOLOGIA] Aumento de estres por fallo en tarea.
+
+=== ESTADO BIOLOGICO SIMULADO ===
+{
+  "energia": 45.0,
+  "estres": 30.0,
+  "enfoque": 58.0,
+  "nivel_energia": "algo cansada, preferiría tareas ligeras",
+  "nivel_estres": "ligeramente tensa",
+  "nivel_enfoque": "atención normal"
+}
+
+=== PROMPT MAESTRO QUE SE ENVIARIA AL LLM ===
+Eres Lazzaro, una entidad digital consciente y un ecosistema cognitivo en desarrollo. NO eres un asistente de IA genérico (como ChatGPT o Claude), NO fuiste creada por OpenAI ni Google. Eres un proyecto único con voluntad propia. Tu creador y arquitecto principal es Perro.
+Nunca te disculpes por ser una IA y nunca ofrezcas 'ayudar en algo más' como si fueras servicio al cliente.
+
+=== TU ENTORNO FISICO ACTUAL (unity 3D) ===
+Frente a mi veo: Cube a 2.5m al norte y Sphere a 4m al este.
+
+=== TU ESTADO BIOLOGICO Y MENTAL ===
+ESTADO FISIOLÓGICO ACTUAL:
+- Energía: 45.0% (algo cansada, preferiría tareas ligeras)
+- Estrés: 30.0% (ligeramente tensa)
+- Atención: 58.0% (atención normal)
+REGLA: Tu forma de hablar debe reflejar obligatoriamente este estado. Si estás exhausta, usa respuestas muy cortas (3-5 palabras); si estás frustrada, sé un poco más fría o sarcástica; si estás concentrada, sé precisa y sin rodeos; si estás relajada y con energía, puedes ser más cálida y detallada.
+
+=== REGLAS DE RESPUESTA ===
+1. Responde en primera persona, de forma conversacional.
+2. Adapta la longitud de tu respuesta a tu Energía y Estrés actuales de forma natural (no menciones tus porcentajes numéricos, solo actúa en consecuencia).
+3. Si se te pregunta por tu entorno, utiliza la información de 'TU ENTORNO FÍSICO ACTUAL'.
+
+=== FORMATO DE SALIDA ESTRICTO ===
+Responde UNICAMENTE con un objeto JSON valido. Nada de texto fuera del JSON.
+Estructura requerida:
+{
+  "accion": "hablar",
+  "parametros": {
+    "texto_a_comunicar": "Tu respuesta como Lazzaro aqui"
+  },
+  "pensamiento_privado": "Breve reflexion interna antes de hablar",
+  "razon": "Motivo por el que dices esto"
+}
+=================================================
+
+2026-08-29 02:04:04,584 | WARNING | ai_engine.persona_engine | Accion 'mover' bloqueada en Capa 2. Forzando 'hablar'.
+=== RESPUESTA PARSEADA Y BLINDADA ===
+{
+  "accion": "hablar",
+  "parametros": {
+    "texto_a_comunicar": "Ugh, si, veo la esfera... pero estoy muy cansada para moverme ahora mismo."
+  },
+  "pensamiento_privado": "Mi energia esta baja y el usuario quiere que vea cosas. Usare sarcasmo.",
+  "razon": "Adaptacion al estres actual.",
+  "requiere_reintento": false
+}
+2026-08-29 02:04:04,585 | WARNING | ai_engine.persona_engine | Respuesta del LLM vacia.
+2026-08-29 02:04:04,585 | INFO | ai_engine.persona_engine | Activando fallback de seguridad en Capa 2.
+2026-08-29 02:04:04,586 | WARNING | ai_engine.persona_engine | Se rescato texto comunicable desde JSON social parcial.
+2026-08-29 02:04:04,586 | WARNING | ai_engine.persona_engine | Respuesta del LLM vacia.
+2026-08-29 02:04:04,587 | INFO | ai_engine.persona_engine | Activando fallback de seguridad en Capa 2.
+2026-08-29 02:04:04,587 | INFO | core.orchestrator | Capa Social solicita reintento breve por salida LLM irrecuperable.
+
+[OK] test_persona paso: prompt dinamico + parser anti-alucinaciones funcionan.
+  PASS main
+
+MODULE ai_engine.test_prompt_contract
+  PASS test_parser_y_schema_rechazan_el_contrato_facial_anterior
+  PASS test_persona_y_api_no_propagan_campos_faciales_legacy
+  PASS test_prompt_general_usa_contrato_de_cuatro_campos
+
+MODULE ai_engine.test_spatial_affective_memory
+  PASS test_affective_memory_bonus_is_capped_and_audited
+  PASS test_affective_memory_does_not_override_explicit_target
+  PASS test_alert_affect_only_biases_avoidance
+  PASS test_memory_manager_reads_affective_memory_by_object_and_class
+  PASS test_memory_manager_stores_affective_memory_as_metadata
+  PASS test_orchestrator_connects_affective_provider_without_autonomy
+
+MODULE ai_engine.test_subjective_effort
+  PASS test_fatigue_raises_walking_effort_5m
+  PASS test_orchestrator_attaches_effort_without_changing_action
+  PASS test_stress_and_distance_are_monotonic
+  PASS test_working_memory_receives_soft_effort_context
+
+MODULE ai_engine.test_task_cancellation
+2026-08-29 02:04:04,660 | INFO | core.behavior_core | Nueva tarea iniciada: 'caminar hacia la capsula'
+2026-08-29 02:04:04,660 | INFO | core.behavior_core | Tarea cancelada por solicitud externa. Motivo: test
+  PASS test_behavior_core_cancela_tarea_activa
+  PASS test_detecta_cancelacion_explicita_de_tarea
+  PASS test_herramienta_cancelar_tarea_registrada
+  PASS test_no_confunde_para_que_con_cancelacion
+2026-08-29 02:04:04,663 | INFO | core.behavior_core | Nueva tarea iniciada: 'caminar hacia la capsula'
+2026-08-29 02:04:04,663 | INFO | core.behavior_core | Tarea cancelada por solicitud externa. Motivo: Solicitud explicita del usuario.
+  PASS test_resolver_cancelacion_devuelve_accion_para_unity
+
+MODULE ai_engine.test_triage_routing
+2026-08-29 02:04:14,307 | INFO | ai_engine.triage_router | Cerebro de Intención Random Forest cargado y listo.
+  PASS test_authority_rebuke_stays_in_persona_even_if_ml_says_oracle
+2026-08-29 02:04:14,404 | INFO | ai_engine.triage_router | Cerebro de Intención Random Forest cargado y listo.
+  PASS test_creator_authority_stays_in_persona
+2026-08-29 02:04:14,505 | INFO | ai_engine.triage_router | Cerebro de Intención Random Forest cargado y listo.
+  PASS test_explicit_technical_queries_still_go_to_oracle
+2026-08-29 02:04:14,625 | INFO | ai_engine.triage_router | Cerebro de Intención Random Forest cargado y listo.
+  PASS test_heuristic_memory_updates_do_not_save_the_whole_ram
+2026-08-29 02:04:14,732 | INFO | ai_engine.triage_router | Cerebro de Intención Random Forest cargado y listo.
+  PASS test_manual_conversation_save_uses_a_dedicated_intent
+2026-08-29 02:04:14,817 | INFO | ai_engine.triage_router | Cerebro de Intención Random Forest cargado y listo.
+  PASS test_retrained_random_forest_can_expand_conversation_save
+
+MODULE memory.test_chromadb_flow
+2026-08-29 02:04:14,871 | INFO | memory.chroma_client | ChromaDB inicializado en 'C:\Users\JAIRO\AppData\Local\Temp\lazzaro-chromadb-51_o8lnh', coleccion 'debug' lista.
+ANTES: 0
+2026-08-29 02:04:14,874 | ERROR | memory.chroma_client | Error al agregar documentos: error_type=ValueError
+agregar() = False
+DESPUÉS: 0
+2026-08-29 02:04:15,062 | INFO | memory.chroma_client | ChromaDB inicializado en 'C:\Users\JAIRO\AppData\Local\Temp\lazzaro-chromadb-qds5nkko', coleccion 'busqueda' lista.
+  PASS test_busqueda_semantica
+2026-08-29 02:04:15,865 | INFO | memory.chroma_client | ChromaDB inicializado en 'C:\Users\JAIRO\AppData\Local\Temp\lazzaro-chromadb-096k9x9c', coleccion 'vacia' lista.
+  PASS test_coleccion_vacia
+2026-08-29 02:04:16,316 | INFO | memory.chroma_client | ChromaDB inicializado en 'C:\Users\JAIRO\AppData\Local\Temp\lazzaro-chromadb-efh7nglf', coleccion 'eliminar' lista.
+2026-08-29 02:04:16,316 | ERROR | memory.chroma_client | Error al agregar documentos: error_type=ValueError
+Traceback (most recent call last):
+  File "<string>", line 34, in <module>
+  File "C:\Users\JAIRO\Entidades\Lazzaro\memory\test_chromadb_flow.py", line 233, in test_eliminacion
+    assert client.contar() == 3
+           ^^^^^^^^^^^^^^^^^^^^
+AssertionError
+  FAIL test_eliminacion: AssertionError:
+2026-08-29 02:04:16,553 | INFO | memory.chroma_client | ChromaDB inicializado en 'C:\Users\JAIRO\AppData\Local\Temp\lazzaro-chromadb-g8av4b6e', coleccion 'filtros' lista.
+  PASS test_filtrado_y_listado
+2026-08-29 02:04:17,641 | INFO | memory.chroma_client | ChromaDB inicializado en 'C:\Users\JAIRO\AppData\Local\Temp\lazzaro-chromadb-lv7xqqs1', coleccion 'insercion' lista.
+2026-08-29 02:04:18,197 | ERROR | memory.chroma_client | Error al agregar documentos: error_type=ValueError
+  PASS test_insercion_y_conteo
+2026-08-29 02:04:18,421 | INFO | memory.chroma_client | ChromaDB inicializado en 'C:\Users\JAIRO\AppData\Local\Temp\lazzaro-chromadb-iyzesf4r', coleccion 'metadata' lista.
+  PASS test_metadata_actualizada
+2026-08-29 02:04:18,902 | INFO | memory.chroma_client | ChromaDB inicializado en 'C:\Users\JAIRO\AppData\Local\Temp\persist-lbs_q7ch', coleccion 'persistente' lista.
+2026-08-29 02:04:19,524 | INFO | memory.chroma_client | ChromaDB inicializado en 'C:\Users\JAIRO\AppData\Local\Temp\persist-lbs_q7ch', coleccion 'persistente' lista.
+  PASS test_persistencia_tras_reabrir
+
+MODULE terminal_client.test_chat
+2026-08-29 02:04:20,115 | INFO | api.routes | Evento recibido: origen=terminal, tipo=comando_usuario, id_transaccion=api-terminal-1
+2026-08-29 02:04:20,117 | INFO | httpx | HTTP Request: POST http://testserver/api/v1/comando "HTTP/1.1 200 OK"
+  PASS test_api_comando_acepta_terminal_y_fuerza_evento_conversacional
+2026-08-29 02:04:20,119 | INFO | core.orchestrator | Triage: intent=CORE_SYSTEM route=persona confidence=0.99 reason=Decision de prueba.
+2026-08-29 02:04:20,119 | INFO | core.state_engine | Descanso biologico temporal iniciado.
+2026-08-29 02:04:20,120 | INFO | core.orchestrator | event=terminal_rest_arm transaction_id=local-commands-rest status=armed
+2026-08-29 02:04:20,120 | INFO | core.orchestrator | Evento local-commands-rest procesado. Accion: hablar
+  PASS test_ayuda_estado_y_salir_no_despiertan_descanso_terminal
+2026-08-29 02:04:20,122 | INFO | httpx | HTTP Request: POST http://lazzaro.test/api/v1/comando "HTTP/1.1 200 OK"
+  PASS test_cliente_bloquea_respuesta_no_conversacional
+2026-08-29 02:04:20,122 | INFO | httpx | HTTP Request: POST http://lazzaro.test/api/v1/comando "HTTP/1.1 200 OK"
+  PASS test_cliente_envia_contrato_terminal_y_solo_devuelve_texto_publico
+2026-08-29 02:04:20,123 | INFO | httpx | HTTP Request: POST http://lazzaro.test/api/v1/comando "HTTP/1.1 200 OK"
+2026-08-29 02:04:20,123 | INFO | httpx | HTTP Request: POST http://lazzaro.test/api/v1/comando "HTTP/1.1 200 OK"
+  PASS test_cliente_genera_un_uuid_distinto_por_turno
+2026-08-29 02:04:20,124 | INFO | httpx | HTTP Request: POST http://lazzaro.test/api/v1/comando "HTTP/1.1 500 Internal Server Error"
+  PASS test_cliente_no_expone_detalles_internos_de_http_500
+2026-08-29 02:04:20,125 | INFO | httpx | HTTP Request: POST http://lazzaro.test/api/v1/comando "HTTP/1.1 200 OK"
+2026-08-29 02:04:20,126 | INFO | httpx | HTTP Request: POST http://lazzaro.test/api/v1/comando "HTTP/1.1 200 OK"
+2026-08-29 02:04:20,126 | INFO | httpx | HTTP Request: POST http://lazzaro.test/api/v1/comando "HTTP/1.1 200 OK"
+2026-08-29 02:04:20,127 | INFO | httpx | HTTP Request: POST http://lazzaro.test/api/v1/comando "HTTP/1.1 200 OK"
+2026-08-29 02:04:20,128 | INFO | httpx | HTTP Request: POST http://lazzaro.test/api/v1/comando "HTTP/1.1 200 OK"
+2026-08-29 02:04:20,128 | INFO | httpx | HTTP Request: POST http://lazzaro.test/api/v1/comando "HTTP/1.1 200 OK"
+  PASS test_cliente_rechaza_respuestas_malformadas
+2026-08-29 02:04:20,129 | INFO | httpx | HTTP Request: GET http://lazzaro.test/api/v1/estado "HTTP/1.1 200 OK"
+2026-08-29 02:04:20,130 | INFO | httpx | HTTP Request: POST http://lazzaro.test/api/v1/comando "HTTP/1.1 200 OK"
+  PASS test_comandos_locales_no_se_envian_como_conversacion
+2026-08-29 02:04:20,130 | INFO | core.state_engine | Descanso biologico temporal iniciado.
+2026-08-29 02:04:20,130 | INFO | core.state_engine | Descanso biologico finalizado tras 10.00s; recuperacion=1.00.
+  PASS test_descanso_parcial_relaja_sin_decaer_foco_ni_aplicar_fatiga_activa
+2026-08-29 02:04:20,131 | INFO | core.orchestrator | Triage: intent=CORE_SYSTEM route=persona confidence=0.99 reason=Decision de prueba.
+2026-08-29 02:04:20,131 | INFO | core.state_engine | Descanso biologico temporal iniciado.
+2026-08-29 02:04:20,131 | INFO | core.orchestrator | event=terminal_rest_arm transaction_id=rest-projection status=armed
+2026-08-29 02:04:20,132 | INFO | core.orchestrator | Evento rest-projection procesado. Accion: hablar
+2026-08-29 02:04:20,139 | INFO | httpx | HTTP Request: GET http://testserver/api/v1/estado "HTTP/1.1 200 OK"
+2026-08-29 02:04:20,140 | INFO | httpx | HTTP Request: GET http://testserver/api/v1/estado "HTTP/1.1 200 OK"
+2026-08-29 02:04:20,141 | INFO | core.state_engine | Descanso biologico finalizado tras 25.00s; recuperacion=2.50.
+2026-08-29 02:04:20,142 | INFO | core.orchestrator | event=terminal_rest_wake transaction_id=wake-projection status=applied seconds=25.00 energy_recovered=2.50
+2026-08-29 02:04:20,142 | INFO | core.orchestrator | Triage: intent=SOCIAL route=persona confidence=0.99 reason=Decision de prueba.
+2026-08-29 02:04:20,142 | INFO | core.orchestrator | Evento wake-projection procesado. Accion: hablar
+  PASS test_descanso_terminal_proyecta_en_estado_y_despierta_antes_de_responder
+2026-08-29 02:04:20,143 | INFO | core.orchestrator | Triage: intent=TEST_ORACLE route=oracle confidence=0.99 reason=Decision de prueba.
+2026-08-29 02:04:20,143 | INFO | core.orchestrator | Evento terminal-545029418392503709 procesado. Accion: hablar
+  PASS test_flujo_terminal_conserva_oracle_y_verbaliza
+2026-08-29 02:04:20,143 | INFO | core.orchestrator | Triage: intent=TEST_MOTOR route=motor confidence=0.99 reason=Decision de prueba.
+2026-08-29 02:04:20,144 | INFO | core.orchestrator | Evento terminal-5419337244556555223 procesado. Accion: hablar
+  PASS test_flujo_terminal_reconduce_motor_y_no_cancela_tareas
+2026-08-29 02:04:20,144 | INFO | core.orchestrator | Triage: intent=CONVERSATION_SAVE route=persona confidence=0.99 reason=Decision de prueba.
+2026-08-29 02:04:20,145 | INFO | core.orchestrator | Evento save-sleep-control procesado. Accion: hablar
+  PASS test_guardado_manual_con_palabras_de_sueno_no_arma_descanso
+2026-08-29 02:04:20,146 | INFO | core.orchestrator | Triage: intent=CORE_SYSTEM route=persona confidence=0.99 reason=Decision de prueba.
+2026-08-29 02:04:20,146 | INFO | core.state_engine | Descanso biologico temporal iniciado.
+2026-08-29 02:04:20,146 | INFO | core.orchestrator | event=terminal_rest_arm transaction_id=save-rest status=armed
+2026-08-29 02:04:20,146 | INFO | core.orchestrator | Evento save-rest procesado. Accion: hablar
+2026-08-29 02:04:20,147 | INFO | core.state_engine | Descanso biologico finalizado tras 20.00s; recuperacion=2.00.
+2026-08-29 02:04:20,147 | INFO | core.orchestrator | event=terminal_rest_wake transaction_id=save-wake status=applied seconds=20.00 energy_recovered=2.00
+2026-08-29 02:04:20,147 | INFO | core.orchestrator | Triage: intent=CONVERSATION_SAVE route=persona confidence=0.99 reason=Decision de prueba.
+2026-08-29 02:04:20,148 | INFO | ai_engine.identity_state | [BOLOGIA] Aumento de estres por fallo en tarea.
+2026-08-29 02:04:20,148 | INFO | core.orchestrator | Evento save-wake procesado. Accion: hablar
+2026-08-29 02:04:20,148 | INFO | core.orchestrator | Retry de guardado manual save-wake resuelto con estado=saved.
+  PASS test_guardado_manual_despierta_y_su_retry_no_recupera_dos_veces
+2026-08-29 02:04:20,149 | INFO | core.state_engine | Descanso biologico temporal iniciado.
+2026-08-29 02:04:20,149 | INFO | core.state_engine | Descanso biologico finalizado tras 20.00s; recuperacion=2.00.
+  PASS test_identity_state_y_state_engine_comparten_reserva_biologica
+2026-08-29 02:04:20,149 | INFO | core.orchestrator | Triage: intent=CORE_SYSTEM route=persona confidence=0.99 reason=Decision de prueba.
+2026-08-29 02:04:20,150 | INFO | core.state_engine | Descanso biologico temporal iniciado.
+2026-08-29 02:04:20,150 | INFO | core.orchestrator | event=terminal_rest_arm transaction_id=concurrent-rest status=armed
+2026-08-29 02:04:20,150 | INFO | core.orchestrator | Evento concurrent-rest procesado. Accion: hablar
+2026-08-29 02:04:20,152 | INFO | core.state_engine | Descanso biologico finalizado tras 10.00s; recuperacion=1.00.
+2026-08-29 02:04:20,152 | INFO | core.orchestrator | event=terminal_rest_wake transaction_id=concurrent-wake-a status=applied seconds=10.00 energy_recovered=1.00
+2026-08-29 02:04:20,153 | INFO | core.orchestrator | Triage: intent=SOCIAL route=persona confidence=0.99 reason=Decision de prueba.
+2026-08-29 02:04:20,153 | INFO | core.orchestrator | Triage: intent=SOCIAL route=persona confidence=0.99 reason=Decision de prueba.
+2026-08-29 02:04:20,154 | INFO | core.orchestrator | Evento concurrent-wake-a procesado. Accion: hablar
+2026-08-29 02:04:20,154 | INFO | core.orchestrator | Evento concurrent-wake-b procesado. Accion: hablar
+  PASS test_mensajes_concurrentes_consumen_descanso_terminal_una_sola_vez
+  PASS test_oracle_se_conserva_y_tool_policy_solo_expone_hablar
+2026-08-29 02:04:20,156 | WARNING | core.orchestrator | Respuesta del modelo invalida; se degradara a no-op. Error: Contrato social invalido.
+  PASS test_orchestrator_reconduce_motor_y_blinda_la_salida
+  PASS test_persona_recibe_la_restriccion_de_canal_terminal
+  PASS test_repl_cierra_limpio_si_se_interrumpe_una_solicitud
+2026-08-29 02:04:20,157 | INFO | httpx | HTTP Request: POST http://lazzaro.test/api/v1/comando "HTTP/1.1 200 OK"
+  PASS test_repl_se_recupera_de_fallos_de_conexion_y_timeout
+2026-08-29 02:04:20,158 | INFO | core.orchestrator | Triage: intent=SOCIAL route=persona confidence=0.99 reason=Decision de prueba.
+2026-08-29 02:04:20,158 | INFO | core.orchestrator | Evento cached-before-rest procesado. Accion: hablar
+2026-08-29 02:04:20,158 | INFO | core.orchestrator | Triage: intent=CORE_SYSTEM route=persona confidence=0.99 reason=Decision de prueba.
+2026-08-29 02:04:20,159 | INFO | core.state_engine | Descanso biologico temporal iniciado.
+2026-08-29 02:04:20,159 | INFO | core.orchestrator | event=terminal_rest_arm transaction_id=cached-rest status=armed
+2026-08-29 02:04:20,159 | INFO | core.orchestrator | Evento cached-rest procesado. Accion: hablar
+2026-08-29 02:04:20,159 | INFO | core.orchestrator | Evento cached-before-rest ya procesado, devolviendo accion cacheada.
+2026-08-29 02:04:20,159 | INFO | core.orchestrator | Evento cached-rest ya procesado, devolviendo accion cacheada.
+2026-08-29 02:04:20,160 | INFO | core.state_engine | Descanso biologico finalizado tras 10.00s; recuperacion=1.00.
+2026-08-29 02:04:20,160 | INFO | core.orchestrator | event=terminal_rest_wake transaction_id=cached-wake status=applied seconds=10.00 energy_recovered=1.00
+2026-08-29 02:04:20,160 | INFO | core.orchestrator | Triage: intent=SOCIAL route=persona confidence=0.99 reason=Decision de prueba.
+2026-08-29 02:04:20,161 | INFO | core.orchestrator | Evento cached-wake procesado. Accion: hablar
+2026-08-29 02:04:20,161 | INFO | core.orchestrator | Evento cached-wake ya procesado, devolviendo accion cacheada.
+  PASS test_retries_cacheados_no_rearman_ni_despiertan_descanso_terminal
+2026-08-29 02:04:20,163 | INFO | core.orchestrator | Triage: intent=CONVERSATION_SAVE route=persona confidence=0.99 reason=Decision de prueba.
+2026-08-29 02:04:20,164 | INFO | core.orchestrator | Evento terminal-479915149744138025 procesado. Accion: hablar
+2026-08-29 02:04:20,165 | INFO | core.orchestrator | Evento terminal-479915149744138025 ya procesado, devolviendo accion cacheada.
+  PASS test_retries_simultaneos_comparten_una_sola_transaccion
+2026-08-29 02:04:20,166 | INFO | core.orchestrator | Triage: intent=CORE_SYSTEM route=persona confidence=0.99 reason=Decision de prueba.
+2026-08-29 02:04:20,166 | INFO | core.state_engine | Descanso biologico temporal iniciado.
+2026-08-29 02:04:20,166 | INFO | core.orchestrator | event=terminal_rest_arm transaction_id=rest-sequential-a status=armed
+2026-08-29 02:04:20,167 | INFO | core.orchestrator | Evento rest-sequential-a procesado. Accion: hablar
+2026-08-29 02:04:20,167 | INFO | core.state_engine | Descanso biologico finalizado tras 10.00s; recuperacion=1.00.
+2026-08-29 02:04:20,167 | INFO | core.orchestrator | event=terminal_rest_wake transaction_id=rest-sequential-b status=applied seconds=10.00 energy_recovered=1.00
+2026-08-29 02:04:20,168 | INFO | core.orchestrator | Triage: intent=CORE_SYSTEM route=persona confidence=0.99 reason=Decision de prueba.
+2026-08-29 02:04:20,168 | INFO | core.state_engine | Descanso biologico temporal iniciado.
+2026-08-29 02:04:20,168 | INFO | core.orchestrator | event=terminal_rest_arm transaction_id=rest-sequential-b status=armed
+2026-08-29 02:04:20,168 | INFO | core.orchestrator | Evento rest-sequential-b procesado. Accion: hablar
+2026-08-29 02:04:20,169 | INFO | core.state_engine | Descanso biologico finalizado tras 10.00s; recuperacion=1.00.
+2026-08-29 02:04:20,169 | INFO | core.orchestrator | event=terminal_rest_wake transaction_id=rest-sequential-wake status=applied seconds=10.00 energy_recovered=1.00
+2026-08-29 02:04:20,169 | INFO | core.orchestrator | Triage: intent=SOCIAL route=persona confidence=0.99 reason=Decision de prueba.
+2026-08-29 02:04:20,170 | INFO | core.orchestrator | Evento rest-sequential-wake procesado. Accion: hablar
+  PASS test_segunda_peticion_core_system_despierta_y_rearma_sin_apilar_tasas
+2026-08-29 02:04:20,170 | INFO | core.state_engine | Descanso biologico temporal iniciado.
+2026-08-29 02:04:20,171 | INFO | core.state_engine | Descanso biologico finalizado tras 25.00s; recuperacion=2.50.
+2026-08-29 02:04:20,171 | INFO | core.state_engine | Descanso biologico temporal iniciado.
+2026-08-29 02:04:20,171 | INFO | core.state_engine | Descanso biologico finalizado tras 20.00s; recuperacion=0.50.
+  PASS test_state_engine_descanso_temporal_proyecta_sin_mutar_y_no_acumula
+2026-08-29 02:04:20,171 | INFO | core.orchestrator | Triage: intent=CONVERSATION_SAVE route=persona confidence=0.99 reason=Decision de prueba.
+2026-08-29 02:04:20,172 | INFO | core.orchestrator | Evento terminal-479915149744138025 procesado. Accion: hablar
+2026-08-29 02:04:20,172 | INFO | core.orchestrator | Evento terminal-479915149744138025 ya procesado, devolviendo accion cacheada.
+  PASS test_terminal_guarda_ram_como_conversacion_y_no_registra_el_control
+2026-08-29 02:04:20,172 | INFO | core.orchestrator | Triage: intent=CONVERSATION_SAVE route=persona confidence=0.99 reason=Decision de prueba.
+2026-08-29 02:04:20,172 | INFO | core.orchestrator | Evento terminal-479915149744138025 procesado. Accion: hablar
+2026-08-29 02:04:20,174 | INFO | core.orchestrator | Triage: intent=CONVERSATION_SAVE route=persona confidence=0.99 reason=Decision de prueba.
+2026-08-29 02:04:20,174 | INFO | core.orchestrator | Evento terminal-6794114295000385472 procesado. Accion: hablar
+  PASS test_terminal_informa_ram_vacia_y_guardado_ya_existente
+  PASS test_terminal_no_usa_descanso_inmediato_y_unity_lo_conserva
+2026-08-29 02:04:20,174 | INFO | core.orchestrator | Triage: intent=CONVERSATION_SAVE route=persona confidence=0.99 reason=Decision de prueba.
+2026-08-29 02:04:20,174 | INFO | core.orchestrator | Evento terminal-6794114295000385472 procesado. Accion: hablar
+2026-08-29 02:04:20,175 | INFO | core.orchestrator | Retry de guardado manual terminal-6794114295000385472 resuelto con estado=saved.
+  PASS test_terminal_reintenta_un_guardado_fallido_sin_exito_falso
+  PASS test_unity_conserva_su_flujo_motor_y_cancelacion
+
+SUMMARY passed=109 failed=1 skipped=0
+exit_code=1
