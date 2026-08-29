@@ -60,3 +60,6 @@ Resultado de OBS-003: **PASS**.
 
 - Pruebas específicas: 6 PASS.
 - Regresión directa del repositorio: 127 PASS, 0 fallos nuevos y 1 fallo conocido del baseline (`memory.test_chromadb_flow.test_eliminacion`).
+
+La integración posterior de la decisión original y la ruta efectiva está
+documentada en [`orchestrator_triage.md`](orchestrator_triage.md).

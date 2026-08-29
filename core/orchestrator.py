@@ -117,7 +117,7 @@ class Orchestrator:
 
             try:
                 with transaction_lock:  # type: ignore[attr-defined]
-                    return self._procesar_evento_serializado(evento)
+                    return self._procesar_evento_serializado(evento, trace_id=trace_id)
             finally:
                 with guard:
                     state["users"] = int(state.get("users", 1)) - 1
@@ -166,9 +166,42 @@ class Orchestrator:
             )
             return False
 
+    def _registrar_triage_audit(
+        self,
+        evento: EventoEntrante,
+        trace_id: str | None,
+        triage_snapshot: dict,
+    ) -> bool:
+        """Registra la decision original y la ruta efectiva sin reevaluar Triage."""
+        if not trace_id:
+            return False
+
+        writer = getattr(self, "audit_writer", None)
+        write = getattr(writer, "write", None)
+        if not callable(write):
+            return False
+
+        try:
+            result = write(
+                AuditTrace(
+                    trace_id=trace_id,
+                    id_transaccion=str(evento.id_transaccion),
+                    stage="triage",
+                    triage=triage_snapshot,
+                )
+            )
+            return bool(result)
+        except Exception as exc:
+            logger.warning(
+                "No se pudo emitir AuditTrace triage; la ejecucion continuara. error_type=%s",
+                type(exc).__name__,
+            )
+            return False
+
     def _procesar_evento_serializado(
         self,
         evento: EventoEntrante,
+        trace_id: str | None = None,
     ) -> Optional[AccionSaliente]:
         """
         Procesa un evento externo y devuelve la accion que el agente decide ejecutar.
@@ -203,8 +236,16 @@ class Orchestrator:
         tipo_memoria = str(respuesta_core.get("tipo_memoria", evento.tipo_evento))
         percepcion_resumida = str(respuesta_core.get("percepcion_resumida", ""))
 
-        triage_decision = self._evaluar_triage(evento, estado_actual)
-        triage_decision = self._adaptar_triage_para_terminal(evento, triage_decision)
+        triage_original = self._evaluar_triage(evento, estado_actual)
+        triage_snapshot = {
+            "intent": triage_original.get("intent"),
+            "route": triage_original.get("route"),
+            "confidence": triage_original.get("confidence"),
+            "reason": triage_original.get("reason"),
+        }
+        triage_decision = self._adaptar_triage_para_terminal(evento, triage_original)
+        triage_snapshot["effective_route"] = triage_decision.get("route")
+        self._registrar_triage_audit(evento, trace_id, triage_snapshot)
         solicita_guardado_conversacional = self._triage_es_guardado_conversacional(
             triage_decision
         )

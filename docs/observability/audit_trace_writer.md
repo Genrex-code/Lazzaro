@@ -69,4 +69,7 @@ Resultado de OBS-002: **PASS**.
 - Pruebas específicas: 7 PASS.
 - Regresión directa del repositorio: 121 PASS, 0 fallos nuevos y 1 fallo conocido del baseline (`memory.test_chromadb_flow.test_eliminacion`).
 
-La integración acotada de OBS-003 está documentada en [`orchestrator_boundaries.md`](orchestrator_boundaries.md). El siguiente ticket es OBS-004, metadata de Triage y ruta efectiva.
+La integración acotada de OBS-003 está documentada en
+[`orchestrator_boundaries.md`](orchestrator_boundaries.md) y la captura de Triage
+de OBS-004 en [`orchestrator_triage.md`](orchestrator_triage.md). El siguiente
+ticket es OBS-005, observabilidad de memoria.

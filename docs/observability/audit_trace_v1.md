@@ -85,4 +85,8 @@ Resultado de OBS-001: **PASS**.
 - Pruebas específicas: 5 PASS.
 - Regresión directa del repositorio: 114 PASS, 0 fallos nuevos y 1 fallo conocido del baseline (`memory.test_chromadb_flow.test_eliminacion`).
 
-El writer de OBS-002 está documentado en [`audit_trace_writer.md`](audit_trace_writer.md). El siguiente ticket es OBS-003, integración acotada de `event_start`/`event_end` en `Orchestrator`.
+El writer de OBS-002 está documentado en [`audit_trace_writer.md`](audit_trace_writer.md),
+los límites de OBS-003 en [`orchestrator_boundaries.md`](orchestrator_boundaries.md)
+y la decisión original/efectiva de OBS-004 en
+[`orchestrator_triage.md`](orchestrator_triage.md). El siguiente ticket es
+OBS-005, observabilidad de memoria.
