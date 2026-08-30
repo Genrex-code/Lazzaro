@@ -63,3 +63,7 @@ Resultado de OBS-003: **PASS**.
 
 La integración posterior de la decisión original y la ruta efectiva está
 documentada en [`orchestrator_triage.md`](orchestrator_triage.md).
+
+La cadena completa culmina en el [gate de no regresión de
+OBS-008](audit_non_regression.md). El siguiente paso es la **auditoría profunda
+por bloques / Bloque 1 — BOOT/CONFIG**.

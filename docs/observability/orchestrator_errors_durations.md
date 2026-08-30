@@ -224,4 +224,7 @@ Resultado de OBS-007: **PASS**.
   conocido del baseline (`memory.test_chromadb_flow.test_eliminacion`).
 - Compilación de los módulos del runtime: PASS.
 
-El siguiente ticket es OBS-008, sidequest de no regresión.
+El gate final de no regresión de OBS-008 está documentado en
+[`audit_non_regression.md`](audit_non_regression.md). La serie de observabilidad
+queda cerrada; el siguiente paso es la **auditoría profunda por bloques / Bloque
+1 — BOOT/CONFIG**.

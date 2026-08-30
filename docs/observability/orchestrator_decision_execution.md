@@ -140,5 +140,8 @@ Resultado de OBS-006: **PASS**.
 
 La integración posterior de errores seguros, fallbacks y duración está
 documentada en
-[`orchestrator_errors_durations.md`](orchestrator_errors_durations.md). El
-siguiente ticket es OBS-008, sidequest de no regresión.
+[`orchestrator_errors_durations.md`](orchestrator_errors_durations.md). El gate
+final de no regresión está en
+[`audit_non_regression.md`](audit_non_regression.md). La serie de observabilidad
+queda cerrada; el siguiente paso es la **auditoría profunda por bloques / Bloque
+1 — BOOT/CONFIG**.

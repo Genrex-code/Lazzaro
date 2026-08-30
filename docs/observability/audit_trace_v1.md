@@ -93,5 +93,8 @@ OBS-005 está en [`orchestrator_memory.md`](orchestrator_memory.md). El registro
 de capa, acción final y ejecución de OBS-006 está en
 [`orchestrator_decision_execution.md`](orchestrator_decision_execution.md). El
 registro de errores seguros, fallbacks y duración de OBS-007 está en
-[`orchestrator_errors_durations.md`](orchestrator_errors_durations.md). El
-siguiente ticket es OBS-008, sidequest de no regresión.
+[`orchestrator_errors_durations.md`](orchestrator_errors_durations.md). El gate
+final de no regresión de OBS-008 está en
+[`audit_non_regression.md`](audit_non_regression.md). La serie de observabilidad
+queda cerrada; el siguiente paso es la **auditoría profunda por bloques / Bloque
+1 — BOOT/CONFIG**.

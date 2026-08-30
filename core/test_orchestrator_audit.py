@@ -1,4 +1,4 @@
-"""Pruebas de integración acotada de Orchestrator AuditTrace (OBS-003/007)."""
+"""Pruebas de integración acotada de Orchestrator AuditTrace (OBS-003/008)."""
 
 from __future__ import annotations
 
@@ -63,6 +63,33 @@ class StageFailingWriter(RecordingWriter):
         if trace.stage == self.failing_stage:
             raise OSError("simulated audit failure")
         return super().write(trace)
+
+
+class RecordingHumanLogger:
+    def __init__(self) -> None:
+        self.warnings: list[tuple[tuple, dict]] = []
+
+    def warning(self, *args, **kwargs) -> None:
+        self.warnings.append((args, kwargs))
+
+
+class ObservedAuditTraceJSONLWriter(AuditTraceJSONLWriter):
+    def __init__(self, path: Path, *, human_logger: RecordingHumanLogger) -> None:
+        super().__init__(path, human_logger=human_logger)
+        self.attempted_stages: list[str] = []
+
+    def write(self, trace: AuditTrace):
+        self.attempted_stages.append(trace.stage)
+        return super().write(trace)
+
+
+class AlwaysRaisingWriter:
+    def __init__(self) -> None:
+        self.attempted_stages: list[str] = []
+
+    def write(self, trace: AuditTrace) -> bool:
+        self.attempted_stages.append(trace.stage)
+        raise OSError("simulated total audit outage")
 
 
 def _event(transaction_id: str = "obs-003-transaction") -> EventoEntrante:
@@ -211,6 +238,158 @@ def test_writer_failure_does_not_change_event_processing() -> None:
 
     assert_true(result is expected_result, "Un fallo observable del writer no debe cortar el evento.")
     assert_true(len(writer.traces) == 2, "Debe intentar tanto inicio como cierre.")
+
+
+def test_real_writer_failure_preserves_full_turn_and_cached_retry() -> None:
+    with TemporaryDirectory(prefix="lazzaro-obs-008-real-failure-") as temp_dir:
+        blocked_parent = Path(temp_dir) / "not-a-directory"
+        blocked_parent.write_text("blocked", encoding="utf-8")
+        human_logger = RecordingHumanLogger()
+        writer = ObservedAuditTraceJSONLWriter(
+            blocked_parent / "audit.jsonl",
+            human_logger=human_logger,
+        )
+        orchestrator, route_calls = _orquestador_aislado("persona")
+        orchestrator.audit_writer = writer
+        triage_calls = _count_triage_calls(orchestrator)
+        execution_calls = {"calls": 0}
+        gestionar_original = orchestrator._gestionar_ejecucion
+
+        def gestionar_observable(evento, accion_saliente, action_response=None):
+            execution_calls["calls"] += 1
+            return gestionar_original(
+                evento,
+                accion_saliente,
+                action_response=action_response,
+            )
+
+        orchestrator._gestionar_ejecucion = gestionar_observable
+        transaction_id = "obs-008-real-writer-failure"
+        evento = _full_flow_event("unity", transaction_id)
+
+        first_result = orchestrator.procesar_evento(evento)
+        cached_result = orchestrator.procesar_evento(evento)
+
+        assert_true(
+            first_result is not None
+            and first_result.nombre == "hablar"
+            and first_result.parametros["texto_a_comunicar"] == "Solo estoy conversando.",
+            "El fallo físico del JSONL no debe cambiar la respuesta principal.",
+        )
+        assert_true(
+            cached_result is first_result,
+            "El retry debe devolver exactamente la acción cacheada durante la caída de auditoría.",
+        )
+        assert_true(route_calls["persona"] == 1, "La decisión Persona debe ejecutarse una sola vez.")
+        assert_true(triage_calls["calls"] == 1, "El retry cacheado no debe repetir Triage.")
+        assert_true(execution_calls["calls"] == 1, "El retry cacheado no debe repetir ejecución.")
+        assert_true(len(orchestrator.memory.experiencias) == 1, "No debe duplicar memoria episódica.")
+        assert_true(len(orchestrator.memory.acciones) == 1, "No debe duplicar memoria de acciones.")
+        assert_true(
+            orchestrator._transacciones_procesadas.get(transaction_id) is first_result,
+            "La caída de auditoría no debe impedir el cache funcional.",
+        )
+        expected_stages = [
+            "event_start",
+            "triage",
+            "memory",
+            "decision",
+            "execution",
+            "event_end",
+            "event_start",
+            "event_end",
+        ]
+        assert_true(
+            writer.attempted_stages == expected_stages,
+            "Cada stage debe intentarse una vez sin fabricar error ni reintentar el writer.",
+        )
+        assert_true(
+            len(human_logger.warnings) == len(expected_stages),
+            "Cada append fallido del writer real debe producir un único warning humano.",
+        )
+        for warning_args, warning_kwargs in human_logger.warnings:
+            assert_true(not warning_kwargs, "El warning estable no necesita kwargs.")
+            assert_true(
+                warning_args[0]
+                == "No se pudo escribir AuditTrace JSONL; la ejecucion continuara. "
+                "path=%s error_type=%s",
+                "El warning debe conservar el mensaje humano estable de OBS-002.",
+            )
+            assert_true(warning_args[1] == writer.path, "El warning debe identificar el destino fallido.")
+            assert_true(warning_args[2] == "FileExistsError", "Debe informar solo el tipo estable del fallo.")
+        assert_true(orchestrator._transacciones_locks == {}, "La caída de auditoría no debe filtrar locks.")
+
+
+def test_boundary_writer_exceptions_preserve_successful_turn() -> None:
+    expected_stages = [
+        "event_start",
+        "triage",
+        "memory",
+        "decision",
+        "execution",
+        "event_end",
+    ]
+    for failing_stage in ("event_start", "event_end"):
+        writer = StageFailingWriter(failing_stage)
+        orchestrator, route_calls = _orquestador_aislado("persona")
+        orchestrator.audit_writer = writer
+        transaction_id = f"obs-008-boundary-{failing_stage}"
+
+        with patch("core.orchestrator.logger.warning") as warning:
+            result = orchestrator.procesar_evento(
+                _full_flow_event("unity", transaction_id)
+            )
+
+        assert_true(result is not None and result.nombre == "hablar", "El límite fallido no debe perder la respuesta.")
+        assert_true(route_calls["persona"] == 1, "El límite fallido no debe repetir la decisión.")
+        assert_true(len(orchestrator.memory.experiencias) == 1, "La escritura funcional debe ocurrir una vez.")
+        assert_true(len(orchestrator.memory.acciones) == 1, "La acción funcional debe registrarse una vez.")
+        assert_true(
+            orchestrator._transacciones_procesadas.get(transaction_id) is result,
+            "Incluso un fallo en event_end debe conservar el cache ya producido.",
+        )
+        assert_true(writer.attempted_stages == expected_stages, "Debe continuar por todos los stages del turno.")
+        assert_true(warning.call_count == 1, "La excepción del límite debe emitir un único warning humano.")
+        warning_args = warning.call_args.args
+        assert_true(
+            warning_args
+            == (
+                "No se pudo emitir AuditTrace %s; la ejecucion continuara. error_type=%s",
+                failing_stage,
+                "OSError",
+            ),
+            "El warning debe identificar exactamente el límite y el tipo estable.",
+        )
+        assert_true(orchestrator._transacciones_locks == {}, "El límite fallido no debe filtrar locks.")
+
+
+def test_audit_outage_does_not_mask_functional_exception() -> None:
+    writer = AlwaysRaisingWriter()
+    functional_error = RuntimeError("functional sentinel")
+
+    def raise_functional_error(evento):
+        raise functional_error
+
+    orchestrator = _isolated_orchestrator(writer, raise_functional_error)
+
+    with patch("core.orchestrator.logger.warning") as warning:
+        try:
+            orchestrator.procesar_evento(_event("obs-008-functional-error"))
+        except RuntimeError as exc:
+            assert_true(exc is functional_error, "Debe propagarse la excepción funcional original.")
+        else:
+            raise AssertionError("La excepción funcional centinela debe propagarse.")
+
+    assert_true(
+        writer.attempted_stages == ["event_start", "error", "event_end"],
+        "La caída total debe intentar inicio, error funcional y cierre una sola vez.",
+    )
+    assert_true(warning.call_count == 3, "Cada excepción del writer debe producir un warning humano.")
+    assert_true(
+        all(call.args[-1] == "OSError" for call in warning.call_args_list),
+        "Los warnings de auditoría deben conservar el tipo del writer sin sustituir el error funcional.",
+    )
+    assert_true(orchestrator._transacciones_locks == {}, "Ambos fallos deben liberar el lock transaccional.")
 
 
 def test_legacy_isolated_orchestrator_without_writer_still_runs() -> None:
@@ -1253,6 +1432,18 @@ def test_decision_error_writer_failure_is_non_blocking_and_non_recursive() -> No
     writer = StageFailingWriter("error")
     orchestrator, route_calls = _orquestador_aislado("persona")
     orchestrator.audit_writer = writer
+    execution_calls = {"calls": 0}
+    gestionar_original = orchestrator._gestionar_ejecucion
+
+    def gestionar_observable(evento, accion_saliente, action_response=None):
+        execution_calls["calls"] += 1
+        return gestionar_original(
+            evento,
+            accion_saliente,
+            action_response=action_response,
+        )
+
+    orchestrator._gestionar_ejecucion = gestionar_observable
 
     def resolver_persona(**kwargs) -> ActionResponse:
         route_calls["persona"] += 1
@@ -1265,16 +1456,32 @@ def test_decision_error_writer_failure_is_non_blocking_and_non_recursive() -> No
         )
 
     orchestrator._resolver_ruta_persona = resolver_persona
-    result = orchestrator.procesar_evento(
-        _full_flow_event("unity", "obs-007-error-writer-failure")
-    )
+    with patch("core.orchestrator.logger.warning") as warning:
+        result = orchestrator.procesar_evento(
+            _full_flow_event("unity", "obs-007-error-writer-failure")
+        )
 
     assert_true(result is not None and result.nombre == "hablar", "El writer de error no debe tumbar el turno.")
     assert_true(route_calls["persona"] == 1, "El fallo del writer no debe repetir la decisión.")
+    assert_true(execution_calls["calls"] == 1, "El fallo del writer no debe repetir la ejecución.")
     assert_true(
         writer.attempted_stages
         == ["event_start", "triage", "memory", "error", "decision", "execution", "event_end"],
         "El warning humano no debe reentrar en AuditTrace ni fabricar otro error.",
+    )
+    assert_true(
+        writer.attempted_stages.count("error") == 1,
+        "El warning del fallo de auditoría no debe intentar escribir otro stage error.",
+    )
+    assert_true(warning.call_count == 1, "El fallo del stage error debe emitir un único warning humano.")
+    assert_true(
+        warning.call_args.args
+        == (
+            "No se pudo emitir AuditTrace %s; la ejecucion continuara. error_type=%s",
+            "error",
+            "OSError",
+        ),
+        "El warning debe identificar el fallo estable sin contenido funcional.",
     )
     serialized = "\n".join(trace.to_json() for trace in writer.traces)
     assert_true("SECRET_FREE_FORM_ERROR" not in serialized, "No debe persistir el mensaje libre de ActionResponse.error.")
@@ -1285,6 +1492,9 @@ def main() -> None:
         test_event_start_and_end_are_correlated,
         test_event_end_is_emitted_when_processing_raises,
         test_writer_failure_does_not_change_event_processing,
+        test_real_writer_failure_preserves_full_turn_and_cached_retry,
+        test_boundary_writer_exceptions_preserve_successful_turn,
+        test_audit_outage_does_not_mask_functional_exception,
         test_legacy_isolated_orchestrator_without_writer_still_runs,
         test_real_writer_persists_two_correlated_json_lines,
         test_cached_retry_still_gets_correlated_boundaries,
@@ -1312,7 +1522,7 @@ def main() -> None:
     for test in tests:
         test()
         print(f"[OK] {test.__name__}")
-    print("[OK] OBS-003/007 flujo causal observable completo.")
+    print("[OK] OBS-003/008 flujo causal observable y no regresivo completo.")
 
 
 if __name__ == "__main__":
