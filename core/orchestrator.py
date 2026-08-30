@@ -198,6 +198,46 @@ class Orchestrator:
             )
             return False
 
+    def _registrar_memory_audit(
+        self,
+        evento: EventoEntrante,
+        trace_id: str | None,
+        memory_snapshot: dict,
+    ) -> bool:
+        """Registra solo la metadata v1 de las operaciones de memoria ya ejecutadas."""
+        if not trace_id:
+            return False
+
+        writer = getattr(self, "audit_writer", None)
+        write = getattr(writer, "write", None)
+        if not callable(write):
+            return False
+
+        try:
+            memory_v1 = {
+                "retrieved_ids": list(memory_snapshot.get("retrieved_ids") or []),
+                "scores": list(memory_snapshot.get("scores") or []),
+                "created_ids": list(memory_snapshot.get("created_ids") or []),
+                "working_memory_count": int(
+                    memory_snapshot.get("working_memory_count") or 0
+                ),
+            }
+            result = write(
+                AuditTrace(
+                    trace_id=trace_id,
+                    id_transaccion=str(evento.id_transaccion),
+                    stage="memory",
+                    memory=memory_v1,
+                )
+            )
+            return bool(result)
+        except Exception as exc:
+            logger.warning(
+                "No se pudo emitir AuditTrace memory; la ejecucion continuara. error_type=%s",
+                type(exc).__name__,
+            )
+            return False
+
     def _procesar_evento_serializado(
         self,
         evento: EventoEntrante,
@@ -246,6 +286,12 @@ class Orchestrator:
         triage_decision = self._adaptar_triage_para_terminal(evento, triage_original)
         triage_snapshot["effective_route"] = triage_decision.get("route")
         self._registrar_triage_audit(evento, trace_id, triage_snapshot)
+        memory_snapshot = {
+            "retrieved_ids": [],
+            "scores": [],
+            "created_ids": [],
+            "working_memory_count": 0,
+        }
         solicita_guardado_conversacional = self._triage_es_guardado_conversacional(
             triage_decision
         )
@@ -262,9 +308,10 @@ class Orchestrator:
                 narrativa,
                 percepcion_resumida,
                 tarea,
+                memory_observation=memory_snapshot,
             )
 
-        self._guardar_evento_en_memoria(
+        created_memory_id = self._guardar_evento_en_memoria(
             evento=evento,
             tipo_memoria=tipo_memoria,
             narrativa=narrativa,
@@ -272,6 +319,12 @@ class Orchestrator:
             estado_actual=estado_actual,
             es_interrupcion_critica=es_interrupcion_critica,
         )
+        if created_memory_id:
+            memory_snapshot["created_ids"] = [str(created_memory_id)]
+        memory_snapshot["working_memory_count"] = (
+            self._obtener_cantidad_memoria_trabajo()
+        )
+        self._registrar_memory_audit(evento, trace_id, memory_snapshot)
         self._registrar_alias_aprendido_si_corresponde(evento)
 
         herramientas: list[str] = []
@@ -396,15 +449,41 @@ class Orchestrator:
         narrativa: str,
         percepcion_resumida: str,
         tarea: dict | None,
+        memory_observation: dict | None = None,
     ) -> str:
         """Lee memoria solo para eventos que realmente llegaran a una capa cognitiva."""
         try:
             query_memoria = self._construir_query_memoria(evento, narrativa, percepcion_resumida, tarea)
-            memoria_texto = self.memory.obtener_contexto_memoria(
-                query=query_memoria,
-                limite=5,
-                max_caracteres=600,
+            obtener_con_metadata = getattr(
+                self.memory,
+                "obtener_contexto_memoria_con_metadata",
+                None,
             )
+            if callable(obtener_con_metadata):
+                resultado_contexto = obtener_con_metadata(
+                    query=query_memoria,
+                    limite=5,
+                    max_caracteres=600,
+                )
+                memoria_texto = str(getattr(resultado_contexto, "texto", "") or "")
+                retrieved_ids = list(
+                    getattr(resultado_contexto, "retrieved_ids", ()) or ()
+                )
+                scores = list(getattr(resultado_contexto, "scores", ()) or ())
+                if memory_observation is not None:
+                    if len(retrieved_ids) == len(scores):
+                        memory_observation["retrieved_ids"] = retrieved_ids
+                        memory_observation["scores"] = scores
+                    else:
+                        logger.warning(
+                            "Metadata de memoria desalineada; se omitira de AuditTrace."
+                        )
+            else:
+                memoria_texto = self.memory.obtener_contexto_memoria(
+                    query=query_memoria,
+                    limite=5,
+                    max_caracteres=600,
+                )
             memoria_conversacional = self._obtener_contexto_conversacional()
             memoria_relacional = self._obtener_contexto_relacional(query_memoria)
             memoria_corto_plazo = self.memory.obtener_ultimas_acciones()
@@ -419,6 +498,20 @@ class Orchestrator:
         except Exception as e:
             logger.error("Error leyendo contexto de memoria: %s", e, exc_info=True)
             return ""
+
+    def _obtener_cantidad_memoria_trabajo(self) -> int:
+        """Lee solo el conteo público de la cola real; fakes legacy producen cero."""
+        obtener = getattr(self.memory, "obtener_cantidad_memoria_trabajo", None)
+        if not callable(obtener):
+            return 0
+        try:
+            return max(0, int(obtener()))
+        except Exception as exc:
+            logger.warning(
+                "No se pudo observar el conteo de memoria de trabajo. error_type=%s",
+                type(exc).__name__,
+            )
+            return 0
 
     def _obtener_contexto_conversacional(self) -> str:
         """Lee continuidad conversacional solo cuando ya se autorizo leer memoria."""
@@ -450,10 +543,10 @@ class Orchestrator:
         percepcion_resumida: str,
         estado_actual: dict,
         es_interrupcion_critica: bool,
-    ) -> None:
+    ) -> str | None:
         """Escribe todos los eventos para no romper consolidacion/sueno."""
         try:
-            self.memory.guardar_experiencia(
+            return self.memory.guardar_experiencia(
                 tipo_evento=tipo_memoria,
                 narrativa=self._construir_narrativa_memoria(narrativa, percepcion_resumida, evento),
                 estado_emocional=estado_actual,
@@ -469,6 +562,7 @@ class Orchestrator:
             )
         except Exception as e:
             logger.error("Error guardando evento en MemoryManager: %s", e, exc_info=True)
+            return None
 
     def _registrar_turno_conversacional_si_aplica(
         self,

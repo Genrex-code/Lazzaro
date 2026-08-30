@@ -88,5 +88,6 @@ Resultado de OBS-001: **PASS**.
 El writer de OBS-002 está documentado en [`audit_trace_writer.md`](audit_trace_writer.md),
 los límites de OBS-003 en [`orchestrator_boundaries.md`](orchestrator_boundaries.md)
 y la decisión original/efectiva de OBS-004 en
-[`orchestrator_triage.md`](orchestrator_triage.md). El siguiente ticket es
-OBS-005, observabilidad de memoria.
+[`orchestrator_triage.md`](orchestrator_triage.md). La metadata de memoria de
+OBS-005 está en [`orchestrator_memory.md`](orchestrator_memory.md). El siguiente
+ticket es OBS-006, observabilidad de decisión y capa cognitiva.

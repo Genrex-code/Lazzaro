@@ -110,4 +110,6 @@ Resultado de OBS-004: **PASS**.
   del baseline (`memory.test_chromadb_flow.test_eliminacion`).
 - Compilación de los módulos del runtime: PASS.
 
-El siguiente ticket es OBS-005, observabilidad de memoria.
+La integración posterior de recuperación y escritura de memoria está
+documentada en [`orchestrator_memory.md`](orchestrator_memory.md). El siguiente
+ticket es OBS-006, observabilidad de decisión y capa cognitiva.

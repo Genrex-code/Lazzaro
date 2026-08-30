@@ -30,6 +30,15 @@ logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
+class MemoryContextResult:
+    """Contexto resumido y metadata ordenada de la misma recuperación."""
+
+    texto: str = ""
+    retrieved_ids: tuple[str, ...] = ()
+    scores: tuple[float, ...] = ()
+
+
+@dataclass(frozen=True)
 class ManualConversationSaveResult:
     """Resultado explícito del guardado durable de una fotografía conversacional."""
 
@@ -459,11 +468,54 @@ class MemoryManager:
     ) -> str:
         """Recupera y resume recuerdos relevantes para inyectar en el prompt."""
         try:
-            recuerdos = self.buscar_recuerdos(query=query, limite=limite)
-            return self.summarizer.resumir(recuerdos, max_caracteres)
+            return self.obtener_contexto_memoria_con_metadata(
+                query=query,
+                limite=limite,
+                max_caracteres=max_caracteres,
+            ).texto
         except Exception as e:
             logger.error("Error al obtener contexto de memoria: %s", e, exc_info=True)
             return ""
+
+    def obtener_contexto_memoria_con_metadata(
+        self,
+        query: str,
+        limite: int = 5,
+        max_caracteres: int = 600,
+    ) -> MemoryContextResult:
+        """Resume una sola recuperación y expone únicamente IDs/scores alineados."""
+        try:
+            recuerdos = self.buscar_recuerdos(query=query, limite=limite)
+        except Exception as e:
+            logger.error("Error al obtener contexto de memoria: %s", e, exc_info=True)
+            return MemoryContextResult()
+
+        try:
+            texto = str(self.summarizer.resumir(recuerdos, max_caracteres) or "")
+        except Exception as e:
+            logger.error("Error al resumir contexto de memoria: %s", e, exc_info=True)
+            texto = ""
+
+        try:
+            pares = tuple(
+                (
+                    str(resultado.recuerdo.id),
+                    float(resultado.metadata_score),
+                )
+                for resultado in recuerdos
+            )
+        except Exception as e:
+            logger.warning(
+                "No se pudo extraer metadata de la recuperación; se conserva el contexto. error_type=%s",
+                type(e).__name__,
+            )
+            return MemoryContextResult(texto=texto)
+
+        return MemoryContextResult(
+            texto=texto,
+            retrieved_ids=tuple(memory_id for memory_id, _ in pares),
+            scores=tuple(score for _, score in pares),
+        )
 
     def obtener_contexto_relacional(
         self,
@@ -517,6 +569,17 @@ class MemoryManager:
     def obtener_ultimas_acciones(self, n: int = 5) -> str:
         """Devuelve un resumen textual de las ultimas acciones."""
         return self.working_memory.resumen()
+
+    def obtener_cantidad_memoria_trabajo(self) -> int:
+        """Cuenta el snapshot actual de la cola volátil sin exponer su contenido."""
+        try:
+            return len(self.working_memory.obtener_todas())
+        except Exception as e:
+            logger.warning(
+                "No se pudo contar la memoria de trabajo. error_type=%s",
+                type(e).__name__,
+            )
+            return 0
 
     def registrar_turno_conversacional(
         self,
