@@ -111,5 +111,7 @@ Resultado de OBS-004: **PASS**.
 - Compilación de los módulos del runtime: PASS.
 
 La integración posterior de recuperación y escritura de memoria está
-documentada en [`orchestrator_memory.md`](orchestrator_memory.md). El siguiente
-ticket es OBS-006, observabilidad de decisión y capa cognitiva.
+documentada en [`orchestrator_memory.md`](orchestrator_memory.md), y la de capa,
+acción final y ejecución en
+[`orchestrator_decision_execution.md`](orchestrator_decision_execution.md). El
+siguiente ticket es OBS-007, observabilidad de errores, fallbacks y duración.

@@ -1,4 +1,4 @@
-"""Pruebas de integración acotada de Orchestrator AuditTrace (OBS-003/005)."""
+"""Pruebas de integración acotada de Orchestrator AuditTrace (OBS-003/006)."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ if __package__ in (None, ""):
     project_root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(project_root))
 
+from ai_engine.schemas import ActionResponse
 from api.schemas import AccionSaliente, EventoEntrante
 from core.audit_trace import AuditTrace
 from core.audit_writer import AuditTraceJSONLWriter
@@ -119,6 +120,12 @@ def _ranked_memory_results() -> list[MemoryResult]:
             metadata_score=0.74,
         ),
     ]
+
+
+def _trace_for_stage(writer: RecordingWriter, stage: str) -> AuditTrace:
+    matches = [trace for trace in writer.traces if trace.stage == stage]
+    assert_true(len(matches) == 1, f"Debe existir exactamente un stage {stage}.")
+    return matches[0]
 
 
 def _isolated_orchestrator(writer: RecordingWriter | None, process):
@@ -268,7 +275,7 @@ def test_normal_triage_preserves_original_contract_and_trace() -> None:
     assert_true(triage_calls["calls"] == 1, "Auditar no debe volver a ejecutar Triage.")
     assert_true(
         [trace.stage for trace in writer.traces]
-        == ["event_start", "triage", "memory", "event_end"],
+        == ["event_start", "triage", "memory", "decision", "execution", "event_end"],
         "El flujo debe conservar los stages observables en orden.",
     )
     assert_true(
@@ -365,7 +372,8 @@ def test_triage_writer_failure_does_not_change_functional_route() -> None:
     assert_true(route_calls["persona"] == 1, "Debe conservar la ruta efectiva Persona.")
     assert_true(route_calls["motor"] == 0, "No debe deshacer la adaptación terminal.")
     assert_true(
-        writer.attempted_stages == ["event_start", "triage", "memory", "event_end"],
+        writer.attempted_stages
+        == ["event_start", "triage", "memory", "decision", "execution", "event_end"],
         "Debe intentar Triage y continuar hasta event_end tras el fallo.",
     )
 
@@ -482,7 +490,7 @@ def test_memory_stage_observes_existing_operations_without_content() -> None:
     )
     assert_true(
         [trace.stage for trace in writer.traces]
-        == ["event_start", "triage", "memory", "event_end"],
+        == ["event_start", "triage", "memory", "decision", "execution", "event_end"],
         "El turno debe emitir memory entre triage y event_end.",
     )
     assert_true(
@@ -528,9 +536,255 @@ def test_memory_writer_failure_does_not_change_functional_decision() -> None:
     assert_true(route_calls["persona"] == 1, "La ruta funcional debe ejecutarse normalmente.")
     assert_true(len(orchestrator.memory.experiencias) == 1, "La escritura funcional debe ocurrir una vez.")
     assert_true(
-        writer.attempted_stages == ["event_start", "triage", "memory", "event_end"],
+        writer.attempted_stages
+        == ["event_start", "triage", "memory", "decision", "execution", "event_end"],
         "El fallo de memory debe continuar hasta event_end.",
     )
+
+
+def test_decision_layer_tracks_the_executed_primary_branch() -> None:
+    writer = RecordingWriter()
+    persona, persona_calls = _orquestador_aislado("persona")
+    persona.audit_writer = writer
+    persona_result = persona.procesar_evento(
+        _full_flow_event("unity", "obs-006-persona")
+    )
+    assert_true(persona_result is not None and persona_result.nombre == "hablar", "Persona debe hablar.")
+    assert_true(persona_calls["persona"] == 1, "Persona debe resolverse una sola vez.")
+    assert_true(
+        _trace_for_stage(writer, "decision").decision
+        == {"layer": "persona", "action": "hablar", "valid": True},
+        "La rama Persona debe quedar como responsable primaria.",
+    )
+
+    writer = RecordingWriter()
+    motor, motor_calls = _orquestador_aislado("motor")
+    motor.audit_writer = writer
+
+    def resolver_motor_fisico(**kwargs) -> ActionResponse:
+        motor_calls["motor"] += 1
+        return ActionResponse(
+            pensamiento="SECRET_MOTOR_THOUGHT",
+            accion="navegar_a_objeto",
+            parametros={"nombre_objeto": "Cube"},
+            razon="SECRET_MOTOR_REASON",
+            valido=True,
+        )
+
+    motor._resolver_ruta_motor = resolver_motor_fisico
+    motor_result = motor.procesar_evento(
+        _full_flow_event("unity", "obs-006-motor-physical")
+    )
+    assert_true(motor_result is not None and motor_result.nombre == "navegar_a_objeto", "Motor debe conservar la acción física.")
+    assert_true(motor_calls["motor"] == 1, "Motor debe resolverse una sola vez.")
+    motor_decision = _trace_for_stage(writer, "decision")
+    assert_true(
+        motor_decision.decision
+        == {"layer": "motor", "action": "navegar_a_objeto", "valid": True},
+        "La acción física debe atribuirse a Motor.",
+    )
+    assert_true("SECRET_MOTOR" not in motor_decision.to_json(), "Decision no debe guardar pensamiento ni razón.")
+
+    writer = RecordingWriter()
+    clarification, clarification_calls = _orquestador_aislado("motor")
+    clarification.audit_writer = writer
+
+    def resolver_motor_aclaracion(**kwargs) -> ActionResponse:
+        clarification_calls["motor"] += 1
+        return ActionResponse(
+            pensamiento="Motor pide aclaración.",
+            accion="hablar",
+            parametros={"texto_a_comunicar": "¿Cuál objeto?"},
+            razon="Aclaración de Capa 1.",
+            valido=True,
+        )
+
+    clarification._resolver_ruta_motor = resolver_motor_aclaracion
+    clarification_result = clarification.procesar_evento(
+        _full_flow_event("unity", "obs-006-motor-clarification")
+    )
+    assert_true(clarification_result is not None and clarification_result.nombre == "hablar", "Motor puede pedir aclaración hablando.")
+    assert_true(clarification_calls["motor"] == 1, "La aclaración no debe repetir Motor.")
+    assert_true(
+        _trace_for_stage(writer, "decision").decision
+        == {"layer": "motor", "action": "hablar", "valid": True},
+        "layer no debe inferirse desde la acción hablar.",
+    )
+
+    writer = RecordingWriter()
+    oracle, oracle_calls = _orquestador_aislado("oracle")
+    oracle.audit_writer = writer
+    oracle_result = oracle.procesar_evento(
+        _full_flow_event("unity", "obs-006-oracle")
+    )
+    assert_true(oracle_result is not None and oracle_result.nombre == "hablar", "Oracle debe verbalizar su salida.")
+    assert_true(oracle_calls["oracle"] == 1, "Oracle debe resolverse una sola vez.")
+    assert_true(
+        _trace_for_stage(writer, "decision").decision
+        == {"layer": "oracle", "action": "hablar", "valid": True},
+        "La verbalización posterior no debe relabelar Oracle como Persona.",
+    )
+
+    class LegacyReasoning:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def process(self, **kwargs) -> ActionResponse:
+            self.calls += 1
+            return ActionResponse(
+                pensamiento="Salida legacy inválida.",
+                accion="herramienta_inexistente",
+                parametros={"secret": "DO_NOT_AUDIT"},
+                razon="Debe sanitizarse.",
+                valido=True,
+            )
+
+    writer = RecordingWriter()
+    reasoning, _ = _orquestador_aislado("legacy")
+    reasoning.audit_writer = writer
+    legacy_reasoning = LegacyReasoning()
+    reasoning.reasoning = legacy_reasoning
+    reasoning_result = reasoning.procesar_evento(
+        _full_flow_event("unity", "obs-006-reasoning")
+    )
+    assert_true(reasoning_result is not None and reasoning_result.nombre == "none", "La sanitización debe producir none.")
+    assert_true(legacy_reasoning.calls == 1, "Reasoning debe ejecutarse una sola vez.")
+    assert_true(
+        _trace_for_stage(writer, "decision").decision
+        == {"layer": "reasoning", "action": "none", "valid": False},
+        "Decision debe observar Reasoning después de sanitizar su salida.",
+    )
+
+    writer = RecordingWriter()
+    passive, passive_calls = _orquestador_aislado("noop", intent="CORE_SYSTEM")
+    passive.audit_writer = writer
+    passive_result = passive.procesar_evento(
+        _full_flow_event("unity", "obs-006-passive")
+    )
+    assert_true(passive_result is not None and passive_result.nombre == "none", "La rama pasiva debe producir none.")
+    assert_true(sum(passive_calls.values()) == 0, "La rama pasiva no debe ejecutar una capa cognitiva.")
+    assert_true(
+        _trace_for_stage(writer, "decision").decision
+        == {"layer": "none", "action": "none", "valid": True},
+        "La rama determinista/pasiva debe usar layer none.",
+    )
+    assert_true(
+        _trace_for_stage(writer, "execution").execution
+        == {"status": "skipped", "error_type": None},
+        "Una acción none debe mapearse a skipped.",
+    )
+
+
+def test_terminal_firewall_audits_the_post_guardrail_action() -> None:
+    writer = RecordingWriter()
+    orchestrator, route_calls = _orquestador_aislado("persona")
+    orchestrator.audit_writer = writer
+
+    def resolver_persona_fisica(**kwargs) -> ActionResponse:
+        route_calls["persona"] += 1
+        return ActionResponse(
+            pensamiento="SECRET_TERMINAL_THOUGHT",
+            accion="navegar_a_objeto",
+            parametros={"nombre_objeto": "SECRET_TERMINAL_TARGET"},
+            razon="SECRET_TERMINAL_REASON",
+            valido=True,
+        )
+
+    orchestrator._resolver_ruta_persona = resolver_persona_fisica
+    result = orchestrator.procesar_evento(
+        _full_flow_event("terminal", "obs-006-terminal-firewall")
+    )
+
+    assert_true(result is not None and result.nombre == "hablar", "El firewall terminal debe cambiar la salida funcional.")
+    assert_true(route_calls["persona"] == 1, "Auditar no debe volver a resolver Persona.")
+    decision = _trace_for_stage(writer, "decision")
+    assert_true(
+        decision.decision
+        == {"layer": "persona", "action": "hablar", "valid": True},
+        "decision.action debe observar la acción posterior al firewall.",
+    )
+    serialized = decision.to_json()
+    for forbidden in (
+        "SECRET_TERMINAL_THOUGHT",
+        "SECRET_TERMINAL_TARGET",
+        "SECRET_TERMINAL_REASON",
+    ):
+        assert_true(forbidden not in serialized, "Decision no debe almacenar contenido de la respuesta.")
+
+
+def test_execution_stage_maps_each_existing_result_once() -> None:
+    mappings = {
+        "sin_accion": "skipped",
+        "pendiente_confirmacion": "pending",
+        "ok": "ok",
+        "error": "failed",
+        "despachada": "pending",
+    }
+
+    for internal_status, audit_status in mappings.items():
+        writer = RecordingWriter()
+        orchestrator, route_calls = _orquestador_aislado("persona")
+        orchestrator.audit_writer = writer
+        execution_calls = {"calls": 0}
+
+        def gestionar_ejecucion(evento, accion_saliente, action_response=None):
+            execution_calls["calls"] += 1
+            return internal_status, {"secret_execution_details": "DO_NOT_AUDIT"}
+
+        orchestrator._gestionar_ejecucion = gestionar_ejecucion
+        result = orchestrator.procesar_evento(
+            _full_flow_event("unity", f"obs-006-execution-{internal_status}")
+        )
+
+        assert_true(result is not None and result.nombre == "hablar", "El mapeo no debe cambiar la acción funcional.")
+        assert_true(route_calls["persona"] == 1, "La capa debe resolverse una sola vez.")
+        assert_true(execution_calls["calls"] == 1, "AuditTrace no debe repetir _gestionar_ejecucion.")
+        execution = _trace_for_stage(writer, "execution")
+        assert_true(
+            execution.execution == {"status": audit_status, "error_type": None},
+            f"Mapeo incorrecto para {internal_status}.",
+        )
+        assert_true("DO_NOT_AUDIT" not in execution.to_json(), "Execution no debe guardar detalles internos.")
+
+    assert_true(
+        Orchestrator._mapear_resultado_ejecucion_audit("desconocido") is None,
+        "Un estado desconocido no debe fabricar semántica de ejecución.",
+    )
+
+
+def test_decision_and_execution_writer_failures_are_non_blocking() -> None:
+    expected_stages = [
+        "event_start",
+        "triage",
+        "memory",
+        "decision",
+        "execution",
+        "event_end",
+    ]
+    for failing_stage in ("decision", "execution"):
+        writer = StageFailingWriter(failing_stage)
+        orchestrator, route_calls = _orquestador_aislado("persona")
+        orchestrator.audit_writer = writer
+        execution_calls = {"calls": 0}
+        gestionar_original = orchestrator._gestionar_ejecucion
+
+        def gestionar_observable(evento, accion_saliente, action_response=None):
+            execution_calls["calls"] += 1
+            return gestionar_original(
+                evento,
+                accion_saliente,
+                action_response=action_response,
+            )
+
+        orchestrator._gestionar_ejecucion = gestionar_observable
+        result = orchestrator.procesar_evento(
+            _full_flow_event("unity", f"obs-006-writer-{failing_stage}")
+        )
+
+        assert_true(result is not None and result.nombre == "hablar", "El writer no debe cambiar la acción funcional.")
+        assert_true(route_calls["persona"] == 1, "El writer no debe repetir la capa.")
+        assert_true(execution_calls["calls"] == 1, "El writer no debe repetir la gestión de ejecución.")
+        assert_true(writer.attempted_stages == expected_stages, "El fallo debe continuar hasta event_end.")
 
 
 def main() -> None:
@@ -548,11 +802,15 @@ def main() -> None:
         test_memory_context_metadata_uses_the_same_ranked_results,
         test_memory_stage_observes_existing_operations_without_content,
         test_memory_writer_failure_does_not_change_functional_decision,
+        test_decision_layer_tracks_the_executed_primary_branch,
+        test_terminal_firewall_audits_the_post_guardrail_action,
+        test_execution_stage_maps_each_existing_result_once,
+        test_decision_and_execution_writer_failures_are_non_blocking,
     ]
     for test in tests:
         test()
         print(f"[OK] {test.__name__}")
-    print("[OK] OBS-003/005 Orchestrator boundaries, Triage y memoria.")
+    print("[OK] OBS-003/006 flujo causal observable completo.")
 
 
 if __name__ == "__main__":

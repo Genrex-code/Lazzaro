@@ -111,4 +111,6 @@ Resultado de OBS-005: **PASS**.
   PASS.
 - Compilación de los módulos del runtime: PASS.
 
-El siguiente ticket es OBS-006, observabilidad de decisión y capa cognitiva.
+La integración posterior de capa, acción final y ejecución está documentada en
+[`orchestrator_decision_execution.md`](orchestrator_decision_execution.md). El
+siguiente ticket es OBS-007, observabilidad de errores, fallbacks y duración.

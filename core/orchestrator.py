@@ -238,6 +238,95 @@ class Orchestrator:
             )
             return False
 
+    def _registrar_decision_audit(
+        self,
+        evento: EventoEntrante,
+        trace_id: str | None,
+        *,
+        layer: str,
+        action: str,
+        valid: bool,
+    ) -> bool:
+        """Registra la capa responsable y la acción final posterior a guardarraíles."""
+        if not trace_id:
+            return False
+
+        writer = getattr(self, "audit_writer", None)
+        write = getattr(writer, "write", None)
+        if not callable(write):
+            return False
+
+        try:
+            result = write(
+                AuditTrace(
+                    trace_id=trace_id,
+                    id_transaccion=str(evento.id_transaccion),
+                    stage="decision",
+                    decision={
+                        "layer": layer,
+                        "action": action,
+                        "valid": bool(valid),
+                    },
+                )
+            )
+            return bool(result)
+        except Exception as exc:
+            logger.warning(
+                "No se pudo emitir AuditTrace decision; la ejecucion continuara. error_type=%s",
+                type(exc).__name__,
+            )
+            return False
+
+    @staticmethod
+    def _mapear_resultado_ejecucion_audit(resultado_memoria: str) -> str | None:
+        """Traduce estados internos existentes sin afirmar ejecución no confirmada."""
+        return {
+            "sin_accion": "skipped",
+            "pendiente_confirmacion": "pending",
+            "ok": "ok",
+            "error": "failed",
+            "despachada": "pending",
+        }.get(str(resultado_memoria or ""))
+
+    def _registrar_execution_audit(
+        self,
+        evento: EventoEntrante,
+        trace_id: str | None,
+        resultado_memoria: str,
+    ) -> bool:
+        """Observa el único retorno de _gestionar_ejecucion sin volver a ejecutar."""
+        if not trace_id:
+            return False
+
+        status = self._mapear_resultado_ejecucion_audit(resultado_memoria)
+        if status is None:
+            return False
+
+        writer = getattr(self, "audit_writer", None)
+        write = getattr(writer, "write", None)
+        if not callable(write):
+            return False
+
+        try:
+            result = write(
+                AuditTrace(
+                    trace_id=trace_id,
+                    id_transaccion=str(evento.id_transaccion),
+                    stage="execution",
+                    execution={
+                        "status": status,
+                        "error_type": None,
+                    },
+                )
+            )
+            return bool(result)
+        except Exception as exc:
+            logger.warning(
+                "No se pudo emitir AuditTrace execution; la ejecucion continuara. error_type=%s",
+                type(exc).__name__,
+            )
+            return False
+
     def _procesar_evento_serializado(
         self,
         evento: EventoEntrante,
@@ -339,6 +428,7 @@ class Orchestrator:
                 self.tool_registry.describir_herramientas(herramientas) if self.tool_registry else {}
             )
 
+        decision_layer = "none"
         if es_interrupcion_critica:
             action_response = self._resolver_interrupcion_critica(evento)
         elif not self._es_canal_terminal(evento) and self._usuario_pide_cancelar_tarea(evento):
@@ -356,6 +446,7 @@ class Orchestrator:
         elif not solicita_decision:
             action_response = self._accion_pasiva()
         elif self._triage_es_motor(triage_decision):
+            decision_layer = "motor"
             action_response = self._resolver_ruta_motor(
                 evento=evento,
                 triage_decision=triage_decision,
@@ -368,6 +459,7 @@ class Orchestrator:
                 estado_actual=estado_actual,
             )
         elif self._triage_es_persona(triage_decision):
+            decision_layer = "persona"
             action_response = self._resolver_ruta_persona(
                 evento=evento,
                 contexto_llm=contexto_llm,
@@ -375,6 +467,7 @@ class Orchestrator:
                 politica=politica,
             )
         elif self._triage_es_oracle(triage_decision):
+            decision_layer = "oracle"
             action_response = self._resolver_ruta_oracle(
                 evento=evento,
                 contexto_llm=contexto_llm,
@@ -382,6 +475,7 @@ class Orchestrator:
                 politica=politica,
             )
         else:
+            decision_layer = "reasoning"
             try:
                 action_response = self.reasoning.process(
                     contexto_llm=contexto_llm,
@@ -407,12 +501,24 @@ class Orchestrator:
         action_response = self._blindar_salida_terminal(evento, action_response)
         action_response = self._adjuntar_esfuerzo_subjetivo(action_response)
         accion_saliente = self._a_accion_saliente(action_response, politica)
+        self._registrar_decision_audit(
+            evento,
+            trace_id,
+            layer=decision_layer,
+            action=accion_saliente.nombre,
+            valid=action_response.valido,
+        )
         self._registrar_alias_candidato_pendiente(action_response, accion_saliente)
 
         resultado_memoria, detalles_resultado = self._gestionar_ejecucion(
             evento,
             accion_saliente,
             action_response=action_response,
+        )
+        self._registrar_execution_audit(
+            evento,
+            trace_id,
+            resultado_memoria,
         )
         if resultado_memoria == "ok":
             self._aprobar_alias_pendiente_por_id(accion_saliente.id_accion)

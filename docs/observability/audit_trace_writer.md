@@ -73,4 +73,6 @@ La integración acotada de OBS-003 está documentada en
 [`orchestrator_boundaries.md`](orchestrator_boundaries.md) y la captura de Triage
 de OBS-004 en [`orchestrator_triage.md`](orchestrator_triage.md). La metadata de
 memoria de OBS-005 está en [`orchestrator_memory.md`](orchestrator_memory.md). El
-siguiente ticket es OBS-006, observabilidad de decisión y capa cognitiva.
+registro de capa, acción final y ejecución de OBS-006 está en
+[`orchestrator_decision_execution.md`](orchestrator_decision_execution.md). El
+siguiente ticket es OBS-007, observabilidad de errores, fallbacks y duración.
