@@ -159,12 +159,14 @@ def test_orchestrator_oracle_fallback_calls_persona() -> None:
     )
     oracle_client = FakeOracleClient(configurado=False)
     orquestador = _orquestador_para_oracle(oracle_client, llm_adapter)
+    audit_observation = {}
 
     respuesta = orquestador._resolver_ruta_oracle(
         evento=_evento_oracle(),
         contexto_llm={},
         memoria_texto="",
         politica="exploradora",
+        audit_observation=audit_observation,
     )
 
     assert_true(respuesta.accion == "hablar", "La respuesta publica final debe ser hablar.")
@@ -174,6 +176,10 @@ def test_orchestrator_oracle_fallback_calls_persona() -> None:
     )
     assert_true(oracle_client.calls == 0, "OracleClient sin API key no debe consultarse.")
     assert_true(len(llm_adapter.calls) == 2, "Debe llamar LLM para Oraculo frio y luego Persona.")
+    assert_true(
+        audit_observation == {"oracle_source": "fallback"},
+        "Oracle sin credenciales debe declarar fallback sin inventar un error.",
+    )
     assert_true(
         "Oraculo" in llm_adapter.calls[0][1]["error_context"],
         "La primera llamada debe ser la consulta fria de Oraculo.",
@@ -191,16 +197,22 @@ def test_orchestrator_oracle_external_then_persona() -> None:
         respuesta=_oracle_json("Respuesta fria desde Oraculo externo."),
     )
     orquestador = _orquestador_para_oracle(oracle_client, llm_adapter)
+    audit_observation = {}
 
     respuesta = orquestador._resolver_ruta_oracle(
         evento=_evento_oracle(),
         contexto_llm={},
         memoria_texto="",
         politica="exploradora",
+        audit_observation=audit_observation,
     )
 
     assert_true(oracle_client.calls == 1, "OracleClient configurado debe consultarse.")
     assert_true(len(llm_adapter.calls) == 1, "Con API externa solo Persona debe usar el LLM local/activo.")
+    assert_true(
+        audit_observation == {"oracle_source": "api"},
+        "Una respuesta externa exitosa debe conservar fuente api.",
+    )
     assert_true(
         respuesta.parametros["texto_a_comunicar"] == "Respuesta social desde conocimiento externo.",
         "Persona debe verbalizar el resultado externo.",
@@ -219,17 +231,23 @@ def test_oracle_cache_returns_oracle_result_and_calls_persona_only() -> None:
     llm_adapter = FakeLLMAdapter([_persona_json("Recupere esa idea y te la explico a mi manera.")])
     oracle_client = FakeOracleClient(configurado=True, respuesta=_oracle_json("No debe usarse."))
     orquestador = _orquestador_para_oracle(oracle_client, llm_adapter, oracle_memory=memoria)
+    audit_observation = {}
 
     respuesta = orquestador._resolver_ruta_oracle(
         evento=_evento_oracle(),
         contexto_llm={},
         memoria_texto="",
         politica="exploradora",
+        audit_observation=audit_observation,
     )
 
     assert_true(oracle_client.calls == 0, "Un cache hit no debe llamar OracleClient.")
     assert_true(len(llm_adapter.calls) == 1, "Un cache hit solo debe llamar Persona.")
     assert_true(memoria.guardados == [], "Un cache hit no debe reescribir cache.")
+    assert_true(
+        audit_observation == {"oracle_source": "cache"},
+        "El cache hit debe conservar fuente cache sin marcar fallback.",
+    )
     assert_true(
         respuesta.parametros["texto_a_comunicar"] == "Recupere esa idea y te la explico a mi manera.",
         "Persona debe verbalizar el cache hit.",

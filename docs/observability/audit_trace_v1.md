@@ -1,6 +1,6 @@
 # AuditTrace v1 — OBS-001
 
-Estado: **implementado y verificado; writer OBS-002 disponible.**
+Estado: **implementado y verificado; integración OBS-002–OBS-007 disponible.**
 
 AuditTrace es el contrato estructurado de auditoría de LAZZARO. Complementa el logger humano existente; no lo reemplaza. La persistencia JSONL, la concurrencia y la tolerancia a fallos de escritura pertenecen a OBS-002.
 
@@ -92,4 +92,6 @@ y la decisión original/efectiva de OBS-004 en
 OBS-005 está en [`orchestrator_memory.md`](orchestrator_memory.md). El registro
 de capa, acción final y ejecución de OBS-006 está en
 [`orchestrator_decision_execution.md`](orchestrator_decision_execution.md). El
-siguiente ticket es OBS-007, observabilidad de errores, fallbacks y duración.
+registro de errores seguros, fallbacks y duración de OBS-007 está en
+[`orchestrator_errors_durations.md`](orchestrator_errors_durations.md). El
+siguiente ticket es OBS-008, sidequest de no regresión.

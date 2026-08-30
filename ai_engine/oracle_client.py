@@ -5,17 +5,21 @@ para resolver problemas matematicos, logicas y tecnicos complejos.
 """
 import os
 import httpx
+import time
 from typing import List,Dict,Optional,Any
+from ai_engine.ai_client import LLMAuditBuffer, LLMCallAudit
 from core.logger import get_logger
 
 
 logger = get_logger(__name__)
 
-class OracleClient:
+class OracleClient(LLMAuditBuffer):
     """
     Cliente generico para APIS de completado conversacional.
     Pensado para consultas de alta precision (matematicas, codigo , logica).
     """
+
+    provider_name = "oracle_external"
 
     def __init__(self,settings: Optional[Any] = None):
         """
@@ -83,6 +87,7 @@ class OracleClient:
         if self._supports_json_format:
             payload["response_format"] = {"type": "json_object"}
 
+        started_ns = time.perf_counter_ns()
         try:
             logger.info ("Consultando al Oraculo (%s)...", self.model_name)
             with httpx.Client(timeout=self.timeout) as Client:
@@ -93,17 +98,78 @@ class OracleClient:
 
                 contenido = data.get("choices", [{}])[0].get("message", {}).get("content", "")
                 if not contenido:
+                    finished_ns = time.perf_counter_ns()
+                    self._record_llm_audit(
+                        LLMCallAudit(
+                            provider=self.provider_name,
+                            model_id=self.model_name,
+                            fallback_used=False,
+                            status="empty",
+                            error_type="EmptyResponse",
+                            duration_ms=self.elapsed_ms(started_ns, finished_ns),
+                            started_ns=started_ns,
+                        )
+                    )
                     logger.warning("El oraculo devolvio una respuesta vacia.")
                     return None
                 
+                finished_ns = time.perf_counter_ns()
+                self._record_llm_audit(
+                    LLMCallAudit(
+                        provider=self.provider_name,
+                        model_id=self.model_name,
+                        fallback_used=False,
+                        status="ok",
+                        error_type=None,
+                        duration_ms=self.elapsed_ms(started_ns, finished_ns),
+                        started_ns=started_ns,
+                    )
+                )
                 logger.info("Respuesta del Oraculo recibida (%d caracteres).", len(contenido))
                 return contenido
         except httpx.TimeoutException:
+            finished_ns = time.perf_counter_ns()
+            self._record_llm_audit(
+                LLMCallAudit(
+                    provider=self.provider_name,
+                    model_id=self.model_name,
+                    fallback_used=False,
+                    status="timeout",
+                    error_type="TimeoutError",
+                    duration_ms=self.elapsed_ms(started_ns, finished_ns),
+                    started_ns=started_ns,
+                )
+            )
             logger.error("Timeout al contactar al Oraculo (%1fs).", self.timeout)
             return None
         except httpx.HTTPStatusError as e: 
+            finished_ns = time.perf_counter_ns()
+            self._record_llm_audit(
+                LLMCallAudit(
+                    provider=self.provider_name,
+                    model_id=self.model_name,
+                    fallback_used=False,
+                    status="error",
+                    error_type=type(e).__name__,
+                    duration_ms=self.elapsed_ms(started_ns, finished_ns),
+                    started_ns=started_ns,
+                )
+            )
             logger.error("Error HTTP %d del oraculo: %s",e.response.status_code,e.response.text[:200])
             return None
         except Exception as e: 
+            finished_ns = time.perf_counter_ns()
+            error_type = self.stable_error_type(e)
+            self._record_llm_audit(
+                LLMCallAudit(
+                    provider=self.provider_name,
+                    model_id=self.model_name,
+                    fallback_used=False,
+                    status="timeout" if error_type == "TimeoutError" else "error",
+                    error_type=error_type,
+                    duration_ms=self.elapsed_ms(started_ns, finished_ns),
+                    started_ns=started_ns,
+                )
+            )
             logger.error("Error inesperado en OracleClient: %s", e)
             return None

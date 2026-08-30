@@ -10,7 +10,7 @@ from typing import Any, Optional
 from google import genai
 from google.genai import types
 
-from ai_engine.ai_client import BaseAIClient
+from ai_engine.ai_client import BaseAIClient, LLMCallAudit
 from core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -53,6 +53,7 @@ class GeminiClient(BaseAIClient):
         gen_config = self._build_generation_config(kwargs)
 
         for intento in range(1, max_retries + 1):
+            started_ns = time.perf_counter_ns()
             try:
                 response = self.client.models.generate_content(
                     model=self.model_name,
@@ -61,12 +62,49 @@ class GeminiClient(BaseAIClient):
                 )
                 texto = self._extraer_texto(response)
                 if texto:
+                    finished_ns = time.perf_counter_ns()
+                    self._record_llm_audit(
+                        LLMCallAudit(
+                            provider=self.provider_name,
+                            model_id=self.model_name,
+                            fallback_used=False,
+                            status="ok",
+                            error_type=None,
+                            duration_ms=self.elapsed_ms(started_ns, finished_ns),
+                            started_ns=started_ns,
+                        )
+                    )
                     logger.debug("Gemini -> %d caracteres (intento %d).", len(texto), intento)
                     return texto
 
+                finished_ns = time.perf_counter_ns()
+                self._record_llm_audit(
+                    LLMCallAudit(
+                        provider=self.provider_name,
+                        model_id=self.model_name,
+                        fallback_used=False,
+                        status="empty",
+                        error_type="EmptyResponse",
+                        duration_ms=self.elapsed_ms(started_ns, finished_ns),
+                        started_ns=started_ns,
+                    )
+                )
                 logger.warning("Gemini devolvio texto vacio (intento %d).", intento)
 
             except Exception as e:
+                finished_ns = time.perf_counter_ns()
+                error_type = self.stable_error_type(e)
+                self._record_llm_audit(
+                    LLMCallAudit(
+                        provider=self.provider_name,
+                        model_id=self.model_name,
+                        fallback_used=False,
+                        status="timeout" if error_type == "TimeoutError" else "error",
+                        error_type=error_type,
+                        duration_ms=self.elapsed_ms(started_ns, finished_ns),
+                        started_ns=started_ns,
+                    )
+                )
                 msg = str(e)
                 wait = self._calcular_espera(msg, backoff)
                 logger.warning(

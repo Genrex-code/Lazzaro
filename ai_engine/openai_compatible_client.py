@@ -7,11 +7,12 @@ siempre que expongan un endpoint compatible con /chat/completions.
 
 from __future__ import annotations
 
+import time
 from typing import Any, Optional
 
 import httpx
 
-from ai_engine.ai_client import BaseAIClient
+from ai_engine.ai_client import BaseAIClient, LLMCallAudit
 from core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -74,6 +75,7 @@ class OpenAICompatibleClient(BaseAIClient):
             "Content-Type": "application/json",
         }
 
+        started_ns = time.perf_counter_ns()
         try:
             response = self.client.post(self.api_url, headers=headers, json=payload)
             response.raise_for_status()
@@ -87,11 +89,47 @@ class OpenAICompatibleClient(BaseAIClient):
                 )
             else:
                 logger.warning("%s devolvio texto vacio.", self.provider_name)
+            finished_ns = time.perf_counter_ns()
+            self._record_llm_audit(
+                LLMCallAudit(
+                    provider=self.provider_name,
+                    model_id=self.model_name,
+                    fallback_used=False,
+                    status="ok" if texto else "empty",
+                    error_type=None if texto else "EmptyResponse",
+                    duration_ms=self.elapsed_ms(started_ns, finished_ns),
+                    started_ns=started_ns,
+                )
+            )
             return texto
         except httpx.TimeoutException:
+            finished_ns = time.perf_counter_ns()
+            self._record_llm_audit(
+                LLMCallAudit(
+                    provider=self.provider_name,
+                    model_id=self.model_name,
+                    fallback_used=False,
+                    status="timeout",
+                    error_type="TimeoutError",
+                    duration_ms=self.elapsed_ms(started_ns, finished_ns),
+                    started_ns=started_ns,
+                )
+            )
             logger.warning("Timeout llamando a %s tras %.1fs.", self.provider_name, self.timeout)
             return ""
         except httpx.HTTPStatusError as e:
+            finished_ns = time.perf_counter_ns()
+            self._record_llm_audit(
+                LLMCallAudit(
+                    provider=self.provider_name,
+                    model_id=self.model_name,
+                    fallback_used=False,
+                    status="error",
+                    error_type=type(e).__name__,
+                    duration_ms=self.elapsed_ms(started_ns, finished_ns),
+                    started_ns=started_ns,
+                )
+            )
             logger.warning(
                 "Error HTTP %s en %s: %s",
                 e.response.status_code,
@@ -100,6 +138,19 @@ class OpenAICompatibleClient(BaseAIClient):
             )
             return ""
         except Exception as e:
+            finished_ns = time.perf_counter_ns()
+            error_type = self.stable_error_type(e)
+            self._record_llm_audit(
+                LLMCallAudit(
+                    provider=self.provider_name,
+                    model_id=self.model_name,
+                    fallback_used=False,
+                    status="timeout" if error_type == "TimeoutError" else "error",
+                    error_type=error_type,
+                    duration_ms=self.elapsed_ms(started_ns, finished_ns),
+                    started_ns=started_ns,
+                )
+            )
             logger.warning("Error llamando a %s: %s", self.provider_name, e)
             return ""
 

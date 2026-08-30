@@ -7,11 +7,13 @@ from collections import OrderedDict, deque
 from datetime import datetime
 import re
 import threading
+import time
 from typing import List, Optional
 import unicodedata
 import uuid
 
 from ai_engine.identity_state import IdentityState
+from ai_engine.ai_client import LLMCallAudit
 from ai_engine.learned_alias_candidates import build_learned_alias_candidate
 from ai_engine.llm_generation_adapter import LLMGenerationAdapter
 from ai_engine.motor_engine import MotorEngine
@@ -40,6 +42,7 @@ class Orchestrator:
     """
 
     MAX_TRANSACCIONES_CACHE = 2000
+    _AUDIT_TIMING = threading.local()
 
     def __init__(
         self,
@@ -96,6 +99,9 @@ class Orchestrator:
         """Serializa únicamente retries solapados de la misma transacción."""
         transaction_id = str(evento.id_transaccion)
         trace_id = str(uuid.uuid4())
+        self._begin_audit_timing()
+        started_ns = time.perf_counter_ns()
+        self._iniciar_captura_llm_audit()
         self._registrar_limite_audit(evento, trace_id, "event_start")
 
         try:
@@ -123,21 +129,120 @@ class Orchestrator:
                     state["users"] = int(state.get("users", 1)) - 1
                     if state["users"] <= 0 and locks.get(transaction_id) is state:
                         locks.pop(transaction_id, None)
+        except Exception as exc:
+            llm_events = self._consumir_llm_audit()
+            self._registrar_errores_llm_audit(evento, trace_id, llm_events)
+            self._registrar_error_audit(
+                evento,
+                trace_id,
+                error_type=type(exc).__name__,
+                component="orchestrator",
+                llm=self._resumir_llm_audit(llm_events),
+            )
+            raise
         finally:
-            self._registrar_limite_audit(evento, trace_id, "event_end")
+            self._consumir_llm_audit()
+            try:
+                self._registrar_limite_audit(
+                    evento,
+                    trace_id,
+                    "event_end",
+                    durations_ms={"total": self._elapsed_total_ms(started_ns)},
+                )
+            finally:
+                self._end_audit_timing()
+
+    @classmethod
+    def _audit_timing_stack(cls) -> list[int]:
+        stack = getattr(cls._AUDIT_TIMING, "stack", None)
+        if not isinstance(stack, list):
+            stack = []
+            cls._AUDIT_TIMING.stack = stack
+        return stack
+
+    @classmethod
+    def _begin_audit_timing(cls) -> None:
+        cls._audit_timing_stack().append(0)
+
+    @classmethod
+    def _add_audit_overhead(cls, elapsed_ns: int) -> None:
+        try:
+            stack = cls._audit_timing_stack()
+            if stack:
+                stack[-1] += max(0, int(elapsed_ns))
+        except Exception:
+            pass
+
+    @classmethod
+    def _current_audit_overhead_ns(cls) -> int:
+        try:
+            stack = cls._audit_timing_stack()
+            return max(0, int(stack[-1])) if stack else 0
+        except Exception:
+            return 0
+
+    @classmethod
+    def _end_audit_timing(cls) -> None:
+        try:
+            stack = cls._audit_timing_stack()
+            if stack:
+                stack.pop()
+        except Exception:
+            pass
+
+    def _elapsed_total_ms(self, started_ns: int) -> float:
+        finished_ns = time.perf_counter_ns()
+        functional_ns = (
+            finished_ns
+            - started_ns
+            - self._current_audit_overhead_ns()
+        )
+        return round(max(0, functional_ns) / 1_000_000, 3)
+
+    def _write_audit_trace(self, trace: AuditTrace) -> bool:
+        """Aísla el writer y descuenta su coste de la duración funcional total."""
+        writer = getattr(self, "audit_writer", None)
+        write = getattr(writer, "write", None)
+        if not callable(write):
+            return False
+
+        started_ns = time.perf_counter_ns()
+        try:
+            return bool(write(trace))
+        except Exception as exc:
+            logger.warning(
+                "No se pudo emitir AuditTrace %s; la ejecucion continuara. error_type=%s",
+                trace.stage,
+                type(exc).__name__,
+            )
+            return False
+        finally:
+            self._add_audit_overhead(time.perf_counter_ns() - started_ns)
+
+    def _emit_audit_trace(self, *, stage: str, **kwargs) -> bool:
+        """Construye y escribe un trace sin exponer el runtime a fallos del audit."""
+        started_ns = time.perf_counter_ns()
+        try:
+            trace = AuditTrace(stage=stage, **kwargs)
+        except Exception as exc:
+            logger.warning(
+                "No se pudo construir AuditTrace %s; la ejecucion continuara. error_type=%s",
+                stage,
+                type(exc).__name__,
+            )
+            return False
+        finally:
+            self._add_audit_overhead(time.perf_counter_ns() - started_ns)
+        return self._write_audit_trace(trace)
 
     def _registrar_limite_audit(
         self,
         evento: EventoEntrante,
         trace_id: str,
         stage: str,
+        durations_ms: dict | None = None,
     ) -> bool:
-        """Emite solo los limites OBS-003; stages internos pertenecen a tickets posteriores."""
-        writer = getattr(self, "audit_writer", None)
-        write = getattr(writer, "write", None)
-        if not callable(write):
-            return False
-
+        """Emite los límites correlacionados de inicio/cierre del turno."""
         input_data = {}
         if stage == "event_start":
             input_data = {
@@ -146,71 +251,42 @@ class Orchestrator:
                 "message_preview": self._extraer_mensaje_usuario(evento),
             }
 
-        try:
-            result = write(
-                AuditTrace(
-                    trace_id=trace_id,
-                    id_transaccion=str(evento.id_transaccion),
-                    stage=stage,
-                    input=input_data,
-                )
-            )
-            return bool(result)
-        except Exception as exc:
-            # El writer concreto ya contiene sus fallos. Esta barrera protege
-            # tambien ante dobles de prueba o implementaciones inyectadas.
-            logger.warning(
-                "No se pudo emitir AuditTrace %s; la ejecucion continuara. error_type=%s",
-                stage,
-                type(exc).__name__,
-            )
-            return False
+        return self._emit_audit_trace(
+            stage=stage,
+            trace_id=trace_id,
+            id_transaccion=str(evento.id_transaccion),
+            input=input_data,
+            durations_ms=durations_ms or {},
+        )
 
     def _registrar_triage_audit(
         self,
         evento: EventoEntrante,
         trace_id: str | None,
         triage_snapshot: dict,
+        durations_ms: dict | None = None,
     ) -> bool:
         """Registra la decision original y la ruta efectiva sin reevaluar Triage."""
         if not trace_id:
             return False
 
-        writer = getattr(self, "audit_writer", None)
-        write = getattr(writer, "write", None)
-        if not callable(write):
-            return False
-
-        try:
-            result = write(
-                AuditTrace(
-                    trace_id=trace_id,
-                    id_transaccion=str(evento.id_transaccion),
-                    stage="triage",
-                    triage=triage_snapshot,
-                )
-            )
-            return bool(result)
-        except Exception as exc:
-            logger.warning(
-                "No se pudo emitir AuditTrace triage; la ejecucion continuara. error_type=%s",
-                type(exc).__name__,
-            )
-            return False
+        return self._emit_audit_trace(
+            stage="triage",
+            trace_id=trace_id,
+            id_transaccion=str(evento.id_transaccion),
+            triage=triage_snapshot,
+            durations_ms=durations_ms or {},
+        )
 
     def _registrar_memory_audit(
         self,
         evento: EventoEntrante,
         trace_id: str | None,
         memory_snapshot: dict,
+        durations_ms: dict | None = None,
     ) -> bool:
         """Registra solo la metadata v1 de las operaciones de memoria ya ejecutadas."""
         if not trace_id:
-            return False
-
-        writer = getattr(self, "audit_writer", None)
-        write = getattr(writer, "write", None)
-        if not callable(write):
             return False
 
         try:
@@ -222,15 +298,13 @@ class Orchestrator:
                     memory_snapshot.get("working_memory_count") or 0
                 ),
             }
-            result = write(
-                AuditTrace(
-                    trace_id=trace_id,
-                    id_transaccion=str(evento.id_transaccion),
-                    stage="memory",
-                    memory=memory_v1,
-                )
+            return self._emit_audit_trace(
+                stage="memory",
+                trace_id=trace_id,
+                id_transaccion=str(evento.id_transaccion),
+                memory=memory_v1,
+                durations_ms=durations_ms or {},
             )
-            return bool(result)
         except Exception as exc:
             logger.warning(
                 "No se pudo emitir AuditTrace memory; la ejecucion continuara. error_type=%s",
@@ -246,36 +320,25 @@ class Orchestrator:
         layer: str,
         action: str,
         valid: bool,
+        llm: dict | None = None,
+        durations_ms: dict | None = None,
     ) -> bool:
         """Registra la capa responsable y la acción final posterior a guardarraíles."""
         if not trace_id:
             return False
 
-        writer = getattr(self, "audit_writer", None)
-        write = getattr(writer, "write", None)
-        if not callable(write):
-            return False
-
-        try:
-            result = write(
-                AuditTrace(
-                    trace_id=trace_id,
-                    id_transaccion=str(evento.id_transaccion),
-                    stage="decision",
-                    decision={
-                        "layer": layer,
-                        "action": action,
-                        "valid": bool(valid),
-                    },
-                )
-            )
-            return bool(result)
-        except Exception as exc:
-            logger.warning(
-                "No se pudo emitir AuditTrace decision; la ejecucion continuara. error_type=%s",
-                type(exc).__name__,
-            )
-            return False
+        return self._emit_audit_trace(
+            stage="decision",
+            trace_id=trace_id,
+            id_transaccion=str(evento.id_transaccion),
+            decision={
+                "layer": layer,
+                "action": action,
+                "valid": bool(valid),
+            },
+            llm=llm or {},
+            durations_ms=durations_ms or {},
+        )
 
     @staticmethod
     def _mapear_resultado_ejecucion_audit(resultado_memoria: str) -> str | None:
@@ -293,6 +356,9 @@ class Orchestrator:
         evento: EventoEntrante,
         trace_id: str | None,
         resultado_memoria: str,
+        *,
+        error_type: str | None = None,
+        durations_ms: dict | None = None,
     ) -> bool:
         """Observa el único retorno de _gestionar_ejecucion sin volver a ejecutar."""
         if not trace_id:
@@ -302,30 +368,158 @@ class Orchestrator:
         if status is None:
             return False
 
-        writer = getattr(self, "audit_writer", None)
-        write = getattr(writer, "write", None)
-        if not callable(write):
-            return False
+        return self._emit_audit_trace(
+            stage="execution",
+            trace_id=trace_id,
+            id_transaccion=str(evento.id_transaccion),
+            execution={
+                "status": status,
+                "error_type": error_type,
+            },
+            durations_ms=durations_ms or {},
+        )
 
+    @staticmethod
+    def _elapsed_ms(started_ns: int, finished_ns: int | None = None) -> float:
+        if finished_ns is None:
+            finished_ns = time.perf_counter_ns()
+        return round(max(0, finished_ns - started_ns) / 1_000_000, 3)
+
+    def _llm_audit_clients(self) -> list[object]:
+        reasoning = getattr(self, "reasoning", None)
+        candidates = [
+            getattr(reasoning, "ai_client", None),
+            getattr(self, "oracle_client", None),
+        ]
+        clients: list[object] = []
+        seen: set[int] = set()
+        for client in candidates:
+            if client is None or id(client) in seen:
+                continue
+            seen.add(id(client))
+            clients.append(client)
+        return clients
+
+    def _iniciar_captura_llm_audit(self) -> None:
+        started_ns = time.perf_counter_ns()
         try:
-            result = write(
-                AuditTrace(
-                    trace_id=trace_id,
-                    id_transaccion=str(evento.id_transaccion),
-                    stage="execution",
-                    execution={
-                        "status": status,
-                        "error_type": None,
-                    },
-                )
-            )
-            return bool(result)
+            for client in self._llm_audit_clients():
+                begin = getattr(client, "begin_audit_capture", None)
+                if not callable(begin):
+                    continue
+                try:
+                    begin()
+                except Exception as exc:
+                    logger.warning(
+                        "No se pudo iniciar la captura LLM de AuditTrace; el turno continuara. error_type=%s",
+                        type(exc).__name__,
+                    )
         except Exception as exc:
             logger.warning(
-                "No se pudo emitir AuditTrace execution; la ejecucion continuara. error_type=%s",
+                "No se pudo preparar la captura LLM de AuditTrace; el turno continuara. error_type=%s",
                 type(exc).__name__,
             )
+        finally:
+            self._add_audit_overhead(time.perf_counter_ns() - started_ns)
+
+    def _consumir_llm_audit(self) -> list[LLMCallAudit]:
+        started_ns = time.perf_counter_ns()
+        events: list[LLMCallAudit] = []
+        try:
+            for client in self._llm_audit_clients():
+                consume = getattr(client, "consume_audit_events", None)
+                if not callable(consume):
+                    continue
+                try:
+                    captured = consume()
+                except Exception as exc:
+                    logger.warning(
+                        "No se pudo consumir la captura LLM de AuditTrace; el turno continuara. error_type=%s",
+                        type(exc).__name__,
+                    )
+                    continue
+                if isinstance(captured, list):
+                    events.extend(
+                        event for event in captured if isinstance(event, LLMCallAudit)
+                    )
+            return sorted(events, key=lambda event: event.started_ns)
+        except Exception as exc:
+            logger.warning(
+                "No se pudo preparar el consumo LLM de AuditTrace; el turno continuara. error_type=%s",
+                type(exc).__name__,
+            )
+            return events
+        finally:
+            self._add_audit_overhead(time.perf_counter_ns() - started_ns)
+
+    @staticmethod
+    def _resumir_llm_audit(
+        events: list[LLMCallAudit],
+        *,
+        fallback_used: bool = False,
+    ) -> dict:
+        successful = [event for event in events if event.status == "ok"]
+        selected = successful[-1] if successful else None
+        return {
+            "provider": selected.provider if selected else None,
+            "model_id": selected.model_id if selected else None,
+            "fallback_used": bool(
+                fallback_used
+                or any(event.fallback_used for event in events)
+                or (events and not successful)
+            ),
+        }
+
+    def _registrar_error_audit(
+        self,
+        evento: EventoEntrante,
+        trace_id: str | None,
+        *,
+        error_type: str,
+        component: str,
+        llm: dict | None = None,
+        durations_ms: dict | None = None,
+    ) -> bool:
+        """Registra únicamente tipo/componente estables; nunca mensajes libres."""
+        if not trace_id:
             return False
+
+        return self._emit_audit_trace(
+            stage="error",
+            trace_id=trace_id,
+            id_transaccion=str(evento.id_transaccion),
+            llm=llm or {},
+            durations_ms=durations_ms or {},
+            error={
+                "type": str(error_type or "Error"),
+                "component": str(component or "orchestrator"),
+            },
+        )
+
+    def _registrar_errores_llm_audit(
+        self,
+        evento: EventoEntrante,
+        trace_id: str | None,
+        events: list[LLMCallAudit],
+    ) -> int:
+        emitted = 0
+        for event in events:
+            if event.status == "ok":
+                continue
+            if self._registrar_error_audit(
+                evento,
+                trace_id,
+                error_type=event.error_type or "LLMError",
+                component="llm",
+                llm={
+                    "provider": event.provider,
+                    "model_id": event.model_id,
+                    "fallback_used": event.fallback_used,
+                },
+                durations_ms={"llm": event.duration_ms},
+            ):
+                emitted += 1
+        return emitted
 
     def _procesar_evento_serializado(
         self,
@@ -347,6 +541,7 @@ class Orchestrator:
 
         self._consumir_descanso_terminal_si_corresponde(evento)
 
+        behavior_started_ns = time.perf_counter_ns()
         try:
             respuesta_core = self.behavior.procesar_evento(
                 tipo_evento=evento.tipo_evento,
@@ -354,6 +549,13 @@ class Orchestrator:
             )
         except Exception as e:
             logger.error("Error en BehaviorCore al procesar evento: %s", e, exc_info=True)
+            self._registrar_error_audit(
+                evento,
+                trace_id,
+                error_type=type(e).__name__,
+                component="behavior_core",
+                durations_ms={"behavior_core": self._elapsed_ms(behavior_started_ns)},
+            )
             return None
 
         estado_actual = respuesta_core.get("estado", {})
@@ -365,6 +567,7 @@ class Orchestrator:
         tipo_memoria = str(respuesta_core.get("tipo_memoria", evento.tipo_evento))
         percepcion_resumida = str(respuesta_core.get("percepcion_resumida", ""))
 
+        triage_started_ns = time.perf_counter_ns()
         triage_original = self._evaluar_triage(evento, estado_actual)
         triage_snapshot = {
             "intent": triage_original.get("intent"),
@@ -374,7 +577,14 @@ class Orchestrator:
         }
         triage_decision = self._adaptar_triage_para_terminal(evento, triage_original)
         triage_snapshot["effective_route"] = triage_decision.get("route")
-        self._registrar_triage_audit(evento, trace_id, triage_snapshot)
+        triage_duration_ms = self._elapsed_ms(triage_started_ns)
+        self._registrar_triage_audit(
+            evento,
+            trace_id,
+            triage_snapshot,
+            durations_ms={"triage": triage_duration_ms},
+        )
+        memory_started_ns = time.perf_counter_ns()
         memory_snapshot = {
             "retrieved_ids": [],
             "scores": [],
@@ -413,9 +623,16 @@ class Orchestrator:
         memory_snapshot["working_memory_count"] = (
             self._obtener_cantidad_memoria_trabajo()
         )
-        self._registrar_memory_audit(evento, trace_id, memory_snapshot)
+        memory_duration_ms = self._elapsed_ms(memory_started_ns)
+        self._registrar_memory_audit(
+            evento,
+            trace_id,
+            memory_snapshot,
+            durations_ms={"memory": memory_duration_ms},
+        )
         self._registrar_alias_aprendido_si_corresponde(evento)
 
+        decision_started_ns = time.perf_counter_ns()
         herramientas: list[str] = []
         herramientas_detalle: dict[str, str] = {}
         if (
@@ -429,6 +646,7 @@ class Orchestrator:
             )
 
         decision_layer = "none"
+        decision_observation: dict[str, object] = {}
         if es_interrupcion_critica:
             action_response = self._resolver_interrupcion_critica(evento)
         elif not self._es_canal_terminal(evento) and self._usuario_pide_cancelar_tarea(evento):
@@ -457,6 +675,7 @@ class Orchestrator:
                 politica=politica,
                 tarea=tarea,
                 estado_actual=estado_actual,
+                audit_observation=decision_observation,
             )
         elif self._triage_es_persona(triage_decision):
             decision_layer = "persona"
@@ -465,6 +684,7 @@ class Orchestrator:
                 contexto_llm=contexto_llm,
                 memoria_texto=memoria_texto_completa,
                 politica=politica,
+                audit_observation=decision_observation,
             )
         elif self._triage_es_oracle(triage_decision):
             decision_layer = "oracle"
@@ -473,6 +693,7 @@ class Orchestrator:
                 contexto_llm=contexto_llm,
                 memoria_texto=memoria_texto_completa,
                 politica=politica,
+                audit_observation=decision_observation,
             )
         else:
             decision_layer = "reasoning"
@@ -484,9 +705,17 @@ class Orchestrator:
                     herramientas_detalle=herramientas_detalle,
                     politica=politica,
                     tarea=tarea,
+                    audit_observation=decision_observation,
                 )
             except Exception as e:
                 logger.error("Error en ReasoningEngine: %s", e, exc_info=True)
+                decision_observation["fallback_used"] = True
+                decision_observation.setdefault("decision_error_type", type(e).__name__)
+                decision_observation.setdefault("decision_error_component", "reasoning")
+                decision_observation.setdefault(
+                    "decision_error_observed_ns",
+                    time.perf_counter_ns(),
+                )
                 action_response = ActionResponse(
                     pensamiento="Error al razonar.",
                     accion="none",
@@ -501,25 +730,122 @@ class Orchestrator:
         action_response = self._blindar_salida_terminal(evento, action_response)
         action_response = self._adjuntar_esfuerzo_subjetivo(action_response)
         accion_saliente = self._a_accion_saliente(action_response, politica)
+        decision_duration_ms = self._elapsed_ms(decision_started_ns)
+        llm_events = self._consumir_llm_audit()
+        failed_llm_events = [event for event in llm_events if event.status != "ok"]
+        successful_llm_events = [event for event in llm_events if event.status == "ok"]
+        self._registrar_errores_llm_audit(evento, trace_id, llm_events)
+        llm_summary = self._resumir_llm_audit(
+            llm_events,
+            fallback_used=bool(
+                decision_observation.get("oracle_source") in {"fallback", "error"}
+                or decision_observation.get("fallback_used")
+            ),
+        )
+        decision_error_type = str(
+            decision_observation.get("decision_error_type") or ""
+        ).strip()
+        decision_error_component = str(
+            decision_observation.get("decision_error_component") or "decision"
+        ).strip()
+        try:
+            decision_error_observed_ns = int(
+                decision_observation.get("decision_error_observed_ns") or 0
+            )
+        except (TypeError, ValueError):
+            decision_error_observed_ns = 0
+        decision_error_events = (
+            [
+                event
+                for event in llm_events
+                if event.started_ns <= decision_error_observed_ns
+            ]
+            if decision_error_observed_ns
+            else llm_events
+        )
+        decision_error_llm = self._resumir_llm_audit(
+            decision_error_events,
+            fallback_used=bool(decision_observation.get("fallback_used")),
+        )
+        observed_failure_types = {
+            str(event.error_type)
+            for event in failed_llm_events
+            if event.error_type
+        }
+        decision_error_is_derived_from_total_failure = bool(
+            failed_llm_events
+            and not successful_llm_events
+            and decision_error_type in {"EmptyResponse", "InvalidLLMResponse"}
+        )
+        if (
+            decision_error_type
+            and not decision_error_is_derived_from_total_failure
+            and (
+                successful_llm_events
+                or not llm_events
+                or decision_error_type not in observed_failure_types
+            )
+        ):
+            self._registrar_error_audit(
+                evento,
+                trace_id,
+                error_type=decision_error_type,
+                component=decision_error_component,
+                llm=(
+                    decision_error_llm
+                    if decision_error_component == "llm"
+                    else {}
+                ),
+            )
+        elif action_response.error and not failed_llm_events:
+            self._registrar_error_audit(
+                evento,
+                trace_id,
+                error_type="DecisionError",
+                component="decision",
+            )
+        decision_durations = {"decision": decision_duration_ms}
+        if llm_events:
+            decision_durations["llm"] = round(
+                sum(event.duration_ms for event in llm_events),
+                3,
+            )
         self._registrar_decision_audit(
             evento,
             trace_id,
             layer=decision_layer,
             action=accion_saliente.nombre,
             valid=action_response.valido,
+            llm=llm_summary,
+            durations_ms=decision_durations,
         )
         self._registrar_alias_candidato_pendiente(action_response, accion_saliente)
 
+        execution_started_ns = time.perf_counter_ns()
         resultado_memoria, detalles_resultado = self._gestionar_ejecucion(
             evento,
             accion_saliente,
             action_response=action_response,
         )
+        execution_duration_ms = self._elapsed_ms(execution_started_ns)
+        execution_error_type = (
+            "ExecutionFailed" if resultado_memoria == "error" else None
+        )
         self._registrar_execution_audit(
             evento,
             trace_id,
             resultado_memoria,
+            error_type=execution_error_type,
+            durations_ms={"execution": execution_duration_ms},
         )
+        if execution_error_type:
+            self._registrar_error_audit(
+                evento,
+                trace_id,
+                error_type=execution_error_type,
+                component="execution",
+                durations_ms={"execution": execution_duration_ms},
+            )
         if resultado_memoria == "ok":
             self._aprobar_alias_pendiente_por_id(accion_saliente.id_accion)
         self.memory.agregar_accion(
@@ -1011,6 +1337,7 @@ class Orchestrator:
         contexto_llm: dict,
         memoria_texto: str,
         politica: str,
+        audit_observation: dict[str, object] | None = None,
     ) -> ActionResponse:
         """Usa Capa 2 para conversacion social, sin herramientas fisicas."""
         mensaje_usuario = str(evento.detalles.get("mensaje", "")).strip()
@@ -1033,6 +1360,7 @@ class Orchestrator:
                 error_context="Capa Social",
             )
             datos = self.persona_engine.parsear_respuesta(raw_response)
+            self._observar_fallback_persona(datos, audit_observation)
             if datos.get("requiere_reintento"):
                 logger.info("Capa Social solicita reintento breve por salida LLM irrecuperable.")
                 mensajes_reintento = self.persona_engine.preparar_reintento_json(
@@ -1049,10 +1377,19 @@ class Orchestrator:
                     error_context="Reintento Capa Social",
                 )
                 datos_reintento = self.persona_engine.parsear_respuesta(raw_response_reintento)
+                self._observar_fallback_persona(datos_reintento, audit_observation)
                 datos = datos_reintento
             return self._action_response_desde_persona(datos)
         except Exception as e:
             logger.error("Error en PersonaEngine: %s", e, exc_info=True)
+            if isinstance(audit_observation, dict):
+                audit_observation["fallback_used"] = True
+                audit_observation.setdefault("decision_error_type", type(e).__name__)
+                audit_observation.setdefault("decision_error_component", "persona")
+                audit_observation.setdefault(
+                    "decision_error_observed_ns",
+                    time.perf_counter_ns(),
+                )
             return ActionResponse(
                 pensamiento="Fallback social por error interno.",
                 accion="hablar",
@@ -1061,6 +1398,27 @@ class Orchestrator:
                 valido=True,
                 error=str(e),
             )
+
+    @staticmethod
+    def _observar_fallback_persona(
+        datos: dict,
+        audit_observation: dict[str, object] | None,
+    ) -> None:
+        if not isinstance(audit_observation, dict) or not isinstance(datos, dict):
+            return
+        if not (
+            datos.get("requiere_reintento")
+            or datos.get("error")
+            or datos.get("recuperado_de_json_parcial")
+        ):
+            return
+        audit_observation["fallback_used"] = True
+        audit_observation.setdefault("decision_error_type", "InvalidLLMResponse")
+        audit_observation.setdefault("decision_error_component", "llm")
+        audit_observation.setdefault(
+            "decision_error_observed_ns",
+            time.perf_counter_ns(),
+        )
 
     def _resolver_guardado_conversacional(
         self,
@@ -1175,6 +1533,7 @@ class Orchestrator:
         contexto_llm: dict,
         memoria_texto: str,
         politica: str,
+        audit_observation: dict[str, object] | None = None,
     ) -> ActionResponse:
         """Usa Capa 3 para conocimiento frio y delega la voz publica a Persona."""
         mensaje_usuario = str(evento.detalles.get("mensaje", "")).strip()
@@ -1187,12 +1546,25 @@ class Orchestrator:
                 cache_hit=False,
                 error="La consulta al Oraculo no contiene mensaje de usuario.",
             )
+            if isinstance(audit_observation, dict):
+                audit_observation["oracle_source"] = oracle_result.fuente
+                audit_observation["fallback_used"] = True
+                audit_observation.setdefault(
+                    "decision_error_type",
+                    "InvalidOracleRequest",
+                )
+                audit_observation.setdefault("decision_error_component", "oracle")
+                audit_observation.setdefault(
+                    "decision_error_observed_ns",
+                    time.perf_counter_ns(),
+                )
             return self._verbalizar_resultado_oracle(
                 evento=evento,
                 contexto_llm=contexto_llm,
                 memoria_texto=memoria_texto,
                 politica=politica,
                 oracle_result=oracle_result,
+                audit_observation=audit_observation,
             )
 
         errores: list[str] = []
@@ -1217,6 +1589,20 @@ class Orchestrator:
                         respuesta_cruda = self.oracle_client.consultar_oraculo(mensajes)
                     except Exception as e:
                         logger.error("Error inesperado en OracleClient: %s", e, exc_info=True)
+                        if isinstance(audit_observation, dict):
+                            audit_observation["fallback_used"] = True
+                            audit_observation.setdefault(
+                                "decision_error_type",
+                                type(e).__name__,
+                            )
+                            audit_observation.setdefault(
+                                "decision_error_component",
+                                "oracle_client",
+                            )
+                            audit_observation.setdefault(
+                                "decision_error_observed_ns",
+                                time.perf_counter_ns(),
+                            )
                         errores.append("OracleClient externo fallo; se intento fallback activo.")
                         respuesta_cruda = None
 
@@ -1249,6 +1635,14 @@ class Orchestrator:
                 )
             except Exception as e:
                 logger.error("Error en OracleEngine: %s", e, exc_info=True)
+                if isinstance(audit_observation, dict):
+                    audit_observation["fallback_used"] = True
+                    audit_observation.setdefault("decision_error_type", type(e).__name__)
+                    audit_observation.setdefault("decision_error_component", "oracle")
+                    audit_observation.setdefault(
+                        "decision_error_observed_ns",
+                        time.perf_counter_ns(),
+                    )
                 oracle_result = OracleResult(
                     pregunta_original=mensaje_usuario,
                     contenido_tecnico="No pude completar esa consulta compleja en este momento.",
@@ -1263,12 +1657,27 @@ class Orchestrator:
         if errores:
             oracle_result = oracle_result.model_copy(update={"error": " ".join(errores)})
 
+        if isinstance(audit_observation, dict):
+            audit_observation["oracle_source"] = oracle_result.fuente
+            if oracle_result.fuente == "error":
+                audit_observation["fallback_used"] = True
+                audit_observation.setdefault(
+                    "decision_error_type",
+                    "InvalidLLMResponse",
+                )
+                audit_observation.setdefault("decision_error_component", "llm")
+                audit_observation.setdefault(
+                    "decision_error_observed_ns",
+                    time.perf_counter_ns(),
+                )
+
         return self._verbalizar_resultado_oracle(
             evento=evento,
             contexto_llm=contexto_llm,
             memoria_texto=memoria_texto,
             politica=politica,
             oracle_result=oracle_result,
+            audit_observation=audit_observation,
         )
 
     def _verbalizar_resultado_oracle(
@@ -1278,6 +1687,7 @@ class Orchestrator:
         memoria_texto: str,
         politica: str,
         oracle_result: OracleResult,
+        audit_observation: dict[str, object] | None = None,
     ) -> ActionResponse:
         """Pasa conocimiento frio del Oraculo por Persona antes de responder a Unity."""
         mensaje_usuario = str(evento.detalles.get("mensaje", "")).strip()
@@ -1301,6 +1711,7 @@ class Orchestrator:
                 error_context="Verbalizacion Capa Social del Oraculo",
             )
             datos = self.persona_engine.parsear_respuesta(raw_response)
+            self._observar_fallback_persona(datos, audit_observation)
             if datos.get("requiere_reintento"):
                 logger.info("Verbalizacion del Oraculo solicita reintento social breve.")
                 mensajes_reintento = self.persona_engine.preparar_reintento_json(
@@ -1317,6 +1728,7 @@ class Orchestrator:
                     error_context="Reintento verbalizacion Capa Social del Oraculo",
                 )
                 datos = self.persona_engine.parsear_respuesta(raw_response_reintento)
+                self._observar_fallback_persona(datos, audit_observation)
 
             action_response = self._action_response_desde_persona(datos)
             if oracle_result.error:
@@ -1324,6 +1736,14 @@ class Orchestrator:
             return action_response
         except Exception as e:
             logger.error("Error verbalizando resultado del Oraculo: %s", e, exc_info=True)
+            if isinstance(audit_observation, dict):
+                audit_observation["fallback_used"] = True
+                audit_observation.setdefault("decision_error_type", type(e).__name__)
+                audit_observation.setdefault("decision_error_component", "persona")
+                audit_observation.setdefault(
+                    "decision_error_observed_ns",
+                    time.perf_counter_ns(),
+                )
             error = str(e)
             if oracle_result.error:
                 error = f"{oracle_result.error} {error}".strip()
@@ -1347,6 +1767,7 @@ class Orchestrator:
         tarea: dict | None,
         triage_decision: dict | None = None,
         estado_actual: dict | None = None,
+        audit_observation: dict[str, object] | None = None,
     ) -> ActionResponse:
         """Usa Capa 1 para resolver/validar acciones fisicas."""
         percepcion = self._extraer_percepcion_motor(evento, contexto_llm)
@@ -1387,9 +1808,18 @@ class Orchestrator:
                 herramientas_detalle=herramientas_detalle,
                 politica=politica,
                 tarea=tarea,
+                audit_observation=audit_observation,
             )
         except Exception as e:
             logger.error("Error en ReasoningEngine para ruta motor: %s", e, exc_info=True)
+            if isinstance(audit_observation, dict):
+                audit_observation["fallback_used"] = True
+                audit_observation.setdefault("decision_error_type", type(e).__name__)
+                audit_observation.setdefault("decision_error_component", "reasoning")
+                audit_observation.setdefault(
+                    "decision_error_observed_ns",
+                    time.perf_counter_ns(),
+                )
             return ActionResponse(
                 pensamiento="Error al razonar accion motora.",
                 accion="none",

@@ -86,8 +86,10 @@ y lo traduce al vocabulario estable de `AuditTrace v1`:
 cliente externo. Un estado interno desconocido no fabrica semántica y no genera
 un stage de ejecución.
 
-`execution.error_type` permanece explícitamente en `null`. Errores
-estructurados, fallbacks, timeouts y duraciones pertenecen a OBS-007.
+En el alcance de OBS-006, `execution.error_type` permanecía explícitamente en
+`null`. Desde OBS-007, el retorno interno `error` conserva
+`execution.status=failed`, agrega `execution.error_type=ExecutionFailed` y emite
+un stage de error seguro; los demás estados mantienen `error_type=null`.
 
 ## Secuencia y ausencias
 
@@ -97,9 +99,10 @@ Un turno normal queda correlacionado con un único `trace_id`:
 event_start → triage → memory → decision → execution → event_end
 ```
 
-Un cache hit o un fallo previo de `BehaviorCore` conserva únicamente
-`event_start → event_end`. Una rama pasiva que sí alcanzó el flujo estándar
-registra `decision(layer=none, action=none)` y
+Un cache hit conserva únicamente `event_start → event_end`. Un fallo previo de
+`BehaviorCore` no fabrica stages de decisión o ejecución y, desde OBS-007, queda
+como `event_start → error(component=behavior_core) → event_end`. Una rama pasiva
+que sí alcanzó el flujo estándar registra `decision(layer=none, action=none)` y
 `execution(status=skipped)`.
 
 ## Tolerancia a fallos
@@ -122,7 +125,7 @@ comprueba:
 6. rama Core/pasiva con `layer=none` y ejecución `skipped`;
 7. acción posterior al firewall terminal;
 8. los cinco mapeos de ejecución;
-9. `error_type=null` y ausencia de detalles internos;
+9. `error_type=null` en estados no fallidos y ausencia de detalles internos;
 10. un solo resolver y una sola llamada a `_gestionar_ejecucion()`;
 11. el mismo `trace_id` en los seis stages normales;
 12. cache y fallo de `BehaviorCore` sin stages artificiales;
@@ -135,4 +138,7 @@ Resultado de OBS-006: **PASS**.
   del baseline (`memory.test_chromadb_flow.test_eliminacion`).
 - Compilación de los módulos del runtime: PASS.
 
-El siguiente ticket es OBS-007, observabilidad de errores, fallbacks y duración.
+La integración posterior de errores seguros, fallbacks y duración está
+documentada en
+[`orchestrator_errors_durations.md`](orchestrator_errors_durations.md). El
+siguiente ticket es OBS-008, sidequest de no regresión.

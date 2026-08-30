@@ -113,4 +113,6 @@ Resultado de OBS-005: **PASS**.
 
 La integración posterior de capa, acción final y ejecución está documentada en
 [`orchestrator_decision_execution.md`](orchestrator_decision_execution.md). El
-siguiente ticket es OBS-007, observabilidad de errores, fallbacks y duración.
+registro posterior de errores seguros, fallbacks y duración está documentado en
+[`orchestrator_errors_durations.md`](orchestrator_errors_durations.md). El
+siguiente ticket es OBS-008, sidequest de no regresión.

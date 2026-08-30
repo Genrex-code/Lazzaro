@@ -1,6 +1,6 @@
 # Baseline pre-Capa 2 — 2026-08-29
 
-Estado: **Fase 0 y OBS-001–OBS-006 completados; listo para OBS-007.**
+Estado: **Fase 0 y OBS-001–OBS-007 completados; listo para OBS-008.**
 
 Este baseline captura el estado reproducible de LAZZARO antes de la auditoría y la estabilización. La evidencia cruda está en [`evidence/`](evidence/).
 
@@ -90,4 +90,4 @@ El historial conserva valores antiguos ya neutralizados. Reescribirlo requerirí
 - [x] Se capturó el entorno real instalado; `requirements.txt` ya no es la única referencia.
 - [x] Los fallos existentes están registrados sin intentar corregirlos.
 
-La rotación y revocación externas de `BASE-FIND-001` quedaron completadas y el gate posterior pasó. OBS-001 definió el contrato y la [serialización segura de AuditTrace v1](../../observability/audit_trace_v1.md); OBS-002 agregó el [writer JSONL thread-safe y tolerante a fallos](../../observability/audit_trace_writer.md); OBS-003 conectó los [límites correlacionados `event_start`/`event_end`](../../observability/orchestrator_boundaries.md); OBS-004 agregó la [decisión original de Triage y su ruta efectiva](../../observability/orchestrator_triage.md) sin reevaluar el clasificador; OBS-005 agregó la [metadata de la misma recuperación y escritura de memoria](../../observability/orchestrator_memory.md) sin repetir consultas ni almacenar recuerdos; y OBS-006 registró la [capa que resolvió, la acción final y el resultado de la única gestión de ejecución](../../observability/orchestrator_decision_execution.md). Siguiente paso: OBS-007, observabilidad de errores, fallbacks y duración.
+La rotación y revocación externas de `BASE-FIND-001` quedaron completadas y el gate posterior pasó. OBS-001 definió el contrato y la [serialización segura de AuditTrace v1](../../observability/audit_trace_v1.md); OBS-002 agregó el [writer JSONL thread-safe y tolerante a fallos](../../observability/audit_trace_writer.md); OBS-003 conectó los [límites correlacionados `event_start`/`event_end`](../../observability/orchestrator_boundaries.md); OBS-004 agregó la [decisión original de Triage y su ruta efectiva](../../observability/orchestrator_triage.md) sin reevaluar el clasificador; OBS-005 agregó la [metadata de la misma recuperación y escritura de memoria](../../observability/orchestrator_memory.md) sin repetir consultas ni almacenar recuerdos; OBS-006 registró la [capa que resolvió, la acción final y el resultado de la única gestión de ejecución](../../observability/orchestrator_decision_execution.md); y OBS-007 vinculó [errores seguros, fallbacks y duraciones](../../observability/orchestrator_errors_durations.md) con las mismas llamadas del turno. Siguiente paso: OBS-008, sidequest de no regresión.

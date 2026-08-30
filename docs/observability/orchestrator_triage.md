@@ -67,8 +67,8 @@ adaptador terminal pueda agregar a la decisión operativa no lo reemplaza.
 
 - Un cache hit emite `event_start → event_end`: no alcanzó Triage.
 - Un retry de guardado resuelto antes de Triage conserva la misma ausencia.
-- Un fallo de `BehaviorCore` emite `event_start → event_end`: ocurrió antes de
-  clasificar.
+- Un fallo de `BehaviorCore` no fabrica `triage`: desde OBS-007 queda como
+  `event_start → error(component=behavior_core) → event_end`.
 
 No se inventan registros para completar visualmente la secuencia. La ausencia
 de `stage=triage` indica que esa etapa no se ejecutó.
@@ -86,7 +86,8 @@ OBS-004 no registra ni modifica:
 
 - recuperación o escritura de memoria (OBS-005);
 - capa cognitiva, acción o ejecución (OBS-006);
-- errores estructurados, fallbacks, timeouts o duraciones (OBS-007);
+- errores estructurados, fallbacks, timeouts o duraciones (incorporados después
+  por OBS-007);
 - lógica del clasificador o del adaptador de terminal.
 
 ## Verificación
@@ -114,4 +115,6 @@ La integración posterior de recuperación y escritura de memoria está
 documentada en [`orchestrator_memory.md`](orchestrator_memory.md), y la de capa,
 acción final y ejecución en
 [`orchestrator_decision_execution.md`](orchestrator_decision_execution.md). El
-siguiente ticket es OBS-007, observabilidad de errores, fallbacks y duración.
+registro posterior de errores seguros, fallbacks y duración está documentado en
+[`orchestrator_errors_durations.md`](orchestrator_errors_durations.md). El
+siguiente ticket es OBS-008, sidequest de no regresión.

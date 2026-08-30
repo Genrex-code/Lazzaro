@@ -75,4 +75,6 @@ de OBS-004 en [`orchestrator_triage.md`](orchestrator_triage.md). La metadata de
 memoria de OBS-005 está en [`orchestrator_memory.md`](orchestrator_memory.md). El
 registro de capa, acción final y ejecución de OBS-006 está en
 [`orchestrator_decision_execution.md`](orchestrator_decision_execution.md). El
-siguiente ticket es OBS-007, observabilidad de errores, fallbacks y duración.
+registro de errores seguros, fallbacks y duración de OBS-007 está en
+[`orchestrator_errors_durations.md`](orchestrator_errors_durations.md). El
+siguiente ticket es OBS-008, sidequest de no regresión.

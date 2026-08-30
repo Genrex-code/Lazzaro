@@ -2,6 +2,7 @@
 reasoning_engine.py - Orquestador central del modulo ai_engine.
 """
 
+import time
 from typing import List, Optional
 
 from ai_engine.ai_client import BaseAIClient
@@ -37,6 +38,7 @@ class ReasoningEngine:
         herramientas_detalle: Optional[dict[str, str]] = None,
         politica: str = "exploradora",
         tarea: Optional[dict] = None,
+        audit_observation: dict[str, object] | None = None,
     ) -> ActionResponse:
         try:
             if herramientas is None:
@@ -86,6 +88,11 @@ class ReasoningEngine:
             raw_response = self.ai_client.generate(prompt, **gen_params)
             if not raw_response:
                 logger.warning("El LLM devolvio una respuesta vacia.")
+                self._observe_failure(
+                    audit_observation,
+                    error_type="EmptyResponse",
+                    component="llm",
+                )
                 return ActionResponse(
                     pensamiento="",
                     accion="none",
@@ -98,11 +105,22 @@ class ReasoningEngine:
             acciones_permitidas = set(herramientas_filtradas)
             acciones_permitidas.add("none")
             action = self.response_parser.parse(raw_response, acciones_permitidas)
+            if action.error or not action.valido:
+                self._observe_failure(
+                    audit_observation,
+                    error_type="InvalidLLMResponse",
+                    component="llm",
+                )
             logger.info("Accion decidida: %s (valida=%s)", action.accion, action.valido)
             return action
 
         except Exception as e:
             logger.error("Error en el pipeline de razonamiento: %s", e, exc_info=True)
+            self._observe_failure(
+                audit_observation,
+                error_type=type(e).__name__,
+                component="reasoning",
+            )
             return ActionResponse(
                 pensamiento="",
                 accion="none",
@@ -111,3 +129,20 @@ class ReasoningEngine:
                 valido=False,
                 error=f"Error interno del motor de razonamiento: {e}",
             )
+
+    @staticmethod
+    def _observe_failure(
+        audit_observation: dict[str, object] | None,
+        *,
+        error_type: str,
+        component: str,
+    ) -> None:
+        if not isinstance(audit_observation, dict):
+            return
+        audit_observation["fallback_used"] = True
+        audit_observation.setdefault("decision_error_type", error_type)
+        audit_observation.setdefault("decision_error_component", component)
+        audit_observation.setdefault(
+            "decision_error_observed_ns",
+            time.perf_counter_ns(),
+        )

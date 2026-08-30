@@ -1,4 +1,4 @@
-"""Pruebas de integración acotada de Orchestrator AuditTrace (OBS-003/006)."""
+"""Pruebas de integración acotada de Orchestrator AuditTrace (OBS-003/007)."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import threading
 from collections import OrderedDict
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 from uuid import UUID
 
 
@@ -15,6 +16,11 @@ if __package__ in (None, ""):
     project_root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(project_root))
 
+from ai_engine.ai_client import BaseAIClient, LLMCallAudit
+from ai_engine.fallback_ai_client import FallbackAIClient
+from ai_engine.oracle_engine import OracleEngine
+from ai_engine.persona_engine import PersonaEngine
+from ai_engine.reasoning_engine import ReasoningEngine
 from ai_engine.schemas import ActionResponse
 from api.schemas import AccionSaliente, EventoEntrante
 from core.audit_trace import AuditTrace
@@ -183,8 +189,16 @@ def test_event_end_is_emitted_when_processing_raises() -> None:
     else:
         raise AssertionError("La prueba debe propagar la excepcion funcional original.")
 
-    assert_true([trace.stage for trace in writer.traces] == ["event_start", "event_end"], "El finally debe cerrar la traza.")
-    assert_true(writer.traces[0].trace_id == writer.traces[1].trace_id, "El error conserva correlacion.")
+    assert_true(
+        [trace.stage for trace in writer.traces] == ["event_start", "error", "event_end"],
+        "OBS-007 debe estructurar el error y conservar el cierre del finally.",
+    )
+    assert_true(
+        writer.traces[1].error
+        == {"type": "RuntimeError", "component": "orchestrator"},
+        "El error propagado solo debe conservar tipo y componente.",
+    )
+    assert_true(len({trace.trace_id for trace in writer.traces}) == 1, "El error conserva correlacion.")
     assert_true(orchestrator._transacciones_locks == {}, "El error tambien debe liberar el lock.")
 
 
@@ -351,8 +365,13 @@ def test_behavior_core_failure_has_no_triage_stage() -> None:
     assert_true(result is None, "Debe conservar el resultado funcional del fallo previo.")
     assert_true(triage_calls["calls"] == 0, "BehaviorCore falló antes de alcanzar Triage.")
     assert_true(
-        [trace.stage for trace in writer.traces] == ["event_start", "event_end"],
-        "Un fallo previo a Triage no debe fabricar el stage triage.",
+        [trace.stage for trace in writer.traces] == ["event_start", "error", "event_end"],
+        "Un fallo previo a Triage debe registrar error sin fabricar triage.",
+    )
+    assert_true(
+        writer.traces[1].error
+        == {"type": "RuntimeError", "component": "behavior_core"},
+        "BehaviorCore debe quedar identificado sin serializar su mensaje.",
     )
 
 
@@ -741,10 +760,25 @@ def test_execution_stage_maps_each_existing_result_once() -> None:
         assert_true(execution_calls["calls"] == 1, "AuditTrace no debe repetir _gestionar_ejecucion.")
         execution = _trace_for_stage(writer, "execution")
         assert_true(
-            execution.execution == {"status": audit_status, "error_type": None},
+            execution.execution
+            == {
+                "status": audit_status,
+                "error_type": "ExecutionFailed" if internal_status == "error" else None,
+            },
             f"Mapeo incorrecto para {internal_status}.",
         )
         assert_true("DO_NOT_AUDIT" not in execution.to_json(), "Execution no debe guardar detalles internos.")
+        if internal_status == "error":
+            execution_error = _trace_for_stage(writer, "error")
+            assert_true(
+                execution_error.error
+                == {"type": "ExecutionFailed", "component": "execution"},
+                "El fallo de ejecución debe usar un tipo estable sin analizar detalles libres.",
+            )
+            assert_true(
+                "DO_NOT_AUDIT" not in execution_error.to_json(),
+                "El stage error tampoco debe guardar detalles internos.",
+            )
 
     assert_true(
         Orchestrator._mapear_resultado_ejecucion_audit("desconocido") is None,
@@ -787,6 +821,465 @@ def test_decision_and_execution_writer_failures_are_non_blocking() -> None:
         assert_true(writer.attempted_stages == expected_stages, "El fallo debe continuar hasta event_end.")
 
 
+class _ObservableFakeClient(BaseAIClient):
+    def __init__(self, provider_name: str, model_name: str, outcome) -> None:
+        self.provider_name = provider_name
+        self.model_name = model_name
+        self.outcome = outcome
+        self.calls = 0
+
+    def generate(self, prompt: str, **kwargs) -> str:
+        self.calls += 1
+        if isinstance(self.outcome, BaseException):
+            raise self.outcome
+        return str(self.outcome)
+
+    def health_check(self) -> bool:
+        return not isinstance(self.outcome, BaseException) and bool(self.outcome)
+
+
+def _attach_audited_persona_call(
+    orchestrator: Orchestrator,
+    route_calls: dict[str, int],
+    client: BaseAIClient,
+    *,
+    response_error: str | None = None,
+) -> None:
+    class ReasoningHolder:
+        ai_client = client
+
+        @staticmethod
+        def process(**kwargs):
+            raise AssertionError("Persona no debe ejecutar Reasoning legacy.")
+
+    orchestrator.reasoning = ReasoningHolder()
+
+    def resolver_persona(**kwargs) -> ActionResponse:
+        route_calls["persona"] += 1
+        text = client.generate("SECRET_PROMPT_OBS_007")
+        return ActionResponse(
+            pensamiento="SECRET_PRIVATE_THOUGHT",
+            accion="hablar",
+            parametros={"texto_a_comunicar": text or "Rescate determinista."},
+            razon="SECRET_PRIVATE_REASON",
+            valido=True,
+            error=response_error,
+        )
+
+    orchestrator._resolver_ruta_persona = resolver_persona
+
+
+def test_stage_durations_and_total_are_non_negative() -> None:
+    writer = RecordingWriter()
+    orchestrator, _ = _orquestador_aislado("persona")
+    orchestrator.audit_writer = writer
+    orchestrator._elapsed_ms = lambda started_ns, finished_ns=None: 12.5
+    orchestrator._elapsed_total_ms = lambda started_ns: 12.5
+
+    orchestrator.procesar_evento(
+        _full_flow_event("unity", "obs-007-durations")
+    )
+
+    expected = {
+        "triage": "triage",
+        "memory": "memory",
+        "decision": "decision",
+        "execution": "execution",
+        "event_end": "total",
+    }
+    for stage, key in expected.items():
+        value = _trace_for_stage(writer, stage).durations_ms.get(key)
+        assert_true(value == 12.5, f"{stage} debe usar el reloj monotónico inyectable para {key}.")
+    assert_true(
+        _trace_for_stage(writer, "event_start").durations_ms == {},
+        "event_start no debe inventar una duración antes de ejecutar el turno.",
+    )
+
+
+def test_total_duration_excludes_audit_writer_time() -> None:
+    writer = RecordingWriter()
+    orchestrator = object.__new__(Orchestrator)
+    orchestrator.audit_writer = writer
+    orchestrator._begin_audit_timing()
+    try:
+        with patch(
+            "core.orchestrator.time.perf_counter_ns",
+            side_effect=[100_000_000, 600_000_000, 1_000_000_000],
+        ):
+            assert_true(
+                orchestrator._write_audit_trace(AuditTrace(stage="triage")),
+                "El writer de prueba debe aceptar el trace.",
+            )
+            total_ms = orchestrator._elapsed_total_ms(0)
+    finally:
+        orchestrator._end_audit_timing()
+
+    assert_true(
+        total_ms == 500.0,
+        "La duración total debe descontar los 500 ms consumidos por el writer.",
+    )
+
+
+def test_llm_timeout_fallback_is_correlated_without_sensitive_content() -> None:
+    writer = RecordingWriter()
+    orchestrator, route_calls = _orquestador_aislado("persona")
+    orchestrator.audit_writer = writer
+    primary = _ObservableFakeClient(
+        "gemini",
+        "gemini-test",
+        TimeoutError("SECRET_PROVIDER_TIMEOUT_MESSAGE"),
+    )
+    secondary = _ObservableFakeClient("groq", "groq-test", "Respuesta recuperada.")
+    chain = FallbackAIClient([primary, secondary])
+    _attach_audited_persona_call(orchestrator, route_calls, chain)
+
+    result = orchestrator.procesar_evento(
+        _full_flow_event("unity", "obs-007-provider-fallback")
+    )
+
+    assert_true(result is not None and result.nombre == "hablar", "El fallback debe conservar la respuesta funcional.")
+    assert_true(primary.calls == secondary.calls == 1, "Cada proveedor debe intentarse exactamente una vez.")
+    assert_true(route_calls["persona"] == 1, "Persona no debe resolverse otra vez para auditar.")
+    assert_true(
+        [trace.stage for trace in writer.traces]
+        == ["event_start", "triage", "memory", "error", "decision", "execution", "event_end"],
+        "El fallo recuperado debe aparecer antes de la decisión final.",
+    )
+    error = _trace_for_stage(writer, "error")
+    assert_true(
+        error.error == {"type": "TimeoutError", "component": "llm"},
+        "El timeout debe conservar solo un tipo estable y su componente.",
+    )
+    assert_true(
+        error.llm
+        == {"provider": "gemini", "model_id": "gemini-test", "fallback_used": False},
+        "El proveedor fallido debe quedar identificado en su propio stage.",
+    )
+    decision = _trace_for_stage(writer, "decision")
+    assert_true(
+        decision.llm
+        == {"provider": "groq", "model_id": "groq-test", "fallback_used": True},
+        "La decisión debe atribuirse al proveedor que realmente respondió.",
+    )
+    serialized = "\n".join(trace.to_json() for trace in writer.traces)
+    for forbidden in (
+        "SECRET_PROVIDER_TIMEOUT_MESSAGE",
+        "SECRET_PROMPT_OBS_007",
+        "SECRET_PRIVATE_THOUGHT",
+        "SECRET_PRIVATE_REASON",
+    ):
+        assert_true(forbidden not in serialized, "OBS-007 no debe serializar contenido sensible.")
+    assert_true(len({trace.trace_id for trace in writer.traces}) == 1, "Todo el fallback debe compartir trace_id.")
+
+
+def test_all_llm_providers_fail_and_deterministic_rescue_is_observable() -> None:
+    writer = RecordingWriter()
+    orchestrator, route_calls = _orquestador_aislado("persona")
+    orchestrator.audit_writer = writer
+    primary = _ObservableFakeClient("gemini", "gemini-test", "")
+    secondary = _ObservableFakeClient("groq", "groq-test", "")
+    chain = FallbackAIClient([primary, secondary])
+    _attach_audited_persona_call(orchestrator, route_calls, chain)
+
+    result = orchestrator.procesar_evento(
+        _full_flow_event("unity", "obs-007-all-providers-fail")
+    )
+
+    assert_true(
+        result is not None and result.parametros["texto_a_comunicar"] == "Rescate determinista.",
+        "El rescate determinista debe seguir funcionando.",
+    )
+    errors = [trace for trace in writer.traces if trace.stage == "error"]
+    assert_true(len(errors) == 2, "Cada proveedor fallido debe producir un error correlacionado.")
+    assert_true(
+        [trace.error["type"] for trace in errors] == ["EmptyResponse", "EmptyResponse"],
+        "Una respuesta vacía debe usar el tipo estable EmptyResponse.",
+    )
+    assert_true(
+        _trace_for_stage(writer, "decision").llm
+        == {"provider": None, "model_id": None, "fallback_used": True},
+        "Sin proveedor exitoso no se debe atribuir falsamente la decisión a uno.",
+    )
+    assert_true(primary.calls == secondary.calls == 1, "Auditar no debe repetir los proveedores.")
+
+
+def test_reasoning_invalid_llm_response_is_attributed_to_provider() -> None:
+    writer = RecordingWriter()
+    orchestrator, _ = _orquestador_aislado("legacy")
+    orchestrator.audit_writer = writer
+    provider = _ObservableFakeClient(
+        "gemini",
+        "gemini-invalid-json",
+        "SECRET_INVALID_REASONING_OUTPUT",
+    )
+    orchestrator.reasoning = ReasoningEngine(FallbackAIClient([provider]))
+
+    result = orchestrator.procesar_evento(
+        _full_flow_event("unity", "obs-007-reasoning-invalid")
+    )
+
+    assert_true(result is not None and result.nombre == "none", "Debe conservar el rechazo funcional de Reasoning.")
+    assert_true(provider.calls == 1, "La respuesta inválida no debe volver a consultar al proveedor.")
+    error = _trace_for_stage(writer, "error")
+    assert_true(
+        error.error == {"type": "InvalidLLMResponse", "component": "llm"},
+        "El parser debe distinguir una respuesta inválida de un fallo genérico de decisión.",
+    )
+    assert_true(
+        error.llm["provider"] == "gemini" and error.llm["model_id"] == "gemini-invalid-json",
+        "El error de contrato debe conservar el proveedor que produjo la salida inválida.",
+    )
+    decision = _trace_for_stage(writer, "decision")
+    assert_true(decision.llm["fallback_used"] is True, "El rechazo determinista debe marcar fallback.")
+    serialized = "\n".join(trace.to_json() for trace in writer.traces)
+    assert_true(
+        "SECRET_INVALID_REASONING_OUTPUT" not in serialized,
+        "La respuesta inválida de Reasoning no debe entrar a AuditTrace.",
+    )
+
+
+def test_oracle_source_marks_fallback_without_artificial_error() -> None:
+    for oracle_source, expected_fallback in (("fallback", True), ("cache", False)):
+        writer = RecordingWriter()
+        orchestrator, route_calls = _orquestador_aislado("oracle")
+        orchestrator.audit_writer = writer
+
+        def resolver_oracle(**kwargs) -> ActionResponse:
+            route_calls["oracle"] += 1
+            kwargs["audit_observation"]["oracle_source"] = oracle_source
+            return ActionResponse(
+                pensamiento="",
+                accion="hablar",
+                parametros={"texto_a_comunicar": "Respuesta Oracle."},
+                razon="",
+            )
+
+        orchestrator._resolver_ruta_oracle = resolver_oracle
+        orchestrator.procesar_evento(
+            _full_flow_event("unity", f"obs-007-oracle-{oracle_source}")
+        )
+
+        assert_true(route_calls["oracle"] == 1, "Oracle debe resolverse una sola vez.")
+        assert_true(
+            not any(trace.stage == "error" for trace in writer.traces),
+            "Una política de fallback o un cache hit no son errores artificiales.",
+        )
+        assert_true(
+            _trace_for_stage(writer, "decision").llm["fallback_used"] is expected_fallback,
+            "Oracle debe conservar la fuente causal en fallback_used.",
+        )
+
+
+def test_oracle_invalid_external_response_is_correlated_as_fallback() -> None:
+    writer = RecordingWriter()
+    orchestrator, _ = _orquestador_aislado("oracle")
+    orchestrator.audit_writer = writer
+    orchestrator.oracle_engine = OracleEngine()
+    orchestrator.persona_engine = PersonaEngine()
+
+    class EmptyOracleMemory:
+        @staticmethod
+        def buscar_resultado_cacheado(pregunta: str):
+            return None
+
+        @staticmethod
+        def buscar_respuesta_cacheada(pregunta: str):
+            return None
+
+        @staticmethod
+        def guardar_en_cache(*args, **kwargs) -> bool:
+            raise AssertionError("Una respuesta Oracle inválida no debe guardarse.")
+
+    class InvalidExternalOracle(BaseAIClient):
+        provider_name = "oracle_external"
+        model_name = "oracle-invalid-test"
+        configurado = True
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def consultar_oraculo(self, mensajes) -> str:
+            self.calls += 1
+            self._record_llm_audit(
+                LLMCallAudit(
+                    provider=self.provider_name,
+                    model_id=self.model_name,
+                    fallback_used=False,
+                    status="ok",
+                    error_type=None,
+                    duration_ms=1.0,
+                    started_ns=1,
+                )
+            )
+            return '{"contenido_tecnico": ""}'
+
+        def generate(self, prompt: str, **kwargs) -> str:
+            raise AssertionError("Oracle externo no usa generate().")
+
+        def health_check(self) -> bool:
+            return True
+
+    class PersonaAdapter:
+        def __init__(self, client: BaseAIClient) -> None:
+            self.client = client
+            self.calls = 0
+
+        def ejecutar_texto(self, mensajes, **kwargs) -> str:
+            self.calls += 1
+            return self.client.generate("SECRET_ORACLE_PERSONA_PROMPT")
+
+    external = InvalidExternalOracle()
+    persona_provider = _ObservableFakeClient(
+        "gemini",
+        "persona-verbalizer-test",
+        json.dumps(
+            {
+                "accion": "hablar",
+                "parametros": {
+                    "texto_a_comunicar": "No pude completar esa consulta."
+                },
+                "pensamiento_privado": "",
+                "razon": "",
+            }
+        ),
+    )
+    persona_chain = FallbackAIClient([persona_provider])
+
+    class ReasoningHolder:
+        ai_client = persona_chain
+
+        @staticmethod
+        def process(**kwargs):
+            raise AssertionError("Oracle no debe ejecutar Reasoning legacy.")
+
+    persona_adapter = PersonaAdapter(persona_chain)
+    orchestrator.reasoning = ReasoningHolder()
+    orchestrator.oracle_memory = EmptyOracleMemory()
+    orchestrator.oracle_client = external
+    orchestrator.llm_adapter = persona_adapter
+    orchestrator._resolver_ruta_oracle = Orchestrator._resolver_ruta_oracle.__get__(
+        orchestrator,
+        Orchestrator,
+    )
+
+    result = orchestrator.procesar_evento(
+        _full_flow_event("unity", "obs-007-oracle-invalid")
+    )
+
+    assert_true(result is not None and result.nombre == "hablar", "Oracle debe conservar su rescate funcional.")
+    assert_true(external.calls == 1 and persona_adapter.calls == 1, "No debe repetir Oracle ni Persona para auditar.")
+    error = _trace_for_stage(writer, "error")
+    assert_true(
+        error.error == {"type": "InvalidLLMResponse", "component": "llm"},
+        "La respuesta Oracle inválida debe distinguirse del transporte exitoso.",
+    )
+    assert_true(
+        error.llm["provider"] == "oracle_external",
+        "El contrato inválido debe quedar vinculado al proveedor Oracle real.",
+    )
+    decision = _trace_for_stage(writer, "decision")
+    assert_true(decision.llm["fallback_used"] is True, "El rescate Oracle debe marcar fallback.")
+    assert_true(
+        decision.llm["provider"] == "gemini",
+        "La decisión final debe seguir atribuyéndose a la verbalización posterior de Persona.",
+    )
+    assert_true(
+        "contenido_tecnico" not in "\n".join(trace.to_json() for trace in writer.traces),
+        "La salida Oracle inválida no debe persistirse.",
+    )
+
+
+def test_persona_invalid_output_and_existing_retry_are_observable() -> None:
+    writer = RecordingWriter()
+    orchestrator, route_calls = _orquestador_aislado("persona")
+    orchestrator.audit_writer = writer
+    orchestrator.persona_engine = PersonaEngine()
+
+    class RetryAdapter:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def ejecutar_texto(self, mensajes, **kwargs) -> str:
+            self.calls += 1
+            if self.calls == 1:
+                return "SECRET_INVALID_MODEL_OUTPUT"
+            return json.dumps(
+                {
+                    "accion": "hablar",
+                    "parametros": {"texto_a_comunicar": "Respuesta reparada."},
+                    "pensamiento_privado": "",
+                    "razon": "",
+                }
+            )
+
+    adapter = RetryAdapter()
+    orchestrator.llm_adapter = adapter
+    original_persona = Orchestrator._resolver_ruta_persona.__get__(
+        orchestrator,
+        Orchestrator,
+    )
+
+    def resolver_persona(**kwargs) -> ActionResponse:
+        route_calls["persona"] += 1
+        return original_persona(**kwargs)
+
+    orchestrator._resolver_ruta_persona = resolver_persona
+    result = orchestrator.procesar_evento(
+        _full_flow_event("unity", "obs-007-persona-retry")
+    )
+
+    assert_true(
+        result is not None and result.parametros["texto_a_comunicar"] == "Respuesta reparada.",
+        "La observabilidad no debe cambiar el reintento social existente.",
+    )
+    assert_true(adapter.calls == 2, "Debe conservar exactamente una llamada y su único reintento existente.")
+    assert_true(route_calls["persona"] == 1, "Persona debe resolverse una sola vez.")
+    error = _trace_for_stage(writer, "error")
+    assert_true(
+        error.error == {"type": "InvalidLLMResponse", "component": "llm"},
+        "El contrato inválido debe registrarse sin copiar la salida del modelo.",
+    )
+    assert_true(
+        _trace_for_stage(writer, "decision").llm["fallback_used"] is True,
+        "El rescate/reintento social debe marcar fallback_used.",
+    )
+    assert_true(
+        "SECRET_INVALID_MODEL_OUTPUT" not in "\n".join(trace.to_json() for trace in writer.traces),
+        "La salida inválida no debe entrar en AuditTrace.",
+    )
+
+
+def test_decision_error_writer_failure_is_non_blocking_and_non_recursive() -> None:
+    writer = StageFailingWriter("error")
+    orchestrator, route_calls = _orquestador_aislado("persona")
+    orchestrator.audit_writer = writer
+
+    def resolver_persona(**kwargs) -> ActionResponse:
+        route_calls["persona"] += 1
+        return ActionResponse(
+            pensamiento="SECRET_DECISION_THOUGHT",
+            accion="hablar",
+            parametros={"texto_a_comunicar": "Sigo funcionando."},
+            razon="",
+            error="SECRET_FREE_FORM_ERROR",
+        )
+
+    orchestrator._resolver_ruta_persona = resolver_persona
+    result = orchestrator.procesar_evento(
+        _full_flow_event("unity", "obs-007-error-writer-failure")
+    )
+
+    assert_true(result is not None and result.nombre == "hablar", "El writer de error no debe tumbar el turno.")
+    assert_true(route_calls["persona"] == 1, "El fallo del writer no debe repetir la decisión.")
+    assert_true(
+        writer.attempted_stages
+        == ["event_start", "triage", "memory", "error", "decision", "execution", "event_end"],
+        "El warning humano no debe reentrar en AuditTrace ni fabricar otro error.",
+    )
+    serialized = "\n".join(trace.to_json() for trace in writer.traces)
+    assert_true("SECRET_FREE_FORM_ERROR" not in serialized, "No debe persistir el mensaje libre de ActionResponse.error.")
+
+
 def main() -> None:
     tests = [
         test_event_start_and_end_are_correlated,
@@ -806,11 +1299,20 @@ def main() -> None:
         test_terminal_firewall_audits_the_post_guardrail_action,
         test_execution_stage_maps_each_existing_result_once,
         test_decision_and_execution_writer_failures_are_non_blocking,
+        test_stage_durations_and_total_are_non_negative,
+        test_total_duration_excludes_audit_writer_time,
+        test_llm_timeout_fallback_is_correlated_without_sensitive_content,
+        test_all_llm_providers_fail_and_deterministic_rescue_is_observable,
+        test_reasoning_invalid_llm_response_is_attributed_to_provider,
+        test_oracle_source_marks_fallback_without_artificial_error,
+        test_oracle_invalid_external_response_is_correlated_as_fallback,
+        test_persona_invalid_output_and_existing_retry_are_observable,
+        test_decision_error_writer_failure_is_non_blocking_and_non_recursive,
     ]
     for test in tests:
         test()
         print(f"[OK] {test.__name__}")
-    print("[OK] OBS-003/006 flujo causal observable completo.")
+    print("[OK] OBS-003/007 flujo causal observable completo.")
 
 
 if __name__ == "__main__":

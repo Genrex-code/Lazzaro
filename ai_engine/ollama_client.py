@@ -5,11 +5,12 @@ ollama_client.py - Cliente BaseAIClient para modelos locales servidos por Ollama
 from __future__ import annotations
 
 import re
+import time
 from typing import Any, Optional
 
 import httpx
 
-from ai_engine.ai_client import BaseAIClient
+from ai_engine.ai_client import BaseAIClient, LLMCallAudit
 from ai_engine.schemas import LLMResponse
 from core.logger import get_logger
 
@@ -47,6 +48,7 @@ class OllamaClient(BaseAIClient):
         if kwargs.get("response_mime_type") == "application/json":
             payload["format"] = self._response_format_schema()
 
+        started_ns = time.perf_counter_ns()
         try:
             response = self.client.post("/api/generate", json=payload)
             response.raise_for_status()
@@ -56,8 +58,33 @@ class OllamaClient(BaseAIClient):
                 logger.debug("Ollama -> %d caracteres.", len(texto))
             else:
                 logger.warning("Ollama devolvio texto vacio.")
+            finished_ns = time.perf_counter_ns()
+            self._record_llm_audit(
+                LLMCallAudit(
+                    provider=self.provider_name,
+                    model_id=self.model_name,
+                    fallback_used=False,
+                    status="ok" if texto else "empty",
+                    error_type=None if texto else "EmptyResponse",
+                    duration_ms=self.elapsed_ms(started_ns, finished_ns),
+                    started_ns=started_ns,
+                )
+            )
             return texto
         except Exception as e:
+            finished_ns = time.perf_counter_ns()
+            error_type = self.stable_error_type(e)
+            self._record_llm_audit(
+                LLMCallAudit(
+                    provider=self.provider_name,
+                    model_id=self.model_name,
+                    fallback_used=False,
+                    status="timeout" if error_type == "TimeoutError" else "error",
+                    error_type=error_type,
+                    duration_ms=self.elapsed_ms(started_ns, finished_ns),
+                    started_ns=started_ns,
+                )
+            )
             logger.error("Error conectando con Ollama local: %s", e)
             return ""
 
