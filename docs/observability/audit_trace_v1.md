@@ -1,6 +1,6 @@
 # AuditTrace v1 — OBS-001
 
-Estado: **implementado y verificado; integración OBS-002–OBS-007 disponible.**
+Estado: **implementado; integración OBS-002–OBS-008 y snapshots del gate de aceptación disponibles.**
 
 AuditTrace es el contrato estructurado de auditoría de LAZZARO. Complementa el logger humano existente; no lo reemplaza. La persistencia JSONL, la concurrencia y la tolerancia a fallos de escritura pertenecen a OBS-002.
 
@@ -96,5 +96,6 @@ registro de errores seguros, fallbacks y duración de OBS-007 está en
 [`orchestrator_errors_durations.md`](orchestrator_errors_durations.md). El gate
 final de no regresión de OBS-008 está en
 [`audit_non_regression.md`](audit_non_regression.md). La serie de observabilidad
-queda cerrada; el siguiente paso es la **auditoría profunda por bloques / Bloque
+se completa con el [gate de aceptación por transacción](sidequest_acceptance.md),
+que llena los snapshots `pre`/`post` ya definidos por v1. El siguiente paso es la **auditoría profunda por bloques / Bloque
 1 — BOOT/CONFIG**.

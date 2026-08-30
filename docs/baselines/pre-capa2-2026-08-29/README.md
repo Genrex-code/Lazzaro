@@ -1,8 +1,12 @@
 # Baseline pre-Capa 2 — 2026-08-29
 
-Estado: **Fase 0 y OBS-001–OBS-008 completados; gate final de observabilidad aprobado.**
+Estado: **Fase 0 y OBS-001–OBS-008 completados; aceptación por transacción verificada dentro del contrato v1.**
 
 Este baseline captura el estado reproducible de LAZZARO antes de la auditoría y la estabilización. La evidencia cruda está en [`evidence/`](evidence/).
+
+La [aceptación final por transacción](../../observability/sidequest_acceptance.md)
+completa los snapshots pre/post y demuestra las nueve respuestas leyendo solo
+un JSONL, con los límites explícitos de v1.
 
 ## Punto de retorno
 

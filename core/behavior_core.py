@@ -259,6 +259,20 @@ class BehaviorCore:
             self.obtener_contexto_llm()
         return self._resumir_constelacion_texto()
 
+    def obtener_snapshot_audit(self) -> dict:
+        """Lee solo estado/tarea, sin narrativa ni reevaluar detectores de tarea."""
+        tarea = self.task_context
+        return {
+            "state": self.state_engine.obtener_estado(),
+            "task": {
+                "objetivo_id": tarea.objetivo_id,
+                "intentos_totales": tarea.intentos_totales,
+                "intentos_fallidos": tarea.intentos_fallidos,
+                "frustracion_local": tarea.frustracion_local,
+                "umbral_abandono": tarea.umbral_abandono,
+            } if tarea is not None else {},
+        }
+
     def obtener_resumen(self) -> dict:
         """Devuelve un resumen completo del estado del agente."""
         tarea = self.task_context.obtener_resumen() if self.task_context else None

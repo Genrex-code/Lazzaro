@@ -4,6 +4,7 @@ Coordina el flujo completo: evento -> estado interno -> memoria -> IA -> accion.
 """
 
 from collections import OrderedDict, deque
+from copy import deepcopy
 from datetime import datetime
 import re
 import threading
@@ -25,7 +26,7 @@ from ai_engine.schemas import ActionResponse, OracleResult
 from ai_engine.subjective_effort import SubjectiveEffortCalculator
 from ai_engine.triage_router import TriageRouter
 from api.schemas import AccionSaliente, EstadoAgente, EventoEntrante, NotificacionSaliente
-from core.audit_trace import AuditTrace
+from core.audit_trace import AuditTrace, safe_preview
 from core.audit_writer import AuditTraceJSONLWriter
 from core.logger import get_logger
 from core.tool_policy import ToolPolicy
@@ -235,6 +236,45 @@ class Orchestrator:
             self._add_audit_overhead(time.perf_counter_ns() - started_ns)
         return self._write_audit_trace(trace)
 
+    def _capturar_estado_tarea_audit(self) -> dict:
+        """Copia el snapshot acotado del Core; observar nunca bloquea el turno."""
+        started_ns = time.perf_counter_ns()
+        try:
+            snapshotter = getattr(
+                getattr(self, "behavior", None), "obtener_snapshot_audit", None
+            )
+            if not callable(snapshotter):
+                # Compatibilidad con componentes/fakes anteriores al gate.
+                return {}
+            snapshot = snapshotter()
+            if not isinstance(snapshot, dict) or any(
+                not isinstance(snapshot.get(key), dict) for key in ("state", "task")
+            ):
+                raise TypeError("Snapshot de estado/tarea invalido")
+            # La serializacion/sanitizacion sigue perteneciendo a AuditTrace.
+            # Copiar ahora evita que una mutacion posterior reescriba el pasado.
+            captured = deepcopy({key: snapshot[key] for key in ("state", "task")})
+            if "objetivo_id" in captured["task"]:
+                # TaskContext usa el mensaje como objetivo; no volcar un manual
+                # o prompt largo por una vía distinta de input.message_preview.
+                captured["task"]["objetivo_id"] = safe_preview(
+                    captured["task"]["objetivo_id"]
+                )
+            return captured
+        except Exception as exc:
+            try:
+                logger.warning(
+                    "No se pudo capturar estado/tarea de AuditTrace; "
+                    "la ejecucion continuara. error_type=%s",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+            # null es desconocido, no un estado vacio ni ausencia de tarea.
+            return {"state": None, "task": None}
+        finally:
+            self._add_audit_overhead(time.perf_counter_ns() - started_ns)
+
     def _registrar_limite_audit(
         self,
         evento: EventoEntrante,
@@ -244,6 +284,7 @@ class Orchestrator:
     ) -> bool:
         """Emite los límites correlacionados de inicio/cierre del turno."""
         input_data = {}
+        snapshot = self._capturar_estado_tarea_audit()
         if stage == "event_start":
             input_data = {
                 "origin": evento.origen,
@@ -256,6 +297,8 @@ class Orchestrator:
             trace_id=trace_id,
             id_transaccion=str(evento.id_transaccion),
             input=input_data,
+            pre=snapshot if stage == "event_start" else {},
+            post=snapshot if stage == "event_end" else {},
             durations_ms=durations_ms or {},
         )
 

@@ -14,7 +14,7 @@ Implementación: [`core/orchestrator.py`](../../core/orchestrator.py).
 4. Libera el lock transaccional.
 5. Emite `event_end` desde un `finally`, incluso si el procesamiento propaga una excepción.
 
-`event_start` registra solo:
+El alcance original de OBS-003 registraba en `event_start`:
 
 - `trace_id`;
 - `id_transaccion`;
@@ -23,9 +23,9 @@ Implementación: [`core/orchestrator.py`](../../core/orchestrator.py).
 - tipo de evento;
 - preview seguro del mensaje.
 
-`event_end` registra únicamente los identificadores correlacionados y `stage=event_end`. El writer conserva el contrato no bloqueante de OBS-002; un fallo de auditoría no cambia el resultado funcional del evento.
+Originalmente `event_end` registraba únicamente los identificadores correlacionados y `stage=event_end`. OBS-007 añadió duración total, y el [gate de aceptación del sidequest](sidequest_acceptance.md) completó `event_start.pre.state/task` y `event_end.post.state/task` mediante snapshots acotados y de solo lectura. El writer conserva el contrato no bloqueante de OBS-002; un fallo de auditoría no cambia el resultado funcional del evento.
 
-## Fuera de alcance
+## Fuera del alcance original de OBS-003
 
 OBS-003 no registra ni infiere:
 
@@ -35,7 +35,7 @@ OBS-003 no registra ni infiere:
 - capa cognitiva, acción o ejecución;
 - error funcional, fallback, timeout o duración.
 
-Esos datos pertenecen respectivamente a OBS-004–OBS-007. No se modificaron las funciones internas de Triage, memoria, resolución de capas ni ejecución.
+Triage, memoria, decisión/ejecución y errores/tiempos se incorporaron en OBS-004–OBS-007. El estado/tarea pre/post quedó pendiente hasta el gate de aceptación. No se repiten las funciones internas de Triage, memoria, resolución de capas ni ejecución.
 
 ## Compatibilidad
 
