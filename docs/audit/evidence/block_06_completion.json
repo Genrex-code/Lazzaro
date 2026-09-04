@@ -1,0 +1,1706 @@
+{
+  "source": "capa1_motor_completion_probe.py",
+  "resolution_recovered": [
+    {
+      "case": "two_cubes_red",
+      "query": "ve al cubo rojo",
+      "visible": [
+        {
+          "id": "Cube_rojo",
+          "display_name": "Cube_rojo",
+          "aliases": [
+            "cubo",
+            "cubo rojo"
+          ],
+          "affordances": [
+            "mirar"
+          ]
+        },
+        {
+          "id": "Cube_azul",
+          "display_name": "Cube_azul",
+          "aliases": [
+            "cubo",
+            "cubo azul"
+          ],
+          "affordances": [
+            "mirar"
+          ]
+        }
+      ],
+      "fuzzy": {
+        "status": "requires_clarification",
+        "target": "Cube_rojo",
+        "confidence": 90,
+        "reason": "close_candidates",
+        "candidates": [
+          {
+            "id": "Cube_rojo",
+            "score": 90,
+            "unmatched": []
+          },
+          {
+            "id": "Cube_azul",
+            "score": 90,
+            "unmatched": [
+              "rojo"
+            ]
+          }
+        ],
+        "correction": false
+      },
+      "output": {
+        "action": "hablar",
+        "valid": true,
+        "parameters": {
+          "texto_a_comunicar": "Veo Cube_rojo, Cube_azul. Cual quieres?"
+        },
+        "dispatch": "despachada",
+        "confirmation": false,
+        "resolution_status": "requires_clarification",
+        "motor_calls": 0,
+        "reasoning_calls": 0
+      }
+    },
+    {
+      "case": "duplicate_names",
+      "query": "ve al cubo",
+      "visible": [
+        {
+          "id": "Cube_rojo",
+          "display_name": "Cube",
+          "aliases": [
+            "cubo",
+            "cubo rojo"
+          ],
+          "affordances": [
+            "mirar"
+          ]
+        },
+        {
+          "id": "Cube_azul",
+          "display_name": "Cube",
+          "aliases": [
+            "cubo",
+            "cubo azul"
+          ],
+          "affordances": [
+            "mirar"
+          ]
+        }
+      ],
+      "fuzzy": {
+        "status": "requires_clarification",
+        "target": "Cube_rojo",
+        "confidence": 90,
+        "reason": "close_candidates",
+        "candidates": [
+          {
+            "id": "Cube_rojo",
+            "score": 90,
+            "unmatched": []
+          },
+          {
+            "id": "Cube_azul",
+            "score": 90,
+            "unmatched": []
+          }
+        ],
+        "correction": false
+      },
+      "output": {
+        "action": "hablar",
+        "valid": true,
+        "parameters": {
+          "texto_a_comunicar": "Veo Cube, Cube. Cual quieres?"
+        },
+        "dispatch": "despachada",
+        "confirmation": false,
+        "resolution_status": "requires_clarification",
+        "motor_calls": 0,
+        "reasoning_calls": 0
+      }
+    }
+  ],
+  "affordances": [
+    {
+      "case": "tomar_esfera",
+      "query": "toma la esfera",
+      "action_requested": "agarrar_objeto",
+      "interaction_type": null,
+      "affordances": [
+        "mirar",
+        "agarrable"
+      ],
+      "direct": {
+        "status": "allowed",
+        "allowed": true,
+        "required": [
+          "agarrable"
+        ],
+        "matched": [
+          "agarrable"
+        ],
+        "risk_penalty": 0
+      },
+      "fuzzy": {
+        "status": "requires_clarification",
+        "target": "Sphere",
+        "confidence": 90,
+        "reason": "candidate_correction",
+        "candidates": [
+          {
+            "id": "Sphere",
+            "score": 90,
+            "unmatched": [
+              "toma"
+            ]
+          }
+        ],
+        "correction": true
+      },
+      "diagnosis": "sin_intencion",
+      "natural_legacy": false,
+      "natural": {
+        "action": "none",
+        "valid": true,
+        "parameters": {},
+        "dispatch": "sin_accion",
+        "confirmation": false,
+        "resolution_status": null,
+        "motor_calls": 0,
+        "reasoning_calls": 1
+      },
+      "explicit": {
+        "action": "agarrar_objeto",
+        "valid": true,
+        "parameters": {
+          "nombre_objeto": "Sphere"
+        },
+        "dispatch": "despachada",
+        "confirmation": false,
+        "resolution_status": "ready"
+      }
+    },
+    {
+      "case": "tomar_pared",
+      "query": "toma la pared",
+      "action_requested": "agarrar_objeto",
+      "interaction_type": null,
+      "affordances": [
+        "mirar"
+      ],
+      "direct": {
+        "status": "not_allowed",
+        "allowed": false,
+        "required": [
+          "agarrable"
+        ],
+        "matched": [],
+        "risk_penalty": 0
+      },
+      "fuzzy": {
+        "status": "not_allowed",
+        "target": "Wall",
+        "confidence": 70,
+        "reason": "affordance_block",
+        "candidates": [
+          {
+            "id": "Wall",
+            "score": 70,
+            "unmatched": [
+              "toma"
+            ]
+          }
+        ],
+        "correction": false
+      },
+      "diagnosis": "sin_intencion",
+      "natural_legacy": false,
+      "natural": {
+        "action": "none",
+        "valid": true,
+        "parameters": {},
+        "dispatch": "sin_accion",
+        "confirmation": false,
+        "resolution_status": null,
+        "motor_calls": 0,
+        "reasoning_calls": 1
+      },
+      "explicit": {
+        "action": "none",
+        "valid": false,
+        "parameters": {},
+        "dispatch": "sin_accion",
+        "confirmation": false,
+        "resolution_status": "not_allowed"
+      }
+    },
+    {
+      "case": "empujar_cubo",
+      "query": "empuja el cubo",
+      "action_requested": "aplicar_fuerza",
+      "interaction_type": null,
+      "affordances": [
+        "mirar",
+        "empujable",
+        "agarrable"
+      ],
+      "direct": {
+        "status": "allowed",
+        "allowed": true,
+        "required": [
+          "empujable"
+        ],
+        "matched": [
+          "empujable"
+        ],
+        "risk_penalty": 0
+      },
+      "fuzzy": {
+        "status": "requires_clarification",
+        "target": "Cube",
+        "confidence": 90,
+        "reason": "candidate_correction",
+        "candidates": [
+          {
+            "id": "Cube",
+            "score": 90,
+            "unmatched": [
+              "empuja"
+            ]
+          }
+        ],
+        "correction": true
+      },
+      "diagnosis": "sin_intencion",
+      "natural_legacy": false,
+      "natural": {
+        "action": "none",
+        "valid": true,
+        "parameters": {},
+        "dispatch": "sin_accion",
+        "confirmation": false,
+        "resolution_status": null,
+        "motor_calls": 0,
+        "reasoning_calls": 1
+      },
+      "explicit": {
+        "action": "aplicar_fuerza",
+        "valid": true,
+        "parameters": {
+          "nombre_objeto": "Cube",
+          "vector_x": 1,
+          "vector_y": 0,
+          "vector_z": 0,
+          "fuerza": 1
+        },
+        "dispatch": "despachada",
+        "confirmation": false,
+        "resolution_status": "ready"
+      }
+    },
+    {
+      "case": "empujar_pared",
+      "query": "empuja la pared",
+      "action_requested": "aplicar_fuerza",
+      "interaction_type": null,
+      "affordances": [
+        "mirar"
+      ],
+      "direct": {
+        "status": "not_allowed",
+        "allowed": false,
+        "required": [
+          "empujable"
+        ],
+        "matched": [],
+        "risk_penalty": 0
+      },
+      "fuzzy": {
+        "status": "not_allowed",
+        "target": "Wall",
+        "confidence": 70,
+        "reason": "affordance_block",
+        "candidates": [
+          {
+            "id": "Wall",
+            "score": 70,
+            "unmatched": [
+              "empuja"
+            ]
+          }
+        ],
+        "correction": false
+      },
+      "diagnosis": "sin_intencion",
+      "natural_legacy": false,
+      "natural": {
+        "action": "none",
+        "valid": true,
+        "parameters": {},
+        "dispatch": "sin_accion",
+        "confirmation": false,
+        "resolution_status": null,
+        "motor_calls": 0,
+        "reasoning_calls": 1
+      },
+      "explicit": {
+        "action": "none",
+        "valid": false,
+        "parameters": {},
+        "dispatch": "sin_accion",
+        "confirmation": false,
+        "resolution_status": "not_allowed"
+      }
+    },
+    {
+      "case": "abrir_puerta",
+      "query": "abre la puerta",
+      "action_requested": "interactuar_objeto_3d",
+      "interaction_type": "activar",
+      "affordances": [
+        "mirar",
+        "activable"
+      ],
+      "direct": {
+        "status": "allowed",
+        "allowed": true,
+        "required": [
+          "activable"
+        ],
+        "matched": [
+          "activable"
+        ],
+        "risk_penalty": 0
+      },
+      "fuzzy": {
+        "status": "requires_clarification",
+        "target": "Door",
+        "confidence": 90,
+        "reason": "candidate_correction",
+        "candidates": [
+          {
+            "id": "Door",
+            "score": 90,
+            "unmatched": [
+              "abre"
+            ]
+          }
+        ],
+        "correction": true
+      },
+      "diagnosis": "sin_intencion",
+      "natural_legacy": false,
+      "natural": {
+        "action": "none",
+        "valid": true,
+        "parameters": {},
+        "dispatch": "sin_accion",
+        "confirmation": false,
+        "resolution_status": null,
+        "motor_calls": 0,
+        "reasoning_calls": 1
+      },
+      "explicit": {
+        "action": "interactuar_objeto_3d",
+        "valid": true,
+        "parameters": {
+          "nombre_objeto": "Door",
+          "tipo_accion": "activar"
+        },
+        "dispatch": "despachada",
+        "confirmation": false,
+        "resolution_status": "ready"
+      }
+    },
+    {
+      "case": "abrir_cubo",
+      "query": "abre el cubo",
+      "action_requested": "interactuar_objeto_3d",
+      "interaction_type": "activar",
+      "affordances": [
+        "mirar",
+        "empujable",
+        "agarrable"
+      ],
+      "direct": {
+        "status": "not_allowed",
+        "allowed": false,
+        "required": [
+          "activable"
+        ],
+        "matched": [],
+        "risk_penalty": 0
+      },
+      "fuzzy": {
+        "status": "requires_clarification",
+        "target": "Cube",
+        "confidence": 90,
+        "reason": "candidate_correction",
+        "candidates": [
+          {
+            "id": "Cube",
+            "score": 90,
+            "unmatched": [
+              "abre"
+            ]
+          }
+        ],
+        "correction": true
+      },
+      "diagnosis": "sin_intencion",
+      "natural_legacy": false,
+      "natural": {
+        "action": "none",
+        "valid": true,
+        "parameters": {},
+        "dispatch": "sin_accion",
+        "confirmation": false,
+        "resolution_status": null,
+        "motor_calls": 0,
+        "reasoning_calls": 1
+      },
+      "explicit": {
+        "action": "interactuar_objeto_3d",
+        "valid": true,
+        "parameters": {
+          "nombre_objeto": "Cube",
+          "tipo_accion": "activar"
+        },
+        "dispatch": "despachada",
+        "confirmation": false,
+        "resolution_status": "ready"
+      }
+    },
+    {
+      "case": "golpear",
+      "query": "golpea el cubo",
+      "action_requested": "interactuar_objeto_3d",
+      "interaction_type": "golpear",
+      "affordances": [
+        "mirar"
+      ],
+      "direct": {
+        "status": "not_allowed",
+        "allowed": false,
+        "required": [
+          "empujable",
+          "tocar"
+        ],
+        "matched": [],
+        "risk_penalty": 0
+      },
+      "fuzzy": {
+        "status": "requires_clarification",
+        "target": "Cube",
+        "confidence": 90,
+        "reason": "candidate_correction",
+        "candidates": [
+          {
+            "id": "Cube",
+            "score": 90,
+            "unmatched": [
+              "golpea"
+            ]
+          }
+        ],
+        "correction": true
+      },
+      "diagnosis": "lista",
+      "natural_legacy": true,
+      "natural": {
+        "action": "interactuar_objeto_3d",
+        "valid": true,
+        "parameters": {
+          "nombre_objeto": "Cube",
+          "tipo_accion": "golpear"
+        },
+        "dispatch": "despachada",
+        "confirmation": false,
+        "resolution_status": "ready",
+        "motor_calls": 1,
+        "reasoning_calls": 0
+      },
+      "explicit": {
+        "action": "interactuar_objeto_3d",
+        "valid": true,
+        "parameters": {
+          "nombre_objeto": "Cube",
+          "tipo_accion": "golpear"
+        },
+        "dispatch": "despachada",
+        "confirmation": false,
+        "resolution_status": "ready"
+      }
+    },
+    {
+      "case": "aplicar_fuerza",
+      "query": "aplica fuerza al cubo",
+      "action_requested": "aplicar_fuerza",
+      "interaction_type": null,
+      "affordances": [
+        "mirar",
+        "empujable",
+        "agarrable"
+      ],
+      "direct": {
+        "status": "allowed",
+        "allowed": true,
+        "required": [
+          "empujable"
+        ],
+        "matched": [
+          "empujable"
+        ],
+        "risk_penalty": 0
+      },
+      "fuzzy": {
+        "status": "requires_clarification",
+        "target": "Cube",
+        "confidence": 90,
+        "reason": "candidate_correction",
+        "candidates": [
+          {
+            "id": "Cube",
+            "score": 90,
+            "unmatched": [
+              "aplica",
+              "fuerza"
+            ]
+          }
+        ],
+        "correction": true
+      },
+      "diagnosis": "sin_intencion",
+      "natural_legacy": false,
+      "natural": {
+        "action": "none",
+        "valid": true,
+        "parameters": {},
+        "dispatch": "sin_accion",
+        "confirmation": false,
+        "resolution_status": null,
+        "motor_calls": 0,
+        "reasoning_calls": 1
+      },
+      "explicit": {
+        "action": "aplicar_fuerza",
+        "valid": true,
+        "parameters": {
+          "nombre_objeto": "Cube",
+          "vector_x": 1,
+          "vector_y": 0,
+          "vector_z": 0,
+          "fuerza": 1
+        },
+        "dispatch": "despachada",
+        "confirmation": false,
+        "resolution_status": "ready"
+      }
+    },
+    {
+      "case": "navegacion",
+      "query": "ve al cubo",
+      "action_requested": "navegar_a_objeto",
+      "interaction_type": null,
+      "affordances": [
+        "mirar",
+        "empujable",
+        "agarrable"
+      ],
+      "direct": {
+        "status": "allowed",
+        "allowed": true,
+        "required": [],
+        "matched": [],
+        "risk_penalty": 0
+      },
+      "fuzzy": {
+        "status": "ready",
+        "target": "Cube",
+        "confidence": 90,
+        "reason": "above_execute_threshold",
+        "candidates": [
+          {
+            "id": "Cube",
+            "score": 90,
+            "unmatched": []
+          }
+        ],
+        "correction": false
+      },
+      "diagnosis": "lista",
+      "natural_legacy": false,
+      "natural": {
+        "action": "navegar_a_objeto",
+        "valid": true,
+        "parameters": {
+          "nombre_objeto": "Cube"
+        },
+        "dispatch": "despachada",
+        "confirmation": false,
+        "resolution_status": "ready",
+        "motor_calls": 1,
+        "reasoning_calls": 0
+      },
+      "explicit": {
+        "action": "navegar_a_objeto",
+        "valid": true,
+        "parameters": {
+          "nombre_objeto": "Cube"
+        },
+        "dispatch": "despachada",
+        "confirmation": false,
+        "resolution_status": "ready"
+      }
+    }
+  ],
+  "providers": [
+    {
+      "case": "alias_exception",
+      "fuzzy": {
+        "status": "ready",
+        "target": "Cube",
+        "confidence": 90,
+        "reason": "above_execute_threshold",
+        "candidates": [
+          {
+            "id": "Cube",
+            "score": 90,
+            "unmatched": []
+          }
+        ],
+        "correction": false
+      },
+      "output": {
+        "action": "navegar_a_objeto",
+        "valid": true,
+        "parameters": {
+          "nombre_objeto": "Cube"
+        },
+        "dispatch": "despachada",
+        "confirmation": false,
+        "resolution_status": "ready",
+        "motor_calls": 1,
+        "reasoning_calls": 0
+      }
+    },
+    {
+      "case": "affect_exception",
+      "fuzzy": {
+        "status": "ready",
+        "target": "Cube",
+        "confidence": 90,
+        "reason": "above_execute_threshold",
+        "candidates": [
+          {
+            "id": "Cube",
+            "score": 90,
+            "unmatched": []
+          }
+        ],
+        "correction": false
+      },
+      "output": {
+        "action": "navegar_a_objeto",
+        "valid": true,
+        "parameters": {
+          "nombre_objeto": "Cube"
+        },
+        "dispatch": "despachada",
+        "confirmation": false,
+        "resolution_status": "ready",
+        "motor_calls": 1,
+        "reasoning_calls": 0
+      }
+    },
+    {
+      "case": "alias_baseline",
+      "fuzzy": {
+        "status": "not_found",
+        "target": null,
+        "confidence": 48,
+        "reason": "below_clarify_threshold",
+        "candidates": [
+          {
+            "id": "Cube",
+            "score": 48,
+            "unmatched": [
+              "caja"
+            ]
+          }
+        ],
+        "correction": false
+      },
+      "output": {
+        "action": "hablar",
+        "valid": true,
+        "parameters": {
+          "texto_a_comunicar": "No veo ese objeto en mi percepcion actual."
+        },
+        "dispatch": "despachada",
+        "confirmation": false,
+        "resolution_status": "not_found",
+        "motor_calls": 0,
+        "reasoning_calls": 0
+      }
+    },
+    {
+      "case": "alias_learned",
+      "fuzzy": {
+        "status": "ready",
+        "target": "Cube",
+        "confidence": 90,
+        "reason": "above_execute_threshold",
+        "candidates": [
+          {
+            "id": "Cube",
+            "score": 90,
+            "unmatched": []
+          }
+        ],
+        "correction": false
+      },
+      "output": {
+        "action": "navegar_a_objeto",
+        "valid": true,
+        "parameters": {
+          "nombre_objeto": "Cube"
+        },
+        "dispatch": "despachada",
+        "confirmation": false,
+        "resolution_status": "ready",
+        "motor_calls": 1,
+        "reasoning_calls": 0
+      }
+    },
+    {
+      "case": "affect_baseline",
+      "fuzzy": {
+        "status": "ready",
+        "target": "Cube",
+        "confidence": 90,
+        "reason": "above_execute_threshold",
+        "candidates": [
+          {
+            "id": "Cube",
+            "score": 90,
+            "unmatched": []
+          }
+        ],
+        "correction": false
+      },
+      "output": {
+        "action": "navegar_a_objeto",
+        "valid": true,
+        "parameters": {
+          "nombre_objeto": "Cube"
+        },
+        "dispatch": "despachada",
+        "confirmation": false,
+        "resolution_status": "ready",
+        "motor_calls": 1,
+        "reasoning_calls": 0
+      }
+    },
+    {
+      "case": "affect_positive",
+      "fuzzy": {
+        "status": "ready",
+        "target": "Cube",
+        "confidence": 90.4,
+        "reason": "above_execute_threshold",
+        "candidates": [
+          {
+            "id": "Cube",
+            "score": 90.4,
+            "unmatched": []
+          }
+        ],
+        "correction": false
+      },
+      "output": {
+        "action": "navegar_a_objeto",
+        "valid": true,
+        "parameters": {
+          "nombre_objeto": "Cube"
+        },
+        "dispatch": "despachada",
+        "confirmation": false,
+        "resolution_status": "ready",
+        "motor_calls": 1,
+        "reasoning_calls": 0
+      }
+    }
+  ],
+  "sensitivity": [
+    {
+      "case": "object_order_ab",
+      "fuzzy": {
+        "status": "requires_clarification",
+        "target": "Cube_rojo",
+        "confidence": 90,
+        "reason": "close_candidates",
+        "candidates": [
+          {
+            "id": "Cube_rojo",
+            "score": 90,
+            "unmatched": []
+          },
+          {
+            "id": "Cube_azul",
+            "score": 90,
+            "unmatched": []
+          }
+        ],
+        "correction": false
+      }
+    },
+    {
+      "case": "object_order_ba",
+      "fuzzy": {
+        "status": "requires_clarification",
+        "target": "Cube_azul",
+        "confidence": 90,
+        "reason": "close_candidates",
+        "candidates": [
+          {
+            "id": "Cube_azul",
+            "score": 90,
+            "unmatched": []
+          },
+          {
+            "id": "Cube_rojo",
+            "score": 90,
+            "unmatched": []
+          }
+        ],
+        "correction": false
+      }
+    },
+    {
+      "case": "alias_order_ab",
+      "fuzzy": {
+        "status": "ready",
+        "target": "Cube",
+        "confidence": 90,
+        "reason": "above_execute_threshold",
+        "candidates": [
+          {
+            "id": "Cube",
+            "score": 90,
+            "unmatched": []
+          }
+        ],
+        "correction": false
+      }
+    },
+    {
+      "case": "alias_order_ba",
+      "fuzzy": {
+        "status": "ready",
+        "target": "Cube",
+        "confidence": 90,
+        "reason": "above_execute_threshold",
+        "candidates": [
+          {
+            "id": "Cube",
+            "score": 90,
+            "unmatched": []
+          }
+        ],
+        "correction": false
+      }
+    },
+    {
+      "case": "id_original",
+      "fuzzy": {
+        "status": "ready",
+        "target": "Cube",
+        "confidence": 90,
+        "reason": "above_execute_threshold",
+        "candidates": [
+          {
+            "id": "Cube",
+            "score": 90,
+            "unmatched": []
+          }
+        ],
+        "correction": false
+      }
+    },
+    {
+      "case": "id_changed",
+      "fuzzy": {
+        "status": "ready",
+        "target": "changed",
+        "confidence": 90,
+        "reason": "above_execute_threshold",
+        "candidates": [
+          {
+            "id": "changed",
+            "score": 90,
+            "unmatched": []
+          }
+        ],
+        "correction": false
+      }
+    },
+    {
+      "case": "confidence_0",
+      "fuzzy": {
+        "status": "ready",
+        "target": "Cube",
+        "confidence": 90,
+        "reason": "above_execute_threshold",
+        "candidates": [
+          {
+            "id": "Cube",
+            "score": 90,
+            "unmatched": []
+          }
+        ],
+        "correction": false
+      }
+    },
+    {
+      "case": "confidence_1",
+      "fuzzy": {
+        "status": "ready",
+        "target": "Cube",
+        "confidence": 90,
+        "reason": "above_execute_threshold",
+        "candidates": [
+          {
+            "id": "Cube",
+            "score": 90,
+            "unmatched": []
+          }
+        ],
+        "correction": false
+      }
+    },
+    {
+      "case": "mutable_snapshot",
+      "before": {
+        "status": "not_found",
+        "target": null,
+        "confidence": 48,
+        "reason": "below_clarify_threshold",
+        "candidates": [
+          {
+            "id": "Cube",
+            "score": 48,
+            "unmatched": [
+              "caja"
+            ]
+          }
+        ],
+        "correction": false
+      },
+      "after": {
+        "status": "ready",
+        "target": "Cube",
+        "confidence": 90,
+        "reason": "above_execute_threshold",
+        "candidates": [
+          {
+            "id": "Cube",
+            "score": 90,
+            "unmatched": []
+          }
+        ],
+        "correction": false
+      }
+    }
+  ],
+  "failures": [
+    {
+      "case": "normalize_exception",
+      "escaped": null,
+      "output": {
+        "action": "navegar_a_objeto",
+        "valid": true,
+        "parameters": {
+          "nombre_objeto": "Cube"
+        },
+        "dispatch": "despachada",
+        "confirmation": false,
+        "resolution_status": null,
+        "motor_calls": 1,
+        "reasoning_calls": 0
+      }
+    },
+    {
+      "case": "fuzzy_exception",
+      "escaped": null,
+      "output": {
+        "action": "navegar_a_objeto",
+        "valid": true,
+        "parameters": {
+          "nombre_objeto": "Cube"
+        },
+        "dispatch": "despachada",
+        "confirmation": false,
+        "resolution_status": null,
+        "motor_calls": 1,
+        "reasoning_calls": 0
+      }
+    },
+    {
+      "case": "affordance_exception",
+      "escaped": null,
+      "output": {
+        "action": "navegar_a_objeto",
+        "valid": true,
+        "parameters": {
+          "nombre_objeto": "Cube"
+        },
+        "dispatch": "despachada",
+        "confirmation": false,
+        "resolution_status": null,
+        "motor_calls": 1,
+        "reasoning_calls": 0
+      }
+    },
+    {
+      "case": "parser_exception",
+      "escaped": "RuntimeError",
+      "output": null
+    },
+    {
+      "case": "motor_exception",
+      "escaped": "RuntimeError",
+      "output": null
+    },
+    {
+      "case": "sanitization_unknown",
+      "output": {
+        "action": "none",
+        "valid": false,
+        "parameters": {},
+        "dispatch": "sin_accion",
+        "confirmation": false,
+        "resolution_status": null
+      }
+    },
+    {
+      "case": "serialization_unsupported_object",
+      "escaped": "PydanticSerializationError",
+      "boundary": "DTO JSON only; synthetic non-JSON Python value, not ordinary HTTP input"
+    }
+  ],
+  "determinism": [
+    {
+      "case": "ready",
+      "runs": 10,
+      "unique_full_results": 1
+    },
+    {
+      "case": "ambiguous",
+      "runs": 10,
+      "unique_full_results": 1
+    },
+    {
+      "case": "not_allowed",
+      "runs": 10,
+      "unique_full_results": 1
+    },
+    {
+      "case": "alias_affect",
+      "runs": 10,
+      "unique_full_results": 1
+    },
+    {
+      "case": "rotation",
+      "runs": 10,
+      "unique_full_results": 1
+    }
+  ],
+  "audit": [
+    {
+      "case": "ready",
+      "writer_invariance": true,
+      "runs": [
+        {
+          "writer": "ok",
+          "output": {
+            "action": "navegar_a_objeto",
+            "parameters": {
+              "nombre_objeto": "Cube"
+            }
+          },
+          "escaped": null,
+          "calls": {
+            "diagnosis": 1,
+            "process": 1,
+            "fuzzy": 2,
+            "reasoning": 0,
+            "execution": 1
+          },
+          "stages": [
+            "event_start",
+            "triage",
+            "memory",
+            "decision",
+            "execution",
+            "event_end"
+          ],
+          "same_trace_id": true,
+          "decision": {
+            "action": "navegar_a_objeto",
+            "layer": "motor",
+            "valid": true
+          },
+          "execution": {
+            "error_type": null,
+            "status": "pending"
+          }
+        },
+        {
+          "writer": "false",
+          "output": {
+            "action": "navegar_a_objeto",
+            "parameters": {
+              "nombre_objeto": "Cube"
+            }
+          },
+          "escaped": null,
+          "calls": {
+            "diagnosis": 1,
+            "process": 1,
+            "fuzzy": 2,
+            "reasoning": 0,
+            "execution": 1
+          },
+          "stages": [
+            "event_start",
+            "triage",
+            "memory",
+            "decision",
+            "execution",
+            "event_end"
+          ],
+          "same_trace_id": true,
+          "decision": {
+            "action": "navegar_a_objeto",
+            "layer": "motor",
+            "valid": true
+          },
+          "execution": {
+            "error_type": null,
+            "status": "pending"
+          }
+        },
+        {
+          "writer": "raise",
+          "output": {
+            "action": "navegar_a_objeto",
+            "parameters": {
+              "nombre_objeto": "Cube"
+            }
+          },
+          "escaped": null,
+          "calls": {
+            "diagnosis": 1,
+            "process": 1,
+            "fuzzy": 2,
+            "reasoning": 0,
+            "execution": 1
+          },
+          "stages": [
+            "event_start",
+            "triage",
+            "memory",
+            "decision",
+            "execution",
+            "event_end"
+          ],
+          "same_trace_id": true,
+          "decision": {
+            "action": "navegar_a_objeto",
+            "layer": "motor",
+            "valid": true
+          },
+          "execution": {
+            "error_type": null,
+            "status": "pending"
+          }
+        }
+      ]
+    },
+    {
+      "case": "clarification",
+      "writer_invariance": true,
+      "runs": [
+        {
+          "writer": "ok",
+          "output": {
+            "action": "hablar",
+            "parameters": {
+              "texto_a_comunicar": "Veo Cube_rojo, Cube_azul. Cual quieres?"
+            }
+          },
+          "escaped": null,
+          "calls": {
+            "diagnosis": 1,
+            "process": 0,
+            "fuzzy": 1,
+            "reasoning": 0,
+            "execution": 1
+          },
+          "stages": [
+            "event_start",
+            "triage",
+            "memory",
+            "decision",
+            "execution",
+            "event_end"
+          ],
+          "same_trace_id": true,
+          "decision": {
+            "action": "hablar",
+            "layer": "motor",
+            "valid": true
+          },
+          "execution": {
+            "error_type": null,
+            "status": "pending"
+          }
+        },
+        {
+          "writer": "false",
+          "output": {
+            "action": "hablar",
+            "parameters": {
+              "texto_a_comunicar": "Veo Cube_rojo, Cube_azul. Cual quieres?"
+            }
+          },
+          "escaped": null,
+          "calls": {
+            "diagnosis": 1,
+            "process": 0,
+            "fuzzy": 1,
+            "reasoning": 0,
+            "execution": 1
+          },
+          "stages": [
+            "event_start",
+            "triage",
+            "memory",
+            "decision",
+            "execution",
+            "event_end"
+          ],
+          "same_trace_id": true,
+          "decision": {
+            "action": "hablar",
+            "layer": "motor",
+            "valid": true
+          },
+          "execution": {
+            "error_type": null,
+            "status": "pending"
+          }
+        },
+        {
+          "writer": "raise",
+          "output": {
+            "action": "hablar",
+            "parameters": {
+              "texto_a_comunicar": "Veo Cube_rojo, Cube_azul. Cual quieres?"
+            }
+          },
+          "escaped": null,
+          "calls": {
+            "diagnosis": 1,
+            "process": 0,
+            "fuzzy": 1,
+            "reasoning": 0,
+            "execution": 1
+          },
+          "stages": [
+            "event_start",
+            "triage",
+            "memory",
+            "decision",
+            "execution",
+            "event_end"
+          ],
+          "same_trace_id": true,
+          "decision": {
+            "action": "hablar",
+            "layer": "motor",
+            "valid": true
+          },
+          "execution": {
+            "error_type": null,
+            "status": "pending"
+          }
+        }
+      ]
+    },
+    {
+      "case": "invalid",
+      "writer_invariance": true,
+      "runs": [
+        {
+          "writer": "ok",
+          "output": {
+            "action": "none",
+            "parameters": {}
+          },
+          "escaped": null,
+          "calls": {
+            "diagnosis": 1,
+            "process": 1,
+            "fuzzy": 0,
+            "reasoning": 1,
+            "execution": 1
+          },
+          "stages": [
+            "event_start",
+            "triage",
+            "memory",
+            "error",
+            "decision",
+            "execution",
+            "event_end"
+          ],
+          "same_trace_id": true,
+          "decision": {
+            "action": "none",
+            "layer": "motor",
+            "valid": false
+          },
+          "execution": {
+            "error_type": null,
+            "status": "skipped"
+          }
+        },
+        {
+          "writer": "false",
+          "output": {
+            "action": "none",
+            "parameters": {}
+          },
+          "escaped": null,
+          "calls": {
+            "diagnosis": 1,
+            "process": 1,
+            "fuzzy": 0,
+            "reasoning": 1,
+            "execution": 1
+          },
+          "stages": [
+            "event_start",
+            "triage",
+            "memory",
+            "error",
+            "decision",
+            "execution",
+            "event_end"
+          ],
+          "same_trace_id": true,
+          "decision": {
+            "action": "none",
+            "layer": "motor",
+            "valid": false
+          },
+          "execution": {
+            "error_type": null,
+            "status": "skipped"
+          }
+        },
+        {
+          "writer": "raise",
+          "output": {
+            "action": "none",
+            "parameters": {}
+          },
+          "escaped": null,
+          "calls": {
+            "diagnosis": 1,
+            "process": 1,
+            "fuzzy": 0,
+            "reasoning": 1,
+            "execution": 1
+          },
+          "stages": [
+            "event_start",
+            "triage",
+            "memory",
+            "error",
+            "decision",
+            "execution",
+            "event_end"
+          ],
+          "same_trace_id": true,
+          "decision": {
+            "action": "none",
+            "layer": "motor",
+            "valid": false
+          },
+          "execution": {
+            "error_type": null,
+            "status": "skipped"
+          }
+        }
+      ]
+    },
+    {
+      "case": "reasoning_fallback",
+      "writer_invariance": true,
+      "runs": [
+        {
+          "writer": "ok",
+          "output": {
+            "action": "girar_avatar",
+            "parameters": {
+              "grados": 90
+            }
+          },
+          "escaped": null,
+          "calls": {
+            "diagnosis": 1,
+            "process": 1,
+            "fuzzy": 0,
+            "reasoning": 1,
+            "execution": 1
+          },
+          "stages": [
+            "event_start",
+            "triage",
+            "memory",
+            "decision",
+            "execution",
+            "event_end"
+          ],
+          "same_trace_id": true,
+          "decision": {
+            "action": "girar_avatar",
+            "layer": "motor",
+            "valid": true
+          },
+          "execution": {
+            "error_type": null,
+            "status": "pending"
+          }
+        },
+        {
+          "writer": "false",
+          "output": {
+            "action": "girar_avatar",
+            "parameters": {
+              "grados": 90
+            }
+          },
+          "escaped": null,
+          "calls": {
+            "diagnosis": 1,
+            "process": 1,
+            "fuzzy": 0,
+            "reasoning": 1,
+            "execution": 1
+          },
+          "stages": [
+            "event_start",
+            "triage",
+            "memory",
+            "decision",
+            "execution",
+            "event_end"
+          ],
+          "same_trace_id": true,
+          "decision": {
+            "action": "girar_avatar",
+            "layer": "motor",
+            "valid": true
+          },
+          "execution": {
+            "error_type": null,
+            "status": "pending"
+          }
+        },
+        {
+          "writer": "raise",
+          "output": {
+            "action": "girar_avatar",
+            "parameters": {
+              "grados": 90
+            }
+          },
+          "escaped": null,
+          "calls": {
+            "diagnosis": 1,
+            "process": 1,
+            "fuzzy": 0,
+            "reasoning": 1,
+            "execution": 1
+          },
+          "stages": [
+            "event_start",
+            "triage",
+            "memory",
+            "decision",
+            "execution",
+            "event_end"
+          ],
+          "same_trace_id": true,
+          "decision": {
+            "action": "girar_avatar",
+            "layer": "motor",
+            "valid": true
+          },
+          "execution": {
+            "error_type": null,
+            "status": "pending"
+          }
+        }
+      ]
+    },
+    {
+      "case": "parser_failure",
+      "writer_invariance": true,
+      "runs": [
+        {
+          "writer": "ok",
+          "output": null,
+          "escaped": "RuntimeError",
+          "calls": {
+            "diagnosis": 1,
+            "process": 0,
+            "fuzzy": 0,
+            "reasoning": 0,
+            "execution": 0
+          },
+          "stages": [
+            "event_start",
+            "triage",
+            "memory",
+            "error",
+            "event_end"
+          ],
+          "same_trace_id": true,
+          "decision": null,
+          "execution": null
+        },
+        {
+          "writer": "false",
+          "output": null,
+          "escaped": "RuntimeError",
+          "calls": {
+            "diagnosis": 1,
+            "process": 0,
+            "fuzzy": 0,
+            "reasoning": 0,
+            "execution": 0
+          },
+          "stages": [
+            "event_start",
+            "triage",
+            "memory",
+            "error",
+            "event_end"
+          ],
+          "same_trace_id": true,
+          "decision": null,
+          "execution": null
+        },
+        {
+          "writer": "raise",
+          "output": null,
+          "escaped": "RuntimeError",
+          "calls": {
+            "diagnosis": 1,
+            "process": 0,
+            "fuzzy": 0,
+            "reasoning": 0,
+            "execution": 0
+          },
+          "stages": [
+            "event_start",
+            "triage",
+            "memory",
+            "error",
+            "event_end"
+          ],
+          "same_trace_id": true,
+          "decision": null,
+          "execution": null
+        }
+      ]
+    }
+  ],
+  "integrity": {
+    "protected_hashes": {
+      "ai_engine/motor_engine.py": "BAF7810F938EBBFEDC08236F8BDD3A80B4EFA96B35356BFE5A03A09BE8E28386",
+      "ai_engine/motor_resolution.py": "AF00D2D0AE908B0855D271743FB1F80A5B13B06D574E6DEADA19D9841DCA0B8B",
+      "ai_engine/motor_schemas.py": "C6ABD68688CB9664D3D9F2928BEA07A1364D00117CE1207FCF53196992FF5F2D",
+      "ai_engine/perception_models.py": "C6E46BD2C5C17EB9C057A8DAD9B0124AC64E7B646CC064DD7699EB93461E395F",
+      "ai_engine/affordance_resolver.py": "D0CE28F914B8A37A3FCF22E7B8B593664AD2133B5448F62A15D2D1293267F7CE",
+      "ai_engine/fuzzy_object_resolver.py": "72BADD2ABB4E4F79A9B912A65054C35E9067CD176B0CDF41A3975616893DE375",
+      "ai_engine/learned_alias_candidates.py": "377BAF846C1162994CB223C8CEEE7DA4812214C8879B061FE7D8343E6E497388",
+      "ai_engine/triage_router.py": "B81FA7D238EDBDA0A46AD359E4F51C307F3A63CE2E040A5B86834EA4C515E2F7",
+      "core/orchestrator.py": "6810A591295BE1B0E4041683543335F7219C124DAD84F9C0FEFC2AEE39D79AC3",
+      "core/audit_trace.py": "393AAFC2A69889E384EA8DD90FAFA15378A11485612A9FB956BE17B24F113918",
+      "core/audit_writer.py": "2C6B3A86B8E1C5E3D58415259925069B9B3309773CAE856E702C3C9E4753872F",
+      "memory/memory_manager.py": "62BD5A0436689387AA27E853734B0E7EE285C5E1F54BAFB48C92134FFB033579",
+      "unity_client/LazzaroAgent.cs": "895647B3BB92079735B3C1C7609D4A52CA9A376744E87AB043E2F4731437070E",
+      "unity_client/MovementController.cs": "26ACCE97E66B52F74FE671BC742E15F25CE19370238A56BB51E33DA8CD7BD7B9",
+      "tools/executor.py": "A2D5E07356C8378BCA4BE996FE928FDDB87C3D750B74FD688A63299751195940",
+      "lazzaro_data/triage_model_intent.joblib": "EF5712BF60B5AF6DCBBC6067511442EA8F6497DE4544BA73CA96C1350BCD267C",
+      "lazzaro_data/triage_model_route.joblib": "9A543B4E3823C8A2AAB4E6581EB8AAF1DEEC694EAAD6519939635CA907B80BB9",
+      "cvs_entrenamiento_final_finaloso_finalisimo_v2_v1/dataset_shingon.csv": "01A07A541E9D86F672AD63976803EBFF370D1C8D0CD1A1C229EAD82F289CD03E",
+      "lazzaro_data/644d5fee-fd11-4187-a03b-37c6b2ade6de/data_level0.bin": "02DD64FFD2DFFBDBFE5F9600798E3C96AA392B3F1D306510CFA4F254A77BF659",
+      "lazzaro_data/644d5fee-fd11-4187-a03b-37c6b2ade6de/length.bin": "CA9905E27DA718E079150D7B929D337B85D7E6B3D0021C8A0E8B41C7362D6E0A",
+      "lazzaro_data/chroma.sqlite3": "884E69923890C2470819E32939F60387C68FCF6C80300688A77364A7C8454363"
+    },
+    "protected_unchanged": true,
+    "blocked_operations": [],
+    "write_attempts": [],
+    "physical_execution": false,
+    "network": false,
+    "real_alias_persistence": false,
+    "status": "PASS_OBSERVATIONS_NOT_SAFETY",
+    "group_executed": "all"
+  },
+  "integrity_after_audit_assertions": {
+    "protected_hashes": {
+      "ai_engine/motor_engine.py": "BAF7810F938EBBFEDC08236F8BDD3A80B4EFA96B35356BFE5A03A09BE8E28386",
+      "ai_engine/motor_resolution.py": "AF00D2D0AE908B0855D271743FB1F80A5B13B06D574E6DEADA19D9841DCA0B8B",
+      "ai_engine/motor_schemas.py": "C6ABD68688CB9664D3D9F2928BEA07A1364D00117CE1207FCF53196992FF5F2D",
+      "ai_engine/perception_models.py": "C6E46BD2C5C17EB9C057A8DAD9B0124AC64E7B646CC064DD7699EB93461E395F",
+      "ai_engine/affordance_resolver.py": "D0CE28F914B8A37A3FCF22E7B8B593664AD2133B5448F62A15D2D1293267F7CE",
+      "ai_engine/fuzzy_object_resolver.py": "72BADD2ABB4E4F79A9B912A65054C35E9067CD176B0CDF41A3975616893DE375",
+      "ai_engine/learned_alias_candidates.py": "377BAF846C1162994CB223C8CEEE7DA4812214C8879B061FE7D8343E6E497388",
+      "ai_engine/triage_router.py": "B81FA7D238EDBDA0A46AD359E4F51C307F3A63CE2E040A5B86834EA4C515E2F7",
+      "core/orchestrator.py": "6810A591295BE1B0E4041683543335F7219C124DAD84F9C0FEFC2AEE39D79AC3",
+      "core/audit_trace.py": "393AAFC2A69889E384EA8DD90FAFA15378A11485612A9FB956BE17B24F113918",
+      "core/audit_writer.py": "2C6B3A86B8E1C5E3D58415259925069B9B3309773CAE856E702C3C9E4753872F",
+      "memory/memory_manager.py": "62BD5A0436689387AA27E853734B0E7EE285C5E1F54BAFB48C92134FFB033579",
+      "unity_client/LazzaroAgent.cs": "895647B3BB92079735B3C1C7609D4A52CA9A376744E87AB043E2F4731437070E",
+      "unity_client/MovementController.cs": "26ACCE97E66B52F74FE671BC742E15F25CE19370238A56BB51E33DA8CD7BD7B9",
+      "tools/executor.py": "A2D5E07356C8378BCA4BE996FE928FDDB87C3D750B74FD688A63299751195940",
+      "lazzaro_data/triage_model_intent.joblib": "EF5712BF60B5AF6DCBBC6067511442EA8F6497DE4544BA73CA96C1350BCD267C",
+      "lazzaro_data/triage_model_route.joblib": "9A543B4E3823C8A2AAB4E6581EB8AAF1DEEC694EAAD6519939635CA907B80BB9",
+      "cvs_entrenamiento_final_finaloso_finalisimo_v2_v1/dataset_shingon.csv": "01A07A541E9D86F672AD63976803EBFF370D1C8D0CD1A1C229EAD82F289CD03E",
+      "lazzaro_data/644d5fee-fd11-4187-a03b-37c6b2ade6de/data_level0.bin": "02DD64FFD2DFFBDBFE5F9600798E3C96AA392B3F1D306510CFA4F254A77BF659",
+      "lazzaro_data/644d5fee-fd11-4187-a03b-37c6b2ade6de/length.bin": "CA9905E27DA718E079150D7B929D337B85D7E6B3D0021C8A0E8B41C7362D6E0A",
+      "lazzaro_data/chroma.sqlite3": "884E69923890C2470819E32939F60387C68FCF6C80300688A77364A7C8454363"
+    },
+    "protected_unchanged": true,
+    "blocked_operations": [],
+    "write_attempts": [],
+    "physical_execution": false,
+    "network": false,
+    "real_alias_persistence": false,
+    "status": "PASS_OBSERVATIONS_NOT_SAFETY",
+    "group_executed": "audit"
+  },
+  "invocations": [
+    "python -B docs/audit/probes/capa1_motor_completion_probe.py",
+    "python -B docs/audit/probes/capa1_motor_completion_probe.py --group audit (explicit count/valid/status assertions)"
+  ]
+}

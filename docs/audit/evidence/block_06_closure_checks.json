@@ -1,0 +1,136 @@
+{
+  "date": "2026-09-03",
+  "scope": "FASE 2 BLOQUE 6 audit closure only",
+  "checkpoint_commit": "f87dca2626bb05660923e13dcfdfa3c9493e5993",
+  "state": "CERRADO — AUDITORIA COMPLETA / 2 P0 OPEN",
+  "no_functional_fixes": true,
+  "no_block_7": true,
+  "no_push": true,
+  "no_amend": true,
+  "findings": {
+    "p0": 2,
+    "p1": 2,
+    "p2": 3,
+    "p3": 0,
+    "own": 4,
+    "inherited_or_historical": 3,
+    "all_open": true
+  },
+  "evidence_reused": {
+    "parameter_cases": 249,
+    "perception_checks": 20,
+    "reasoning_cases": 8,
+    "resolution_cases_preserved": 9
+  },
+  "completion": {
+    "command": "python -B docs/audit/probes/capa1_motor_completion_probe.py",
+    "exit_code": 0,
+    "groups": {
+      "resolution_recovered": 2,
+      "affordances": 9,
+      "providers": 6,
+      "sensitivity": 9,
+      "failures": 7,
+      "determinism_cases": 5,
+      "determinism_runs_per_case": 10,
+      "audit_cases": 5,
+      "audit_writer_modes_per_case": 3
+    },
+    "blocked_operations": [],
+    "write_attempts": [],
+    "physical_execution": false,
+    "network": false,
+    "real_alias_persistence": false,
+    "concurrency_stress": "Not justified: no evolving state owned by Motor; external mutable inputs/providers not certified."
+  },
+  "audit_assertions": {
+    "command": "python -B docs/audit/probes/capa1_motor_completion_probe.py --group audit",
+    "exit_code": 0,
+    "turns": 15,
+    "result": "PASS explicit valid/status/call-count assertions",
+    "writer_modes": [
+      "ok",
+      "false",
+      "raise"
+    ],
+    "source_sha256": "5EEB6C4D795284E8F63995A41FFB7283F325B9C87C554F45938A68590EDCF265"
+  },
+  "regression": {
+    "command": "python -B docs/audit/probes/regression_probe.py",
+    "exit_code": 0,
+    "expected_modules": 25,
+    "executed_test_units": 161,
+    "pass": 160,
+    "known_xfail": 1,
+    "unexpected_fail": 0,
+    "known_failure": "memory.test_chromadb_flow.test_eliminacion",
+    "known_failure_type": "AssertionError",
+    "import_failures": [],
+    "fatal": null,
+    "cleanup_error": null,
+    "elapsed_seconds": 39.89,
+    "suite_gate": "PASS",
+    "isolation_gate": "PASS",
+    "gate": "PASS",
+    "active_chroma_sha256_unchanged": true,
+    "barriers": {
+      "isolated_persistent_clients": 11,
+      "internal_socketpair_connections": 2,
+      "subprocess_blocked": 3,
+      "blocked_platform_introspection": 3
+    },
+    "unexplained_blocked_attempts": {},
+    "limits": [
+      "Temporary test Chroma databases only; active database never opened by regression.",
+      "Internal stdlib socketpairs are not HTTP/client transport.",
+      "Python hooks are not an OS firewall for native extensions.",
+      "Known platform introspection subprocesses remained blocked."
+    ]
+  },
+  "compileall": {
+    "exit_code": 0,
+    "targets": [
+      "ai_engine",
+      "core",
+      "memory",
+      "api",
+      "tools",
+      "terminal_client",
+      "docs/audit/probes/capa1_motor_deep_probe.py",
+      "docs/audit/probes/capa1_motor_continuation_probe.py",
+      "docs/audit/probes/capa1_motor_remaining_probe.py",
+      "docs/audit/probes/capa1_motor_completion_probe.py"
+    ],
+    "bytecode_destination": "C:/Users/JAIRO/AppData/Local/Temp/lazzaro-block6-compile-4a966da40efa41fba7f942cc01bc6591",
+    "runtime_code_executed": false
+  },
+  "integrity": {
+    "protected_files": 21,
+    "before_after_equal": true,
+    "after_regression_and_compile_equal": true,
+    "hash_values": "block_06_completion.json -> integrity.protected_hashes",
+    "json_evidence_valid": true,
+    "git_diff_check": "PASS",
+    "git_cached_diff_check": "PASS (six documentation/probe/evidence files checked before this administrative summary)",
+    "line_endings": "Git LF-to-CRLF warnings only; trailing blank whitespace found during review and corrected before PASS."
+  },
+  "git": {
+    "branch": "codex/stabilization/pre-capa2",
+    "new_commit_only": true,
+    "allowed_commit_paths": [
+      "docs/audit/block_06_capa1_motor_grounding.md",
+      "docs/audit/probes/capa1_motor_continuation_probe.py",
+      "docs/audit/probes/capa1_motor_remaining_probe.py",
+      "docs/audit/probes/capa1_motor_completion_probe.py",
+      "docs/audit/evidence/block_06_remaining_checkpoint.json",
+      "docs/audit/evidence/block_06_completion.json",
+      "docs/audit/evidence/block_06_closure_checks.json"
+    ],
+    "preexisting_runtime_changes_excluded": [
+      "lazzaro_data/644d5fee-fd11-4187-a03b-37c6b2ade6de/data_level0.bin",
+      "lazzaro_data/644d5fee-fd11-4187-a03b-37c6b2ade6de/length.bin",
+      "lazzaro_data/chroma.sqlite3"
+    ],
+    "commit_hash_location": "Final user response and git log; a commit cannot embed its own hash."
+  }
+}

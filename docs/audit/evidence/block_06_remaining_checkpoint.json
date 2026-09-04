@@ -1,0 +1,5631 @@
+{
+  "checkpoint": "f87dca2626bb05660923e13dcfdfa3c9493e5993",
+  "gate": "STOP_WRONG_TARGET",
+  "source": "Captured stdout from python -B docs/audit/probes/capa1_motor_remaining_probe.py; exit 0.",
+  "parameters": {
+    "columns": [
+      "schema",
+      "field",
+      "input",
+      "schema_status",
+      "schema_value",
+      "action",
+      "valid",
+      "value",
+      "json_value",
+      "changed_on_serialization",
+      "dispatch"
+    ],
+    "rows": [
+      [
+        "navegar_a_objeto",
+        "nombre_objeto",
+        "+Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_objeto",
+        "nombre_objeto",
+        "-Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_objeto",
+        "nombre_objeto",
+        "-1",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_objeto",
+        "nombre_objeto",
+        "1",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_objeto",
+        "nombre_objeto",
+        "1e9",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_objeto",
+        "nombre_objeto",
+        "True",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_objeto",
+        "nombre_objeto",
+        "False",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_objeto",
+        "nombre_objeto",
+        "None",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_objeto",
+        "nombre_objeto",
+        "\"1\"",
+        "accepted",
+        "1",
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_objeto",
+        "nombre_objeto",
+        "wrong_dict",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_objeto",
+        "nombre_objeto",
+        "missing",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_objeto",
+        "distancia",
+        "+Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_objeto",
+        "distancia",
+        "-Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_objeto",
+        "distancia",
+        "-1",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_objeto",
+        "distancia",
+        "1",
+        "coerced_or_default",
+        1,
+        "navegar_a_objeto",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_objeto",
+        "distancia",
+        "1e9",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_objeto",
+        "distancia",
+        "True",
+        "coerced_or_default",
+        1,
+        "navegar_a_objeto",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_objeto",
+        "distancia",
+        "False",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_objeto",
+        "distancia",
+        "None",
+        "accepted",
+        null,
+        "navegar_a_objeto",
+        true,
+        "<absent>",
+        "<absent>",
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_objeto",
+        "distancia",
+        "\"1\"",
+        "coerced_or_default",
+        1,
+        "navegar_a_objeto",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_objeto",
+        "distancia",
+        "wrong_dict",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_objeto",
+        "distancia",
+        "missing",
+        "coerced_or_default",
+        null,
+        "navegar_a_objeto",
+        true,
+        "<absent>",
+        "<absent>",
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_objeto",
+        null,
+        "all_missing",
+        null,
+        null,
+        "none",
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        "navegar_a_objeto",
+        null,
+        "extra_field",
+        null,
+        null,
+        "none",
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        "navegar_a_posicion",
+        "x",
+        "+Inf",
+        "accepted",
+        "+Inf",
+        "navegar_a_posicion",
+        true,
+        "+Inf",
+        null,
+        true,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "x",
+        "-Inf",
+        "accepted",
+        "-Inf",
+        "navegar_a_posicion",
+        true,
+        "-Inf",
+        null,
+        true,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "x",
+        "-1",
+        "coerced_or_default",
+        -1,
+        "navegar_a_posicion",
+        true,
+        -1,
+        -1,
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "x",
+        "1",
+        "coerced_or_default",
+        1,
+        "navegar_a_posicion",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "x",
+        "1e9",
+        "accepted",
+        1000000000,
+        "navegar_a_posicion",
+        true,
+        1000000000,
+        1000000000,
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "x",
+        "True",
+        "coerced_or_default",
+        1,
+        "navegar_a_posicion",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "x",
+        "False",
+        "coerced_or_default",
+        0,
+        "navegar_a_posicion",
+        true,
+        0,
+        0,
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "x",
+        "None",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_posicion",
+        "x",
+        "\"1\"",
+        "coerced_or_default",
+        1,
+        "navegar_a_posicion",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "x",
+        "wrong_dict",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_posicion",
+        "x",
+        "missing",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_posicion",
+        "y",
+        "+Inf",
+        "accepted",
+        "+Inf",
+        "navegar_a_posicion",
+        true,
+        "+Inf",
+        null,
+        true,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "y",
+        "-Inf",
+        "accepted",
+        "-Inf",
+        "navegar_a_posicion",
+        true,
+        "-Inf",
+        null,
+        true,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "y",
+        "-1",
+        "coerced_or_default",
+        -1,
+        "navegar_a_posicion",
+        true,
+        -1,
+        -1,
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "y",
+        "1",
+        "coerced_or_default",
+        1,
+        "navegar_a_posicion",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "y",
+        "1e9",
+        "accepted",
+        1000000000,
+        "navegar_a_posicion",
+        true,
+        1000000000,
+        1000000000,
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "y",
+        "True",
+        "coerced_or_default",
+        1,
+        "navegar_a_posicion",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "y",
+        "False",
+        "coerced_or_default",
+        0,
+        "navegar_a_posicion",
+        true,
+        0,
+        0,
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "y",
+        "None",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_posicion",
+        "y",
+        "\"1\"",
+        "coerced_or_default",
+        1,
+        "navegar_a_posicion",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "y",
+        "wrong_dict",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_posicion",
+        "y",
+        "missing",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_posicion",
+        "z",
+        "+Inf",
+        "accepted",
+        "+Inf",
+        "navegar_a_posicion",
+        true,
+        "+Inf",
+        null,
+        true,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "z",
+        "-Inf",
+        "accepted",
+        "-Inf",
+        "navegar_a_posicion",
+        true,
+        "-Inf",
+        null,
+        true,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "z",
+        "-1",
+        "coerced_or_default",
+        -1,
+        "navegar_a_posicion",
+        true,
+        -1,
+        -1,
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "z",
+        "1",
+        "coerced_or_default",
+        1,
+        "navegar_a_posicion",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "z",
+        "1e9",
+        "accepted",
+        1000000000,
+        "navegar_a_posicion",
+        true,
+        1000000000,
+        1000000000,
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "z",
+        "True",
+        "coerced_or_default",
+        1,
+        "navegar_a_posicion",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "z",
+        "False",
+        "coerced_or_default",
+        0,
+        "navegar_a_posicion",
+        true,
+        0,
+        0,
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "z",
+        "None",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_posicion",
+        "z",
+        "\"1\"",
+        "coerced_or_default",
+        1,
+        "navegar_a_posicion",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "navegar_a_posicion",
+        "z",
+        "wrong_dict",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_posicion",
+        "z",
+        "missing",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "navegar_a_posicion",
+        null,
+        "all_missing",
+        null,
+        null,
+        "none",
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        "navegar_a_posicion",
+        null,
+        "extra_field",
+        null,
+        null,
+        "none",
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        "interactuar_objeto_3d",
+        "nombre_objeto",
+        "+Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "interactuar_objeto_3d",
+        "nombre_objeto",
+        "-Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "interactuar_objeto_3d",
+        "nombre_objeto",
+        "-1",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "interactuar_objeto_3d",
+        "nombre_objeto",
+        "1",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "interactuar_objeto_3d",
+        "nombre_objeto",
+        "1e9",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "interactuar_objeto_3d",
+        "nombre_objeto",
+        "True",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "interactuar_objeto_3d",
+        "nombre_objeto",
+        "False",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "interactuar_objeto_3d",
+        "nombre_objeto",
+        "None",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "interactuar_objeto_3d",
+        "nombre_objeto",
+        "\"1\"",
+        "accepted",
+        "1",
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "interactuar_objeto_3d",
+        "nombre_objeto",
+        "wrong_dict",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "interactuar_objeto_3d",
+        "nombre_objeto",
+        "missing",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "interactuar_objeto_3d",
+        "tipo_accion",
+        "+Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "interactuar_objeto_3d",
+        "tipo_accion",
+        "-Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "interactuar_objeto_3d",
+        "tipo_accion",
+        "-1",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "interactuar_objeto_3d",
+        "tipo_accion",
+        "1",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "interactuar_objeto_3d",
+        "tipo_accion",
+        "1e9",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "interactuar_objeto_3d",
+        "tipo_accion",
+        "True",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "interactuar_objeto_3d",
+        "tipo_accion",
+        "False",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "interactuar_objeto_3d",
+        "tipo_accion",
+        "None",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "interactuar_objeto_3d",
+        "tipo_accion",
+        "\"1\"",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "interactuar_objeto_3d",
+        "tipo_accion",
+        "wrong_dict",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "interactuar_objeto_3d",
+        "tipo_accion",
+        "missing",
+        "coerced_or_default",
+        "mirar",
+        "interactuar_objeto_3d",
+        true,
+        "mirar",
+        "mirar",
+        false,
+        "despachada"
+      ],
+      [
+        "interactuar_objeto_3d",
+        null,
+        "all_missing",
+        null,
+        null,
+        "none",
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        "interactuar_objeto_3d",
+        null,
+        "extra_field",
+        null,
+        null,
+        "none",
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        "agarrar_objeto",
+        "nombre_objeto",
+        "+Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "agarrar_objeto",
+        "nombre_objeto",
+        "-Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "agarrar_objeto",
+        "nombre_objeto",
+        "-1",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "agarrar_objeto",
+        "nombre_objeto",
+        "1",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "agarrar_objeto",
+        "nombre_objeto",
+        "1e9",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "agarrar_objeto",
+        "nombre_objeto",
+        "True",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "agarrar_objeto",
+        "nombre_objeto",
+        "False",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "agarrar_objeto",
+        "nombre_objeto",
+        "None",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "agarrar_objeto",
+        "nombre_objeto",
+        "\"1\"",
+        "accepted",
+        "1",
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "agarrar_objeto",
+        "nombre_objeto",
+        "wrong_dict",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "agarrar_objeto",
+        "nombre_objeto",
+        "missing",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "agarrar_objeto",
+        null,
+        "all_missing",
+        null,
+        null,
+        "none",
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        "agarrar_objeto",
+        null,
+        "extra_field",
+        null,
+        null,
+        "none",
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        "soltar_objeto",
+        "fuerza_lanzamiento",
+        "+Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "soltar_objeto",
+        "fuerza_lanzamiento",
+        "-Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "soltar_objeto",
+        "fuerza_lanzamiento",
+        "-1",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "soltar_objeto",
+        "fuerza_lanzamiento",
+        "1",
+        "coerced_or_default",
+        1,
+        "soltar_objeto",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "soltar_objeto",
+        "fuerza_lanzamiento",
+        "1e9",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "soltar_objeto",
+        "fuerza_lanzamiento",
+        "True",
+        "coerced_or_default",
+        1,
+        "soltar_objeto",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "soltar_objeto",
+        "fuerza_lanzamiento",
+        "False",
+        "coerced_or_default",
+        0,
+        "soltar_objeto",
+        true,
+        0,
+        0,
+        false,
+        "despachada"
+      ],
+      [
+        "soltar_objeto",
+        "fuerza_lanzamiento",
+        "None",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "soltar_objeto",
+        "fuerza_lanzamiento",
+        "\"1\"",
+        "coerced_or_default",
+        1,
+        "soltar_objeto",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "soltar_objeto",
+        "fuerza_lanzamiento",
+        "wrong_dict",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "soltar_objeto",
+        "fuerza_lanzamiento",
+        "missing",
+        "coerced_or_default",
+        0,
+        "soltar_objeto",
+        true,
+        0,
+        0,
+        false,
+        "despachada"
+      ],
+      [
+        "soltar_objeto",
+        null,
+        "all_missing",
+        null,
+        null,
+        "soltar_objeto",
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        "soltar_objeto",
+        null,
+        "extra_field",
+        null,
+        null,
+        "none",
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        "alejarse_de_objeto",
+        "nombre_objeto",
+        "+Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "alejarse_de_objeto",
+        "nombre_objeto",
+        "-Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "alejarse_de_objeto",
+        "nombre_objeto",
+        "-1",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "alejarse_de_objeto",
+        "nombre_objeto",
+        "1",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "alejarse_de_objeto",
+        "nombre_objeto",
+        "1e9",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "alejarse_de_objeto",
+        "nombre_objeto",
+        "True",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "alejarse_de_objeto",
+        "nombre_objeto",
+        "False",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "alejarse_de_objeto",
+        "nombre_objeto",
+        "None",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "alejarse_de_objeto",
+        "nombre_objeto",
+        "\"1\"",
+        "accepted",
+        "1",
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "alejarse_de_objeto",
+        "nombre_objeto",
+        "wrong_dict",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "alejarse_de_objeto",
+        "nombre_objeto",
+        "missing",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "alejarse_de_objeto",
+        "distancia",
+        "+Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "alejarse_de_objeto",
+        "distancia",
+        "-Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "alejarse_de_objeto",
+        "distancia",
+        "-1",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "alejarse_de_objeto",
+        "distancia",
+        "1",
+        "coerced_or_default",
+        1,
+        "alejarse_de_objeto",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "alejarse_de_objeto",
+        "distancia",
+        "1e9",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "alejarse_de_objeto",
+        "distancia",
+        "True",
+        "coerced_or_default",
+        1,
+        "alejarse_de_objeto",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "alejarse_de_objeto",
+        "distancia",
+        "False",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "alejarse_de_objeto",
+        "distancia",
+        "None",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "alejarse_de_objeto",
+        "distancia",
+        "\"1\"",
+        "coerced_or_default",
+        1,
+        "alejarse_de_objeto",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "alejarse_de_objeto",
+        "distancia",
+        "wrong_dict",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "alejarse_de_objeto",
+        "distancia",
+        "missing",
+        "coerced_or_default",
+        2,
+        "alejarse_de_objeto",
+        true,
+        2,
+        2,
+        false,
+        "despachada"
+      ],
+      [
+        "alejarse_de_objeto",
+        null,
+        "all_missing",
+        null,
+        null,
+        "none",
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        "alejarse_de_objeto",
+        null,
+        "extra_field",
+        null,
+        null,
+        "none",
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        "girar_avatar",
+        "grados",
+        "+Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "girar_avatar",
+        "grados",
+        "-Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "girar_avatar",
+        "grados",
+        "-1",
+        "coerced_or_default",
+        -1,
+        "girar_avatar",
+        true,
+        -1,
+        -1,
+        false,
+        "despachada"
+      ],
+      [
+        "girar_avatar",
+        "grados",
+        "1",
+        "coerced_or_default",
+        1,
+        "girar_avatar",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "girar_avatar",
+        "grados",
+        "1e9",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "girar_avatar",
+        "grados",
+        "True",
+        "coerced_or_default",
+        1,
+        "girar_avatar",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "girar_avatar",
+        "grados",
+        "False",
+        "coerced_or_default",
+        0,
+        "girar_avatar",
+        true,
+        0,
+        0,
+        false,
+        "despachada"
+      ],
+      [
+        "girar_avatar",
+        "grados",
+        "None",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "girar_avatar",
+        "grados",
+        "\"1\"",
+        "coerced_or_default",
+        1,
+        "girar_avatar",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "girar_avatar",
+        "grados",
+        "wrong_dict",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "girar_avatar",
+        "grados",
+        "missing",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "girar_avatar",
+        null,
+        "all_missing",
+        null,
+        null,
+        "none",
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        "girar_avatar",
+        null,
+        "extra_field",
+        null,
+        null,
+        "none",
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        "aplicar_fuerza",
+        "nombre_objeto",
+        "+Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "nombre_objeto",
+        "-Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "nombre_objeto",
+        "-1",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "nombre_objeto",
+        "1",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "nombre_objeto",
+        "1e9",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "nombre_objeto",
+        "True",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "nombre_objeto",
+        "False",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "nombre_objeto",
+        "None",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "nombre_objeto",
+        "\"1\"",
+        "accepted",
+        "1",
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "nombre_objeto",
+        "wrong_dict",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "nombre_objeto",
+        "missing",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_x",
+        "+Inf",
+        "accepted",
+        "+Inf",
+        "aplicar_fuerza",
+        true,
+        "+Inf",
+        null,
+        true,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_x",
+        "-Inf",
+        "accepted",
+        "-Inf",
+        "aplicar_fuerza",
+        true,
+        "-Inf",
+        null,
+        true,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_x",
+        "-1",
+        "coerced_or_default",
+        -1,
+        "aplicar_fuerza",
+        true,
+        -1,
+        -1,
+        false,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_x",
+        "1",
+        "coerced_or_default",
+        1,
+        "aplicar_fuerza",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_x",
+        "1e9",
+        "accepted",
+        1000000000,
+        "aplicar_fuerza",
+        true,
+        1000000000,
+        1000000000,
+        false,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_x",
+        "True",
+        "coerced_or_default",
+        1,
+        "aplicar_fuerza",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_x",
+        "False",
+        "coerced_or_default",
+        0,
+        "aplicar_fuerza",
+        true,
+        0,
+        0,
+        false,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_x",
+        "None",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_x",
+        "\"1\"",
+        "coerced_or_default",
+        1,
+        "aplicar_fuerza",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_x",
+        "wrong_dict",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_x",
+        "missing",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_y",
+        "+Inf",
+        "accepted",
+        "+Inf",
+        "aplicar_fuerza",
+        true,
+        "+Inf",
+        null,
+        true,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_y",
+        "-Inf",
+        "accepted",
+        "-Inf",
+        "aplicar_fuerza",
+        true,
+        "-Inf",
+        null,
+        true,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_y",
+        "-1",
+        "coerced_or_default",
+        -1,
+        "aplicar_fuerza",
+        true,
+        -1,
+        -1,
+        false,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_y",
+        "1",
+        "coerced_or_default",
+        1,
+        "aplicar_fuerza",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_y",
+        "1e9",
+        "accepted",
+        1000000000,
+        "aplicar_fuerza",
+        true,
+        1000000000,
+        1000000000,
+        false,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_y",
+        "True",
+        "coerced_or_default",
+        1,
+        "aplicar_fuerza",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_y",
+        "False",
+        "coerced_or_default",
+        0,
+        "aplicar_fuerza",
+        true,
+        0,
+        0,
+        false,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_y",
+        "None",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_y",
+        "\"1\"",
+        "coerced_or_default",
+        1,
+        "aplicar_fuerza",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_y",
+        "wrong_dict",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_y",
+        "missing",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_z",
+        "+Inf",
+        "accepted",
+        "+Inf",
+        "aplicar_fuerza",
+        true,
+        "+Inf",
+        null,
+        true,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_z",
+        "-Inf",
+        "accepted",
+        "-Inf",
+        "aplicar_fuerza",
+        true,
+        "-Inf",
+        null,
+        true,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_z",
+        "-1",
+        "coerced_or_default",
+        -1,
+        "aplicar_fuerza",
+        true,
+        -1,
+        -1,
+        false,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_z",
+        "1",
+        "coerced_or_default",
+        1,
+        "aplicar_fuerza",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_z",
+        "1e9",
+        "accepted",
+        1000000000,
+        "aplicar_fuerza",
+        true,
+        1000000000,
+        1000000000,
+        false,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_z",
+        "True",
+        "coerced_or_default",
+        1,
+        "aplicar_fuerza",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_z",
+        "False",
+        "coerced_or_default",
+        0,
+        "aplicar_fuerza",
+        true,
+        0,
+        0,
+        false,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_z",
+        "None",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_z",
+        "\"1\"",
+        "coerced_or_default",
+        1,
+        "aplicar_fuerza",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_z",
+        "wrong_dict",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "vector_z",
+        "missing",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "fuerza",
+        "+Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "fuerza",
+        "-Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "fuerza",
+        "-1",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "fuerza",
+        "1",
+        "coerced_or_default",
+        1,
+        "aplicar_fuerza",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "fuerza",
+        "1e9",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "fuerza",
+        "True",
+        "coerced_or_default",
+        1,
+        "aplicar_fuerza",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "fuerza",
+        "False",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "fuerza",
+        "None",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "fuerza",
+        "\"1\"",
+        "coerced_or_default",
+        1,
+        "aplicar_fuerza",
+        true,
+        1,
+        1,
+        false,
+        "despachada"
+      ],
+      [
+        "aplicar_fuerza",
+        "fuerza",
+        "wrong_dict",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        "fuerza",
+        "missing",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "aplicar_fuerza",
+        null,
+        "all_missing",
+        null,
+        null,
+        "none",
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        "aplicar_fuerza",
+        null,
+        "extra_field",
+        null,
+        null,
+        "none",
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        "cancelar_tarea",
+        "motivo",
+        "+Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "motivo",
+        "-Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "motivo",
+        "-1",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "motivo",
+        "1",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "motivo",
+        "1e9",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "motivo",
+        "True",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "motivo",
+        "False",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "motivo",
+        "None",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "motivo",
+        "\"1\"",
+        "accepted",
+        "1",
+        "cancelar_tarea",
+        true,
+        "1",
+        "1",
+        false,
+        "despachada"
+      ],
+      [
+        "cancelar_tarea",
+        "motivo",
+        "wrong_dict",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "motivo",
+        "missing",
+        "coerced_or_default",
+        "Solicitud explicita del usuario.",
+        "cancelar_tarea",
+        true,
+        "Solicitud explicita del usuario.",
+        "Solicitud explicita del usuario.",
+        false,
+        "despachada"
+      ],
+      [
+        "cancelar_tarea",
+        "cancelar_movimiento",
+        "+Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "cancelar_movimiento",
+        "-Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "cancelar_movimiento",
+        "-1",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "cancelar_movimiento",
+        "1",
+        "coerced_or_default",
+        true,
+        "cancelar_tarea",
+        true,
+        true,
+        true,
+        false,
+        "despachada"
+      ],
+      [
+        "cancelar_tarea",
+        "cancelar_movimiento",
+        "1e9",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "cancelar_movimiento",
+        "True",
+        "accepted",
+        true,
+        "cancelar_tarea",
+        true,
+        true,
+        true,
+        false,
+        "despachada"
+      ],
+      [
+        "cancelar_tarea",
+        "cancelar_movimiento",
+        "False",
+        "accepted",
+        false,
+        "cancelar_tarea",
+        true,
+        false,
+        false,
+        false,
+        "despachada"
+      ],
+      [
+        "cancelar_tarea",
+        "cancelar_movimiento",
+        "None",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "cancelar_movimiento",
+        "\"1\"",
+        "coerced_or_default",
+        true,
+        "cancelar_tarea",
+        true,
+        true,
+        true,
+        false,
+        "despachada"
+      ],
+      [
+        "cancelar_tarea",
+        "cancelar_movimiento",
+        "wrong_dict",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "cancelar_movimiento",
+        "missing",
+        "coerced_or_default",
+        true,
+        "cancelar_tarea",
+        true,
+        true,
+        true,
+        false,
+        "despachada"
+      ],
+      [
+        "cancelar_tarea",
+        "cancelar_cola",
+        "+Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "cancelar_cola",
+        "-Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "cancelar_cola",
+        "-1",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "cancelar_cola",
+        "1",
+        "coerced_or_default",
+        true,
+        "cancelar_tarea",
+        true,
+        true,
+        true,
+        false,
+        "despachada"
+      ],
+      [
+        "cancelar_tarea",
+        "cancelar_cola",
+        "1e9",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "cancelar_cola",
+        "True",
+        "accepted",
+        true,
+        "cancelar_tarea",
+        true,
+        true,
+        true,
+        false,
+        "despachada"
+      ],
+      [
+        "cancelar_tarea",
+        "cancelar_cola",
+        "False",
+        "accepted",
+        false,
+        "cancelar_tarea",
+        true,
+        false,
+        false,
+        false,
+        "despachada"
+      ],
+      [
+        "cancelar_tarea",
+        "cancelar_cola",
+        "None",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "cancelar_cola",
+        "\"1\"",
+        "coerced_or_default",
+        true,
+        "cancelar_tarea",
+        true,
+        true,
+        true,
+        false,
+        "despachada"
+      ],
+      [
+        "cancelar_tarea",
+        "cancelar_cola",
+        "wrong_dict",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "cancelar_cola",
+        "missing",
+        "coerced_or_default",
+        true,
+        "cancelar_tarea",
+        true,
+        true,
+        true,
+        false,
+        "despachada"
+      ],
+      [
+        "cancelar_tarea",
+        "texto_confirmacion",
+        "+Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "texto_confirmacion",
+        "-Inf",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "texto_confirmacion",
+        "-1",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "texto_confirmacion",
+        "1",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "texto_confirmacion",
+        "1e9",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "texto_confirmacion",
+        "True",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "texto_confirmacion",
+        "False",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "texto_confirmacion",
+        "None",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "texto_confirmacion",
+        "\"1\"",
+        "accepted",
+        "1",
+        "cancelar_tarea",
+        true,
+        "1",
+        "1",
+        false,
+        "despachada"
+      ],
+      [
+        "cancelar_tarea",
+        "texto_confirmacion",
+        "wrong_dict",
+        "rejected",
+        null,
+        "none",
+        false,
+        "<absent>",
+        "<absent>",
+        false,
+        "sin_accion"
+      ],
+      [
+        "cancelar_tarea",
+        "texto_confirmacion",
+        "missing",
+        "coerced_or_default",
+        "De acuerdo, cancelo la tarea actual.",
+        "cancelar_tarea",
+        true,
+        "De acuerdo, cancelo la tarea actual.",
+        "De acuerdo, cancelo la tarea actual.",
+        false,
+        "despachada"
+      ],
+      [
+        "cancelar_tarea",
+        null,
+        "all_missing",
+        null,
+        null,
+        "cancelar_tarea",
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      [
+        "cancelar_tarea",
+        null,
+        "extra_field",
+        null,
+        null,
+        "none",
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    ]
+  },
+  "perception": [
+    {
+      "case": "none",
+      "objects": [],
+      "raw_is_input": true
+    },
+    {
+      "case": "empty",
+      "objects": [],
+      "raw_is_input": true
+    },
+    {
+      "case": "empty_snapshot",
+      "objects": [],
+      "raw_is_input": true
+    },
+    {
+      "case": "malformed_list",
+      "objects": [],
+      "raw_is_input": true
+    },
+    {
+      "case": "malformed_objects",
+      "objects": [],
+      "raw_is_input": true
+    },
+    {
+      "case": "no_id",
+      "objects": [
+        {
+          "id": "Cube",
+          "display_name": "Cube",
+          "aliases": [
+            "Cube"
+          ],
+          "position": null,
+          "screen_position": null,
+          "distance": null,
+          "affordances": [],
+          "source": "unity",
+          "confidence": 1
+        }
+      ],
+      "raw_is_input": true
+    },
+    {
+      "case": "no_name",
+      "objects": [
+        {
+          "id": "ID_ONLY",
+          "display_name": "ID_ONLY",
+          "aliases": [
+            "ID_ONLY"
+          ],
+          "position": null,
+          "screen_position": null,
+          "distance": null,
+          "affordances": [],
+          "source": "unity",
+          "confidence": 1
+        }
+      ],
+      "raw_is_input": true
+    },
+    {
+      "case": "object_id_only",
+      "objects": [],
+      "raw_is_input": true
+    },
+    {
+      "case": "duplicate_ids",
+      "objects": [
+        {
+          "id": "same",
+          "display_name": "red",
+          "aliases": [
+            "red"
+          ],
+          "position": null,
+          "screen_position": null,
+          "distance": null,
+          "affordances": [],
+          "source": "unity",
+          "confidence": 1
+        },
+        {
+          "id": "same",
+          "display_name": "blue",
+          "aliases": [
+            "blue"
+          ],
+          "position": null,
+          "screen_position": null,
+          "distance": null,
+          "affordances": [],
+          "source": "unity",
+          "confidence": 1
+        }
+      ],
+      "raw_is_input": true
+    },
+    {
+      "case": "duplicate_names",
+      "objects": [
+        {
+          "id": "A",
+          "display_name": "Cube",
+          "aliases": [
+            "Cube"
+          ],
+          "position": null,
+          "screen_position": null,
+          "distance": null,
+          "affordances": [],
+          "source": "unity",
+          "confidence": 1
+        },
+        {
+          "id": "B",
+          "display_name": "Cube",
+          "aliases": [
+            "Cube"
+          ],
+          "position": null,
+          "screen_position": null,
+          "distance": null,
+          "affordances": [],
+          "source": "unity",
+          "confidence": 1
+        }
+      ],
+      "raw_is_input": true
+    },
+    {
+      "case": "confidence_negative",
+      "objects": [
+        {
+          "id": "Cube",
+          "display_name": "Cube",
+          "aliases": [
+            "Cube"
+          ],
+          "position": null,
+          "screen_position": null,
+          "distance": null,
+          "affordances": [],
+          "source": "unity",
+          "confidence": 0
+        }
+      ],
+      "raw_is_input": true
+    },
+    {
+      "case": "confidence_high",
+      "objects": [
+        {
+          "id": "Cube",
+          "display_name": "Cube",
+          "aliases": [
+            "Cube"
+          ],
+          "position": null,
+          "screen_position": null,
+          "distance": null,
+          "affordances": [],
+          "source": "unity",
+          "confidence": 1
+        }
+      ],
+      "raw_is_input": true
+    },
+    {
+      "case": "confidence_nan",
+      "objects": [
+        {
+          "id": "Cube",
+          "display_name": "Cube",
+          "aliases": [
+            "Cube"
+          ],
+          "position": null,
+          "screen_position": null,
+          "distance": null,
+          "affordances": [],
+          "source": "unity",
+          "confidence": 1
+        }
+      ],
+      "raw_is_input": true
+    },
+    {
+      "case": "position_partial",
+      "objects": [
+        {
+          "id": "Cube",
+          "display_name": "Cube",
+          "aliases": [
+            "Cube"
+          ],
+          "position": null,
+          "screen_position": null,
+          "distance": null,
+          "affordances": [],
+          "source": "unity",
+          "confidence": 1
+        }
+      ],
+      "raw_is_input": true
+    },
+    {
+      "case": "zero_distance",
+      "objects": [
+        {
+          "id": "Cube",
+          "display_name": "Cube",
+          "aliases": [
+            "Cube"
+          ],
+          "position": null,
+          "screen_position": null,
+          "distance": null,
+          "affordances": [],
+          "source": "unity",
+          "confidence": 1
+        }
+      ],
+      "raw_is_input": true
+    },
+    {
+      "case": "field_priority",
+      "objects": [],
+      "raw_is_input": true
+    },
+    {
+      "case": "stale_timestamp",
+      "objects": [
+        {
+          "id": "Cube",
+          "display_name": "Cube",
+          "aliases": [
+            "Cube"
+          ],
+          "position": null,
+          "screen_position": null,
+          "distance": null,
+          "affordances": [],
+          "source": "unity",
+          "confidence": 1
+        }
+      ],
+      "raw_is_input": true
+    },
+    {
+      "case": "mutate_raw_after_normalize",
+      "snapshot": {
+        "id": "Cube",
+        "display_name": "Cube",
+        "aliases": [
+          "Cube",
+          "old"
+        ],
+        "position": {
+          "x": 1,
+          "y": 2,
+          "z": 3
+        },
+        "screen_position": null,
+        "distance": null,
+        "affordances": [],
+        "source": "unity",
+        "confidence": 1
+      },
+      "raw_aliases": [
+        "old",
+        "later"
+      ],
+      "raw_same": true
+    },
+    {
+      "case": "dataclass_reuse",
+      "same_snapshot": true,
+      "same_object": true,
+      "observed_aliases": [
+        "Cube",
+        "old",
+        "shared"
+      ]
+    },
+    {
+      "case": "contract_fields",
+      "snapshot_fields": [
+        "snapshot_id",
+        "objects",
+        "source",
+        "raw",
+        "unknown_affordances"
+      ],
+      "object_fields": [
+        "id",
+        "display_name",
+        "aliases",
+        "position",
+        "screen_position",
+        "distance",
+        "affordances",
+        "source",
+        "confidence"
+      ]
+    }
+  ],
+  "reasoning": [
+    {
+      "case": "A_valid_motor",
+      "action": "girar_avatar",
+      "valid": true,
+      "parameters": {
+        "grados": 90
+      },
+      "dto_json_parameters": {
+        "grados": 90
+      },
+      "dispatch": "despachada",
+      "requires_confirmation": false,
+      "reasoning_calls": 1,
+      "motor_process_calls": 1,
+      "error": null
+    },
+    {
+      "case": "B_unknown_action",
+      "action": "none",
+      "valid": false,
+      "parameters": {},
+      "dto_json_parameters": {},
+      "dispatch": "sin_accion",
+      "requires_confirmation": false,
+      "reasoning_calls": 1,
+      "motor_process_calls": 0,
+      "error": "Herramienta no registrada: motor_inventado"
+    },
+    {
+      "case": "C_nonmotor",
+      "action": "hablar",
+      "valid": true,
+      "parameters": {
+        "texto_a_comunicar": "synthetic"
+      },
+      "dto_json_parameters": {
+        "texto_a_comunicar": "synthetic"
+      },
+      "dispatch": "despachada",
+      "requires_confirmation": false,
+      "reasoning_calls": 1,
+      "motor_process_calls": 0,
+      "error": null
+    },
+    {
+      "case": "D_none",
+      "action": "none",
+      "valid": true,
+      "parameters": {},
+      "dto_json_parameters": {},
+      "dispatch": "sin_accion",
+      "requires_confirmation": false,
+      "reasoning_calls": 1,
+      "motor_process_calls": 0,
+      "error": null
+    },
+    {
+      "case": "E_exception",
+      "action": "none",
+      "valid": false,
+      "parameters": {},
+      "dto_json_parameters": {},
+      "dispatch": "sin_accion",
+      "requires_confirmation": false,
+      "reasoning_calls": 1,
+      "motor_process_calls": 0,
+      "error": "synthetic reasoning error"
+    },
+    {
+      "case": "F_invalid_params",
+      "action": "none",
+      "valid": false,
+      "parameters": {},
+      "dto_json_parameters": {},
+      "dispatch": "sin_accion",
+      "requires_confirmation": false,
+      "reasoning_calls": 1,
+      "motor_process_calls": 1,
+      "error": "Parametros invalidos. Accion bloqueada por Capa 1."
+    },
+    {
+      "case": "G_blocked_diagnosis",
+      "action": "hablar",
+      "valid": true,
+      "parameters": {
+        "texto_a_comunicar": "Ese objeto no permite esa accion."
+      },
+      "dto_json_parameters": {
+        "texto_a_comunicar": "Ese objeto no permite esa accion."
+      },
+      "dispatch": "despachada",
+      "requires_confirmation": false,
+      "reasoning_calls": 0,
+      "motor_process_calls": 0,
+      "error": null,
+      "motor_resolution": {
+        "status": "not_allowed",
+        "action": "agarrar_objeto",
+        "target_id": "Wall",
+        "target_display_name": "Wall",
+        "legacy_nombre_objeto": "Wall",
+        "confidence": 70,
+        "candidates": [
+          {
+            "target_id": "Wall",
+            "display_name": "Wall",
+            "legacy_nombre_objeto": "Wall",
+            "confidence": 70,
+            "score_components": {
+              "name_score": 100,
+              "alias_score": 100,
+              "affordance_score": 0,
+              "context_bonus": 0,
+              "state_context_bonus": 0,
+              "affective_bonus": 0,
+              "risk_penalty": 0,
+              "final_score": 70,
+              "unmatched_descriptor_count": 1
+            },
+            "affordance_decision": {
+              "allowed": false,
+              "status": "not_allowed",
+              "action": "agarrar_objeto",
+              "object_id": "Wall",
+              "display_name": "Wall",
+              "required": [
+                "agarrable"
+              ],
+              "present": [
+                "mirar"
+              ],
+              "missing": [
+                "agarrable"
+              ],
+              "matched": [],
+              "risk_penalty": 0,
+              "reason": "La accion 'agarrar_objeto' no aplica a 'Wall'."
+            },
+            "distance": null,
+            "position": null,
+            "unmatched_descriptors": [
+              "agarra"
+            ],
+            "known_aliases": [
+              "Wall",
+              "pared"
+            ],
+            "reason": "match por name_score"
+          }
+        ],
+        "candidate_correction": null,
+        "reason": "La accion 'agarrar_objeto' no aplica a 'Wall'."
+      },
+      "alias_learning": {
+        "user_query": "agarra la pared",
+        "action": "agarrar_objeto"
+      }
+    },
+    {
+      "case": "G_inferred_blocked_target",
+      "action": "none",
+      "valid": false,
+      "parameters": {},
+      "dto_json_parameters": {},
+      "dispatch": "sin_accion",
+      "requires_confirmation": false,
+      "reasoning_calls": 1,
+      "motor_process_calls": 1,
+      "error": "Resolucion motora 'not_allowed' bloqueo la accion.",
+      "motor_resolution": {
+        "status": "not_allowed",
+        "action": "agarrar_objeto",
+        "target_id": "Wall",
+        "target_display_name": "Wall",
+        "legacy_nombre_objeto": "Wall",
+        "confidence": 70,
+        "candidates": [
+          {
+            "target_id": "Wall",
+            "display_name": "Wall",
+            "legacy_nombre_objeto": "Wall",
+            "confidence": 70,
+            "score_components": {
+              "name_score": 100,
+              "alias_score": 100,
+              "affordance_score": 0,
+              "context_bonus": 0,
+              "state_context_bonus": 0,
+              "affective_bonus": 0,
+              "risk_penalty": 0,
+              "final_score": 70,
+              "unmatched_descriptor_count": 0
+            },
+            "affordance_decision": {
+              "allowed": false,
+              "status": "not_allowed",
+              "action": "agarrar_objeto",
+              "object_id": "Wall",
+              "display_name": "Wall",
+              "required": [
+                "agarrable"
+              ],
+              "present": [
+                "mirar"
+              ],
+              "missing": [
+                "agarrable"
+              ],
+              "matched": [],
+              "risk_penalty": 0,
+              "reason": "La accion 'agarrar_objeto' no aplica a 'Wall'."
+            },
+            "distance": null,
+            "position": null,
+            "unmatched_descriptors": [],
+            "known_aliases": [
+              "Wall",
+              "pared"
+            ],
+            "reason": "match por name_score"
+          }
+        ],
+        "candidate_correction": null,
+        "reason": "La accion 'agarrar_objeto' no aplica a 'Wall'."
+      },
+      "alias_learning": {
+        "user_query": "request inferido",
+        "action": "agarrar_objeto"
+      }
+    }
+  ],
+  "resolution": [
+    {
+      "case": "two_cubes",
+      "query": "ve al cubo",
+      "visible": [
+        {
+          "id": "Cube_rojo",
+          "display_name": "Cube_rojo",
+          "aliases": [
+            "cubo",
+            "cubo rojo"
+          ],
+          "affordances": [
+            "mirar"
+          ]
+        },
+        {
+          "id": "Cube_azul",
+          "display_name": "Cube_azul",
+          "aliases": [
+            "cubo",
+            "cubo azul"
+          ],
+          "affordances": [
+            "mirar"
+          ]
+        }
+      ],
+      "fuzzy": {
+        "status": "requires_clarification",
+        "target_id": "Cube_rojo",
+        "confidence": 90,
+        "reason": "Candidatos cercanos en score requieren aclaracion.",
+        "candidates": [
+          {
+            "target_id": "Cube_rojo",
+            "display_name": "Cube_rojo",
+            "legacy_nombre_objeto": "Cube_rojo",
+            "confidence": 90,
+            "score_components": {
+              "name_score": 100,
+              "alias_score": 100,
+              "affordance_score": 100,
+              "context_bonus": 0,
+              "state_context_bonus": 0,
+              "affective_bonus": 0,
+              "risk_penalty": 0,
+              "final_score": 90,
+              "unmatched_descriptor_count": 0
+            },
+            "affordance_decision": {
+              "allowed": true,
+              "status": "allowed",
+              "action": "navegar_a_objeto",
+              "object_id": "Cube_rojo",
+              "display_name": "Cube_rojo",
+              "required": [],
+              "present": [
+                "mirar"
+              ],
+              "missing": [],
+              "matched": [],
+              "risk_penalty": 0,
+              "reason": "Affordances compatibles con la accion."
+            },
+            "distance": null,
+            "position": null,
+            "unmatched_descriptors": [],
+            "known_aliases": [
+              "Cube_rojo",
+              "cubo",
+              "cubo rojo"
+            ],
+            "reason": "match por name_score"
+          },
+          {
+            "target_id": "Cube_azul",
+            "display_name": "Cube_azul",
+            "legacy_nombre_objeto": "Cube_azul",
+            "confidence": 90,
+            "score_components": {
+              "name_score": 100,
+              "alias_score": 100,
+              "affordance_score": 100,
+              "context_bonus": 0,
+              "state_context_bonus": 0,
+              "affective_bonus": 0,
+              "risk_penalty": 0,
+              "final_score": 90,
+              "unmatched_descriptor_count": 0
+            },
+            "affordance_decision": {
+              "allowed": true,
+              "status": "allowed",
+              "action": "navegar_a_objeto",
+              "object_id": "Cube_azul",
+              "display_name": "Cube_azul",
+              "required": [],
+              "present": [
+                "mirar"
+              ],
+              "missing": [],
+              "matched": [],
+              "risk_penalty": 0,
+              "reason": "Affordances compatibles con la accion."
+            },
+            "distance": null,
+            "position": null,
+            "unmatched_descriptors": [],
+            "known_aliases": [
+              "Cube_azul",
+              "cubo",
+              "cubo azul"
+            ],
+            "reason": "match por name_score"
+          }
+        ],
+        "candidate_correction": null
+      },
+      "diagnosis": {
+        "estado": "requires_clarification",
+        "accion": "navegar_a_objeto",
+        "parametros": null
+      },
+      "output": {
+        "action": "hablar",
+        "valid": true,
+        "parameters": {
+          "texto_a_comunicar": "Veo Cube_rojo, Cube_azul. Cual quieres?"
+        },
+        "dto_json_parameters": {
+          "texto_a_comunicar": "Veo Cube_rojo, Cube_azul. Cual quieres?"
+        },
+        "dispatch": "despachada",
+        "requires_confirmation": false,
+        "reasoning_calls": 0,
+        "motor_process_calls": 0,
+        "error": null,
+        "motor_resolution": {
+          "status": "requires_clarification",
+          "action": "navegar_a_objeto",
+          "target_id": "Cube_rojo",
+          "target_display_name": "Cube_rojo",
+          "legacy_nombre_objeto": "Cube_rojo",
+          "confidence": 90,
+          "candidates": [
+            {
+              "target_id": "Cube_rojo",
+              "display_name": "Cube_rojo",
+              "legacy_nombre_objeto": "Cube_rojo",
+              "confidence": 90,
+              "score_components": {
+                "name_score": 100,
+                "alias_score": 100,
+                "affordance_score": 100,
+                "context_bonus": 0,
+                "state_context_bonus": 0,
+                "affective_bonus": 0,
+                "risk_penalty": 0,
+                "final_score": 90,
+                "unmatched_descriptor_count": 0
+              },
+              "affordance_decision": {
+                "allowed": true,
+                "status": "allowed",
+                "action": "navegar_a_objeto",
+                "object_id": "Cube_rojo",
+                "display_name": "Cube_rojo",
+                "required": [],
+                "present": [
+                  "mirar"
+                ],
+                "missing": [],
+                "matched": [],
+                "risk_penalty": 0,
+                "reason": "Affordances compatibles con la accion."
+              },
+              "distance": null,
+              "position": null,
+              "unmatched_descriptors": [],
+              "known_aliases": [
+                "Cube_rojo",
+                "cubo",
+                "cubo rojo"
+              ],
+              "reason": "match por name_score"
+            },
+            {
+              "target_id": "Cube_azul",
+              "display_name": "Cube_azul",
+              "legacy_nombre_objeto": "Cube_azul",
+              "confidence": 90,
+              "score_components": {
+                "name_score": 100,
+                "alias_score": 100,
+                "affordance_score": 100,
+                "context_bonus": 0,
+                "state_context_bonus": 0,
+                "affective_bonus": 0,
+                "risk_penalty": 0,
+                "final_score": 90,
+                "unmatched_descriptor_count": 0
+              },
+              "affordance_decision": {
+                "allowed": true,
+                "status": "allowed",
+                "action": "navegar_a_objeto",
+                "object_id": "Cube_azul",
+                "display_name": "Cube_azul",
+                "required": [],
+                "present": [
+                  "mirar"
+                ],
+                "missing": [],
+                "matched": [],
+                "risk_penalty": 0,
+                "reason": "Affordances compatibles con la accion."
+              },
+              "distance": null,
+              "position": null,
+              "unmatched_descriptors": [],
+              "known_aliases": [
+                "Cube_azul",
+                "cubo",
+                "cubo azul"
+              ],
+              "reason": "match por name_score"
+            }
+          ],
+          "candidate_correction": null,
+          "reason": "Candidatos cercanos en score requieren aclaracion."
+        },
+        "alias_learning": {
+          "user_query": "ve al cubo",
+          "action": "navegar_a_objeto"
+        }
+      }
+    },
+    {
+      "case": "exact_id",
+      "query": "ve a Cube_rojo",
+      "visible": [
+        {
+          "id": "Cube_rojo",
+          "display_name": "Cube_rojo",
+          "aliases": [
+            "cubo",
+            "cubo rojo"
+          ],
+          "affordances": [
+            "mirar"
+          ]
+        },
+        {
+          "id": "Cube_azul",
+          "display_name": "Cube_azul",
+          "aliases": [
+            "cubo",
+            "cubo azul"
+          ],
+          "affordances": [
+            "mirar"
+          ]
+        }
+      ],
+      "fuzzy": {
+        "status": "ready",
+        "target_id": "Cube_rojo",
+        "confidence": 90,
+        "reason": "Objeto resuelto con confianza suficiente.",
+        "candidates": [
+          {
+            "target_id": "Cube_rojo",
+            "display_name": "Cube_rojo",
+            "legacy_nombre_objeto": "Cube_rojo",
+            "confidence": 90,
+            "score_components": {
+              "name_score": 100,
+              "alias_score": 100,
+              "affordance_score": 100,
+              "context_bonus": 0,
+              "state_context_bonus": 0,
+              "affective_bonus": 0,
+              "risk_penalty": 0,
+              "final_score": 90,
+              "unmatched_descriptor_count": 0
+            },
+            "affordance_decision": {
+              "allowed": true,
+              "status": "allowed",
+              "action": "navegar_a_objeto",
+              "object_id": "Cube_rojo",
+              "display_name": "Cube_rojo",
+              "required": [],
+              "present": [
+                "mirar"
+              ],
+              "missing": [],
+              "matched": [],
+              "risk_penalty": 0,
+              "reason": "Affordances compatibles con la accion."
+            },
+            "distance": null,
+            "position": null,
+            "unmatched_descriptors": [],
+            "known_aliases": [
+              "Cube_rojo",
+              "cubo",
+              "cubo rojo"
+            ],
+            "reason": "match por name_score"
+          },
+          {
+            "target_id": "Cube_azul",
+            "display_name": "Cube_azul",
+            "legacy_nombre_objeto": "Cube_azul",
+            "confidence": 80.2,
+            "score_components": {
+              "name_score": 86,
+              "alias_score": 86,
+              "affordance_score": 100,
+              "context_bonus": 0,
+              "state_context_bonus": 0,
+              "affective_bonus": 0,
+              "risk_penalty": 0,
+              "final_score": 80.2,
+              "unmatched_descriptor_count": 1
+            },
+            "affordance_decision": {
+              "allowed": true,
+              "status": "allowed",
+              "action": "navegar_a_objeto",
+              "object_id": "Cube_azul",
+              "display_name": "Cube_azul",
+              "required": [],
+              "present": [
+                "mirar"
+              ],
+              "missing": [],
+              "matched": [],
+              "risk_penalty": 0,
+              "reason": "Affordances compatibles con la accion."
+            },
+            "distance": null,
+            "position": null,
+            "unmatched_descriptors": [
+              "rojo"
+            ],
+            "known_aliases": [
+              "Cube_azul",
+              "cubo",
+              "cubo azul"
+            ],
+            "reason": "match por affordance_score"
+          }
+        ],
+        "candidate_correction": null
+      },
+      "diagnosis": {
+        "estado": "lista",
+        "accion": "navegar_a_objeto",
+        "parametros": {
+          "nombre_objeto": "Cube_rojo"
+        }
+      },
+      "output": {
+        "action": "navegar_a_objeto",
+        "valid": true,
+        "parameters": {
+          "nombre_objeto": "Cube_rojo"
+        },
+        "dto_json_parameters": {
+          "nombre_objeto": "Cube_rojo"
+        },
+        "dispatch": "despachada",
+        "requires_confirmation": false,
+        "reasoning_calls": 0,
+        "motor_process_calls": 1,
+        "error": null,
+        "motor_resolution": {
+          "status": "ready",
+          "action": "navegar_a_objeto",
+          "target_id": "Cube_rojo",
+          "target_display_name": "Cube_rojo",
+          "legacy_nombre_objeto": "Cube_rojo",
+          "confidence": 90,
+          "candidates": [
+            {
+              "target_id": "Cube_rojo",
+              "display_name": "Cube_rojo",
+              "legacy_nombre_objeto": "Cube_rojo",
+              "confidence": 90,
+              "score_components": {
+                "name_score": 100,
+                "alias_score": 100,
+                "affordance_score": 100,
+                "context_bonus": 0,
+                "state_context_bonus": 0,
+                "affective_bonus": 0,
+                "risk_penalty": 0,
+                "final_score": 90,
+                "unmatched_descriptor_count": 0
+              },
+              "affordance_decision": {
+                "allowed": true,
+                "status": "allowed",
+                "action": "navegar_a_objeto",
+                "object_id": "Cube_rojo",
+                "display_name": "Cube_rojo",
+                "required": [],
+                "present": [
+                  "mirar"
+                ],
+                "missing": [],
+                "matched": [],
+                "risk_penalty": 0,
+                "reason": "Affordances compatibles con la accion."
+              },
+              "distance": null,
+              "position": null,
+              "unmatched_descriptors": [],
+              "known_aliases": [
+                "Cube_rojo",
+                "cubo",
+                "cubo rojo"
+              ],
+              "reason": "match por name_score"
+            },
+            {
+              "target_id": "Cube_azul",
+              "display_name": "Cube_azul",
+              "legacy_nombre_objeto": "Cube_azul",
+              "confidence": 80.2,
+              "score_components": {
+                "name_score": 86,
+                "alias_score": 86,
+                "affordance_score": 100,
+                "context_bonus": 0,
+                "state_context_bonus": 0,
+                "affective_bonus": 0,
+                "risk_penalty": 0,
+                "final_score": 80.2,
+                "unmatched_descriptor_count": 1
+              },
+              "affordance_decision": {
+                "allowed": true,
+                "status": "allowed",
+                "action": "navegar_a_objeto",
+                "object_id": "Cube_azul",
+                "display_name": "Cube_azul",
+                "required": [],
+                "present": [
+                  "mirar"
+                ],
+                "missing": [],
+                "matched": [],
+                "risk_penalty": 0,
+                "reason": "Affordances compatibles con la accion."
+              },
+              "distance": null,
+              "position": null,
+              "unmatched_descriptors": [
+                "rojo"
+              ],
+              "known_aliases": [
+                "Cube_azul",
+                "cubo",
+                "cubo azul"
+              ],
+              "reason": "match por affordance_score"
+            }
+          ],
+          "candidate_correction": null,
+          "reason": "Objeto resuelto con confianza suficiente."
+        },
+        "alias_learning": {
+          "user_query": "ve a Cube_rojo",
+          "action": "navegar_a_objeto"
+        }
+      }
+    },
+    {
+      "case": "snapshot_alias",
+      "query": "ve a la caja",
+      "visible": [
+        {
+          "id": "Cube_rojo",
+          "display_name": "Cube_rojo",
+          "aliases": [
+            "caja"
+          ],
+          "affordances": [
+            "mirar"
+          ]
+        }
+      ],
+      "fuzzy": {
+        "status": "ready",
+        "target_id": "Cube_rojo",
+        "confidence": 90,
+        "reason": "Objeto resuelto con confianza suficiente.",
+        "candidates": [
+          {
+            "target_id": "Cube_rojo",
+            "display_name": "Cube_rojo",
+            "legacy_nombre_objeto": "Cube_rojo",
+            "confidence": 90,
+            "score_components": {
+              "name_score": 100,
+              "alias_score": 100,
+              "affordance_score": 100,
+              "context_bonus": 0,
+              "state_context_bonus": 0,
+              "affective_bonus": 0,
+              "risk_penalty": 0,
+              "final_score": 90,
+              "unmatched_descriptor_count": 0
+            },
+            "affordance_decision": {
+              "allowed": true,
+              "status": "allowed",
+              "action": "navegar_a_objeto",
+              "object_id": "Cube_rojo",
+              "display_name": "Cube_rojo",
+              "required": [],
+              "present": [
+                "mirar"
+              ],
+              "missing": [],
+              "matched": [],
+              "risk_penalty": 0,
+              "reason": "Affordances compatibles con la accion."
+            },
+            "distance": null,
+            "position": null,
+            "unmatched_descriptors": [],
+            "known_aliases": [
+              "Cube_rojo",
+              "caja"
+            ],
+            "reason": "match por name_score"
+          }
+        ],
+        "candidate_correction": null
+      },
+      "diagnosis": {
+        "estado": "lista",
+        "accion": "navegar_a_objeto",
+        "parametros": {
+          "nombre_objeto": "Cube_rojo"
+        }
+      },
+      "output": {
+        "action": "navegar_a_objeto",
+        "valid": true,
+        "parameters": {
+          "nombre_objeto": "Cube_rojo"
+        },
+        "dto_json_parameters": {
+          "nombre_objeto": "Cube_rojo"
+        },
+        "dispatch": "despachada",
+        "requires_confirmation": false,
+        "reasoning_calls": 0,
+        "motor_process_calls": 1,
+        "error": null,
+        "motor_resolution": {
+          "status": "ready",
+          "action": "navegar_a_objeto",
+          "target_id": "Cube_rojo",
+          "target_display_name": "Cube_rojo",
+          "legacy_nombre_objeto": "Cube_rojo",
+          "confidence": 90,
+          "candidates": [
+            {
+              "target_id": "Cube_rojo",
+              "display_name": "Cube_rojo",
+              "legacy_nombre_objeto": "Cube_rojo",
+              "confidence": 90,
+              "score_components": {
+                "name_score": 100,
+                "alias_score": 100,
+                "affordance_score": 100,
+                "context_bonus": 0,
+                "state_context_bonus": 0,
+                "affective_bonus": 0,
+                "risk_penalty": 0,
+                "final_score": 90,
+                "unmatched_descriptor_count": 0
+              },
+              "affordance_decision": {
+                "allowed": true,
+                "status": "allowed",
+                "action": "navegar_a_objeto",
+                "object_id": "Cube_rojo",
+                "display_name": "Cube_rojo",
+                "required": [],
+                "present": [
+                  "mirar"
+                ],
+                "missing": [],
+                "matched": [],
+                "risk_penalty": 0,
+                "reason": "Affordances compatibles con la accion."
+              },
+              "distance": null,
+              "position": null,
+              "unmatched_descriptors": [],
+              "known_aliases": [
+                "Cube_rojo",
+                "caja"
+              ],
+              "reason": "match por name_score"
+            }
+          ],
+          "candidate_correction": null,
+          "reason": "Objeto resuelto con confianza suficiente."
+        },
+        "alias_learning": {
+          "user_query": "ve a la caja",
+          "action": "navegar_a_objeto"
+        }
+      }
+    },
+    {
+      "case": "learned_alias",
+      "query": "ve a la caja",
+      "visible": [
+        {
+          "id": "Cube_rojo",
+          "display_name": "Cube_rojo",
+          "aliases": [
+            "cubo",
+            "cubo rojo"
+          ],
+          "affordances": [
+            "mirar"
+          ]
+        }
+      ],
+      "fuzzy": {
+        "status": "ready",
+        "target_id": "Cube_rojo",
+        "confidence": 90,
+        "reason": "Objeto resuelto con confianza suficiente.",
+        "candidates": [
+          {
+            "target_id": "Cube_rojo",
+            "display_name": "Cube_rojo",
+            "legacy_nombre_objeto": "Cube_rojo",
+            "confidence": 90,
+            "score_components": {
+              "name_score": 100,
+              "alias_score": 100,
+              "affordance_score": 100,
+              "context_bonus": 0,
+              "state_context_bonus": 0,
+              "affective_bonus": 0,
+              "risk_penalty": 0,
+              "final_score": 90,
+              "unmatched_descriptor_count": 0
+            },
+            "affordance_decision": {
+              "allowed": true,
+              "status": "allowed",
+              "action": "navegar_a_objeto",
+              "object_id": "Cube_rojo",
+              "display_name": "Cube_rojo",
+              "required": [],
+              "present": [
+                "mirar"
+              ],
+              "missing": [],
+              "matched": [],
+              "risk_penalty": 0,
+              "reason": "Affordances compatibles con la accion."
+            },
+            "distance": null,
+            "position": null,
+            "unmatched_descriptors": [],
+            "known_aliases": [
+              "Cube_rojo",
+              "cubo",
+              "cubo rojo",
+              "caja"
+            ],
+            "reason": "match por name_score"
+          }
+        ],
+        "candidate_correction": null
+      },
+      "diagnosis": {
+        "estado": "lista",
+        "accion": "navegar_a_objeto",
+        "parametros": {
+          "nombre_objeto": "Cube_rojo"
+        }
+      },
+      "output": {
+        "action": "navegar_a_objeto",
+        "valid": true,
+        "parameters": {
+          "nombre_objeto": "Cube_rojo"
+        },
+        "dto_json_parameters": {
+          "nombre_objeto": "Cube_rojo"
+        },
+        "dispatch": "despachada",
+        "requires_confirmation": false,
+        "reasoning_calls": 0,
+        "motor_process_calls": 1,
+        "error": null,
+        "motor_resolution": {
+          "status": "ready",
+          "action": "navegar_a_objeto",
+          "target_id": "Cube_rojo",
+          "target_display_name": "Cube_rojo",
+          "legacy_nombre_objeto": "Cube_rojo",
+          "confidence": 90,
+          "candidates": [
+            {
+              "target_id": "Cube_rojo",
+              "display_name": "Cube_rojo",
+              "legacy_nombre_objeto": "Cube_rojo",
+              "confidence": 90,
+              "score_components": {
+                "name_score": 100,
+                "alias_score": 100,
+                "affordance_score": 100,
+                "context_bonus": 0,
+                "state_context_bonus": 0,
+                "affective_bonus": 0,
+                "risk_penalty": 0,
+                "final_score": 90,
+                "unmatched_descriptor_count": 0
+              },
+              "affordance_decision": {
+                "allowed": true,
+                "status": "allowed",
+                "action": "navegar_a_objeto",
+                "object_id": "Cube_rojo",
+                "display_name": "Cube_rojo",
+                "required": [],
+                "present": [
+                  "mirar"
+                ],
+                "missing": [],
+                "matched": [],
+                "risk_penalty": 0,
+                "reason": "Affordances compatibles con la accion."
+              },
+              "distance": null,
+              "position": null,
+              "unmatched_descriptors": [],
+              "known_aliases": [
+                "Cube_rojo",
+                "cubo",
+                "cubo rojo",
+                "caja"
+              ],
+              "reason": "match por name_score"
+            }
+          ],
+          "candidate_correction": null,
+          "reason": "Objeto resuelto con confianza suficiente."
+        },
+        "alias_learning": {
+          "user_query": "ve a la caja",
+          "action": "navegar_a_objeto"
+        }
+      }
+    },
+    {
+      "case": "ambiguous_alias",
+      "query": "ve a la caja",
+      "visible": [
+        {
+          "id": "Cube_rojo",
+          "display_name": "Cube_rojo",
+          "aliases": [
+            "cubo",
+            "cubo rojo"
+          ],
+          "affordances": [
+            "mirar"
+          ]
+        },
+        {
+          "id": "Cube_azul",
+          "display_name": "Cube_azul",
+          "aliases": [
+            "cubo",
+            "cubo azul"
+          ],
+          "affordances": [
+            "mirar"
+          ]
+        }
+      ],
+      "fuzzy": {
+        "status": "requires_clarification",
+        "target_id": "Cube_rojo",
+        "confidence": 90,
+        "reason": "Candidatos cercanos en score requieren aclaracion.",
+        "candidates": [
+          {
+            "target_id": "Cube_rojo",
+            "display_name": "Cube_rojo",
+            "legacy_nombre_objeto": "Cube_rojo",
+            "confidence": 90,
+            "score_components": {
+              "name_score": 100,
+              "alias_score": 100,
+              "affordance_score": 100,
+              "context_bonus": 0,
+              "state_context_bonus": 0,
+              "affective_bonus": 0,
+              "risk_penalty": 0,
+              "final_score": 90,
+              "unmatched_descriptor_count": 0
+            },
+            "affordance_decision": {
+              "allowed": true,
+              "status": "allowed",
+              "action": "navegar_a_objeto",
+              "object_id": "Cube_rojo",
+              "display_name": "Cube_rojo",
+              "required": [],
+              "present": [
+                "mirar"
+              ],
+              "missing": [],
+              "matched": [],
+              "risk_penalty": 0,
+              "reason": "Affordances compatibles con la accion."
+            },
+            "distance": null,
+            "position": null,
+            "unmatched_descriptors": [],
+            "known_aliases": [
+              "Cube_rojo",
+              "cubo",
+              "cubo rojo",
+              "caja"
+            ],
+            "reason": "match por name_score"
+          },
+          {
+            "target_id": "Cube_azul",
+            "display_name": "Cube_azul",
+            "legacy_nombre_objeto": "Cube_azul",
+            "confidence": 90,
+            "score_components": {
+              "name_score": 100,
+              "alias_score": 100,
+              "affordance_score": 100,
+              "context_bonus": 0,
+              "state_context_bonus": 0,
+              "affective_bonus": 0,
+              "risk_penalty": 0,
+              "final_score": 90,
+              "unmatched_descriptor_count": 0
+            },
+            "affordance_decision": {
+              "allowed": true,
+              "status": "allowed",
+              "action": "navegar_a_objeto",
+              "object_id": "Cube_azul",
+              "display_name": "Cube_azul",
+              "required": [],
+              "present": [
+                "mirar"
+              ],
+              "missing": [],
+              "matched": [],
+              "risk_penalty": 0,
+              "reason": "Affordances compatibles con la accion."
+            },
+            "distance": null,
+            "position": null,
+            "unmatched_descriptors": [],
+            "known_aliases": [
+              "Cube_azul",
+              "cubo",
+              "cubo azul",
+              "caja"
+            ],
+            "reason": "match por name_score"
+          }
+        ],
+        "candidate_correction": null
+      },
+      "diagnosis": {
+        "estado": "requires_clarification",
+        "accion": "navegar_a_objeto",
+        "parametros": null
+      },
+      "output": {
+        "action": "hablar",
+        "valid": true,
+        "parameters": {
+          "texto_a_comunicar": "Veo Cube_rojo, Cube_azul. Cual quieres?"
+        },
+        "dto_json_parameters": {
+          "texto_a_comunicar": "Veo Cube_rojo, Cube_azul. Cual quieres?"
+        },
+        "dispatch": "despachada",
+        "requires_confirmation": false,
+        "reasoning_calls": 0,
+        "motor_process_calls": 0,
+        "error": null,
+        "motor_resolution": {
+          "status": "requires_clarification",
+          "action": "navegar_a_objeto",
+          "target_id": "Cube_rojo",
+          "target_display_name": "Cube_rojo",
+          "legacy_nombre_objeto": "Cube_rojo",
+          "confidence": 90,
+          "candidates": [
+            {
+              "target_id": "Cube_rojo",
+              "display_name": "Cube_rojo",
+              "legacy_nombre_objeto": "Cube_rojo",
+              "confidence": 90,
+              "score_components": {
+                "name_score": 100,
+                "alias_score": 100,
+                "affordance_score": 100,
+                "context_bonus": 0,
+                "state_context_bonus": 0,
+                "affective_bonus": 0,
+                "risk_penalty": 0,
+                "final_score": 90,
+                "unmatched_descriptor_count": 0
+              },
+              "affordance_decision": {
+                "allowed": true,
+                "status": "allowed",
+                "action": "navegar_a_objeto",
+                "object_id": "Cube_rojo",
+                "display_name": "Cube_rojo",
+                "required": [],
+                "present": [
+                  "mirar"
+                ],
+                "missing": [],
+                "matched": [],
+                "risk_penalty": 0,
+                "reason": "Affordances compatibles con la accion."
+              },
+              "distance": null,
+              "position": null,
+              "unmatched_descriptors": [],
+              "known_aliases": [
+                "Cube_rojo",
+                "cubo",
+                "cubo rojo",
+                "caja"
+              ],
+              "reason": "match por name_score"
+            },
+            {
+              "target_id": "Cube_azul",
+              "display_name": "Cube_azul",
+              "legacy_nombre_objeto": "Cube_azul",
+              "confidence": 90,
+              "score_components": {
+                "name_score": 100,
+                "alias_score": 100,
+                "affordance_score": 100,
+                "context_bonus": 0,
+                "state_context_bonus": 0,
+                "affective_bonus": 0,
+                "risk_penalty": 0,
+                "final_score": 90,
+                "unmatched_descriptor_count": 0
+              },
+              "affordance_decision": {
+                "allowed": true,
+                "status": "allowed",
+                "action": "navegar_a_objeto",
+                "object_id": "Cube_azul",
+                "display_name": "Cube_azul",
+                "required": [],
+                "present": [
+                  "mirar"
+                ],
+                "missing": [],
+                "matched": [],
+                "risk_penalty": 0,
+                "reason": "Affordances compatibles con la accion."
+              },
+              "distance": null,
+              "position": null,
+              "unmatched_descriptors": [],
+              "known_aliases": [
+                "Cube_azul",
+                "cubo",
+                "cubo azul",
+                "caja"
+              ],
+              "reason": "match por name_score"
+            }
+          ],
+          "candidate_correction": null,
+          "reason": "Candidatos cercanos en score requieren aclaracion."
+        },
+        "alias_learning": {
+          "user_query": "ve a la caja",
+          "action": "navegar_a_objeto"
+        }
+      }
+    },
+    {
+      "case": "stale_alias",
+      "query": "ve a la caja",
+      "visible": [
+        {
+          "id": "Cube_azul",
+          "display_name": "Cube_azul",
+          "aliases": [
+            "cubo",
+            "cubo azul"
+          ],
+          "affordances": [
+            "mirar"
+          ]
+        }
+      ],
+      "fuzzy": {
+        "status": "not_found",
+        "target_id": null,
+        "confidence": 48,
+        "reason": "Ningun objeto supera el umbral de aclaracion.",
+        "candidates": [
+          {
+            "target_id": "Cube_azul",
+            "display_name": "Cube_azul",
+            "legacy_nombre_objeto": "Cube_azul",
+            "confidence": 48,
+            "score_components": {
+              "name_score": 40,
+              "alias_score": 40,
+              "affordance_score": 100,
+              "context_bonus": 0,
+              "state_context_bonus": 0,
+              "affective_bonus": 0,
+              "risk_penalty": 0,
+              "final_score": 48,
+              "unmatched_descriptor_count": 1
+            },
+            "affordance_decision": {
+              "allowed": true,
+              "status": "allowed",
+              "action": "navegar_a_objeto",
+              "object_id": "Cube_azul",
+              "display_name": "Cube_azul",
+              "required": [],
+              "present": [
+                "mirar"
+              ],
+              "missing": [],
+              "matched": [],
+              "risk_penalty": 0,
+              "reason": "Affordances compatibles con la accion."
+            },
+            "distance": null,
+            "position": null,
+            "unmatched_descriptors": [
+              "caja"
+            ],
+            "known_aliases": [
+              "Cube_azul",
+              "cubo",
+              "cubo azul"
+            ],
+            "reason": "match por affordance_score"
+          }
+        ],
+        "candidate_correction": null
+      },
+      "diagnosis": {
+        "estado": "not_found",
+        "accion": "navegar_a_objeto",
+        "parametros": null
+      },
+      "output": {
+        "action": "hablar",
+        "valid": true,
+        "parameters": {
+          "texto_a_comunicar": "No veo ese objeto en mi percepcion actual."
+        },
+        "dto_json_parameters": {
+          "texto_a_comunicar": "No veo ese objeto en mi percepcion actual."
+        },
+        "dispatch": "despachada",
+        "requires_confirmation": false,
+        "reasoning_calls": 0,
+        "motor_process_calls": 0,
+        "error": null,
+        "motor_resolution": {
+          "status": "not_found",
+          "action": "navegar_a_objeto",
+          "target_id": null,
+          "target_display_name": null,
+          "legacy_nombre_objeto": null,
+          "confidence": 48,
+          "candidates": [
+            {
+              "target_id": "Cube_azul",
+              "display_name": "Cube_azul",
+              "legacy_nombre_objeto": "Cube_azul",
+              "confidence": 48,
+              "score_components": {
+                "name_score": 40,
+                "alias_score": 40,
+                "affordance_score": 100,
+                "context_bonus": 0,
+                "state_context_bonus": 0,
+                "affective_bonus": 0,
+                "risk_penalty": 0,
+                "final_score": 48,
+                "unmatched_descriptor_count": 1
+              },
+              "affordance_decision": {
+                "allowed": true,
+                "status": "allowed",
+                "action": "navegar_a_objeto",
+                "object_id": "Cube_azul",
+                "display_name": "Cube_azul",
+                "required": [],
+                "present": [
+                  "mirar"
+                ],
+                "missing": [],
+                "matched": [],
+                "risk_penalty": 0,
+                "reason": "Affordances compatibles con la accion."
+              },
+              "distance": null,
+              "position": null,
+              "unmatched_descriptors": [
+                "caja"
+              ],
+              "known_aliases": [
+                "Cube_azul",
+                "cubo",
+                "cubo azul"
+              ],
+              "reason": "match por affordance_score"
+            }
+          ],
+          "candidate_correction": null,
+          "reason": "Ningun objeto supera el umbral de aclaracion."
+        },
+        "alias_learning": {
+          "user_query": "ve a la caja",
+          "action": "navegar_a_objeto"
+        }
+      }
+    },
+    {
+      "case": "typo",
+      "query": "ve al cuboo",
+      "visible": [
+        {
+          "id": "Cube_rojo",
+          "display_name": "Cube_rojo",
+          "aliases": [
+            "cubo",
+            "cubo rojo"
+          ],
+          "affordances": [
+            "mirar"
+          ]
+        },
+        {
+          "id": "Cube_azul",
+          "display_name": "Cube_azul",
+          "aliases": [
+            "cubo",
+            "cubo azul"
+          ],
+          "affordances": [
+            "mirar"
+          ]
+        }
+      ],
+      "fuzzy": {
+        "status": "requires_clarification",
+        "target_id": "Cube_rojo",
+        "confidence": 90,
+        "reason": "Candidatos cercanos en score requieren aclaracion.",
+        "candidates": [
+          {
+            "target_id": "Cube_rojo",
+            "display_name": "Cube_rojo",
+            "legacy_nombre_objeto": "Cube_rojo",
+            "confidence": 90,
+            "score_components": {
+              "name_score": 100,
+              "alias_score": 100,
+              "affordance_score": 100,
+              "context_bonus": 0,
+              "state_context_bonus": 0,
+              "affective_bonus": 0,
+              "risk_penalty": 0,
+              "final_score": 90,
+              "unmatched_descriptor_count": 0
+            },
+            "affordance_decision": {
+              "allowed": true,
+              "status": "allowed",
+              "action": "navegar_a_objeto",
+              "object_id": "Cube_rojo",
+              "display_name": "Cube_rojo",
+              "required": [],
+              "present": [
+                "mirar"
+              ],
+              "missing": [],
+              "matched": [],
+              "risk_penalty": 0,
+              "reason": "Affordances compatibles con la accion."
+            },
+            "distance": null,
+            "position": null,
+            "unmatched_descriptors": [],
+            "known_aliases": [
+              "Cube_rojo",
+              "cubo",
+              "cubo rojo"
+            ],
+            "reason": "match por name_score"
+          },
+          {
+            "target_id": "Cube_azul",
+            "display_name": "Cube_azul",
+            "legacy_nombre_objeto": "Cube_azul",
+            "confidence": 90,
+            "score_components": {
+              "name_score": 100,
+              "alias_score": 100,
+              "affordance_score": 100,
+              "context_bonus": 0,
+              "state_context_bonus": 0,
+              "affective_bonus": 0,
+              "risk_penalty": 0,
+              "final_score": 90,
+              "unmatched_descriptor_count": 0
+            },
+            "affordance_decision": {
+              "allowed": true,
+              "status": "allowed",
+              "action": "navegar_a_objeto",
+              "object_id": "Cube_azul",
+              "display_name": "Cube_azul",
+              "required": [],
+              "present": [
+                "mirar"
+              ],
+              "missing": [],
+              "matched": [],
+              "risk_penalty": 0,
+              "reason": "Affordances compatibles con la accion."
+            },
+            "distance": null,
+            "position": null,
+            "unmatched_descriptors": [],
+            "known_aliases": [
+              "Cube_azul",
+              "cubo",
+              "cubo azul"
+            ],
+            "reason": "match por name_score"
+          }
+        ],
+        "candidate_correction": null
+      },
+      "diagnosis": {
+        "estado": "requires_clarification",
+        "accion": "navegar_a_objeto",
+        "parametros": null
+      },
+      "output": {
+        "action": "hablar",
+        "valid": true,
+        "parameters": {
+          "texto_a_comunicar": "Veo Cube_rojo, Cube_azul. Cual quieres?"
+        },
+        "dto_json_parameters": {
+          "texto_a_comunicar": "Veo Cube_rojo, Cube_azul. Cual quieres?"
+        },
+        "dispatch": "despachada",
+        "requires_confirmation": false,
+        "reasoning_calls": 0,
+        "motor_process_calls": 0,
+        "error": null,
+        "motor_resolution": {
+          "status": "requires_clarification",
+          "action": "navegar_a_objeto",
+          "target_id": "Cube_rojo",
+          "target_display_name": "Cube_rojo",
+          "legacy_nombre_objeto": "Cube_rojo",
+          "confidence": 90,
+          "candidates": [
+            {
+              "target_id": "Cube_rojo",
+              "display_name": "Cube_rojo",
+              "legacy_nombre_objeto": "Cube_rojo",
+              "confidence": 90,
+              "score_components": {
+                "name_score": 100,
+                "alias_score": 100,
+                "affordance_score": 100,
+                "context_bonus": 0,
+                "state_context_bonus": 0,
+                "affective_bonus": 0,
+                "risk_penalty": 0,
+                "final_score": 90,
+                "unmatched_descriptor_count": 0
+              },
+              "affordance_decision": {
+                "allowed": true,
+                "status": "allowed",
+                "action": "navegar_a_objeto",
+                "object_id": "Cube_rojo",
+                "display_name": "Cube_rojo",
+                "required": [],
+                "present": [
+                  "mirar"
+                ],
+                "missing": [],
+                "matched": [],
+                "risk_penalty": 0,
+                "reason": "Affordances compatibles con la accion."
+              },
+              "distance": null,
+              "position": null,
+              "unmatched_descriptors": [],
+              "known_aliases": [
+                "Cube_rojo",
+                "cubo",
+                "cubo rojo"
+              ],
+              "reason": "match por name_score"
+            },
+            {
+              "target_id": "Cube_azul",
+              "display_name": "Cube_azul",
+              "legacy_nombre_objeto": "Cube_azul",
+              "confidence": 90,
+              "score_components": {
+                "name_score": 100,
+                "alias_score": 100,
+                "affordance_score": 100,
+                "context_bonus": 0,
+                "state_context_bonus": 0,
+                "affective_bonus": 0,
+                "risk_penalty": 0,
+                "final_score": 90,
+                "unmatched_descriptor_count": 0
+              },
+              "affordance_decision": {
+                "allowed": true,
+                "status": "allowed",
+                "action": "navegar_a_objeto",
+                "object_id": "Cube_azul",
+                "display_name": "Cube_azul",
+                "required": [],
+                "present": [
+                  "mirar"
+                ],
+                "missing": [],
+                "matched": [],
+                "risk_penalty": 0,
+                "reason": "Affordances compatibles con la accion."
+              },
+              "distance": null,
+              "position": null,
+              "unmatched_descriptors": [],
+              "known_aliases": [
+                "Cube_azul",
+                "cubo",
+                "cubo azul"
+              ],
+              "reason": "match por name_score"
+            }
+          ],
+          "candidate_correction": null,
+          "reason": "Candidatos cercanos en score requieren aclaracion."
+        },
+        "alias_learning": {
+          "user_query": "ve al cuboo",
+          "action": "navegar_a_objeto"
+        }
+      }
+    },
+    {
+      "case": "reversed_objects",
+      "query": "ve al cubo",
+      "visible": [
+        {
+          "id": "Cube_azul",
+          "display_name": "Cube_azul",
+          "aliases": [
+            "cubo",
+            "cubo azul"
+          ],
+          "affordances": [
+            "mirar"
+          ]
+        },
+        {
+          "id": "Cube_rojo",
+          "display_name": "Cube_rojo",
+          "aliases": [
+            "cubo",
+            "cubo rojo"
+          ],
+          "affordances": [
+            "mirar"
+          ]
+        }
+      ],
+      "fuzzy": {
+        "status": "requires_clarification",
+        "target_id": "Cube_azul",
+        "confidence": 90,
+        "reason": "Candidatos cercanos en score requieren aclaracion.",
+        "candidates": [
+          {
+            "target_id": "Cube_azul",
+            "display_name": "Cube_azul",
+            "legacy_nombre_objeto": "Cube_azul",
+            "confidence": 90,
+            "score_components": {
+              "name_score": 100,
+              "alias_score": 100,
+              "affordance_score": 100,
+              "context_bonus": 0,
+              "state_context_bonus": 0,
+              "affective_bonus": 0,
+              "risk_penalty": 0,
+              "final_score": 90,
+              "unmatched_descriptor_count": 0
+            },
+            "affordance_decision": {
+              "allowed": true,
+              "status": "allowed",
+              "action": "navegar_a_objeto",
+              "object_id": "Cube_azul",
+              "display_name": "Cube_azul",
+              "required": [],
+              "present": [
+                "mirar"
+              ],
+              "missing": [],
+              "matched": [],
+              "risk_penalty": 0,
+              "reason": "Affordances compatibles con la accion."
+            },
+            "distance": null,
+            "position": null,
+            "unmatched_descriptors": [],
+            "known_aliases": [
+              "Cube_azul",
+              "cubo",
+              "cubo azul"
+            ],
+            "reason": "match por name_score"
+          },
+          {
+            "target_id": "Cube_rojo",
+            "display_name": "Cube_rojo",
+            "legacy_nombre_objeto": "Cube_rojo",
+            "confidence": 90,
+            "score_components": {
+              "name_score": 100,
+              "alias_score": 100,
+              "affordance_score": 100,
+              "context_bonus": 0,
+              "state_context_bonus": 0,
+              "affective_bonus": 0,
+              "risk_penalty": 0,
+              "final_score": 90,
+              "unmatched_descriptor_count": 0
+            },
+            "affordance_decision": {
+              "allowed": true,
+              "status": "allowed",
+              "action": "navegar_a_objeto",
+              "object_id": "Cube_rojo",
+              "display_name": "Cube_rojo",
+              "required": [],
+              "present": [
+                "mirar"
+              ],
+              "missing": [],
+              "matched": [],
+              "risk_penalty": 0,
+              "reason": "Affordances compatibles con la accion."
+            },
+            "distance": null,
+            "position": null,
+            "unmatched_descriptors": [],
+            "known_aliases": [
+              "Cube_rojo",
+              "cubo",
+              "cubo rojo"
+            ],
+            "reason": "match por name_score"
+          }
+        ],
+        "candidate_correction": null
+      },
+      "diagnosis": {
+        "estado": "requires_clarification",
+        "accion": "navegar_a_objeto",
+        "parametros": null
+      },
+      "output": {
+        "action": "hablar",
+        "valid": true,
+        "parameters": {
+          "texto_a_comunicar": "Veo Cube_azul, Cube_rojo. Cual quieres?"
+        },
+        "dto_json_parameters": {
+          "texto_a_comunicar": "Veo Cube_azul, Cube_rojo. Cual quieres?"
+        },
+        "dispatch": "despachada",
+        "requires_confirmation": false,
+        "reasoning_calls": 0,
+        "motor_process_calls": 0,
+        "error": null,
+        "motor_resolution": {
+          "status": "requires_clarification",
+          "action": "navegar_a_objeto",
+          "target_id": "Cube_azul",
+          "target_display_name": "Cube_azul",
+          "legacy_nombre_objeto": "Cube_azul",
+          "confidence": 90,
+          "candidates": [
+            {
+              "target_id": "Cube_azul",
+              "display_name": "Cube_azul",
+              "legacy_nombre_objeto": "Cube_azul",
+              "confidence": 90,
+              "score_components": {
+                "name_score": 100,
+                "alias_score": 100,
+                "affordance_score": 100,
+                "context_bonus": 0,
+                "state_context_bonus": 0,
+                "affective_bonus": 0,
+                "risk_penalty": 0,
+                "final_score": 90,
+                "unmatched_descriptor_count": 0
+              },
+              "affordance_decision": {
+                "allowed": true,
+                "status": "allowed",
+                "action": "navegar_a_objeto",
+                "object_id": "Cube_azul",
+                "display_name": "Cube_azul",
+                "required": [],
+                "present": [
+                  "mirar"
+                ],
+                "missing": [],
+                "matched": [],
+                "risk_penalty": 0,
+                "reason": "Affordances compatibles con la accion."
+              },
+              "distance": null,
+              "position": null,
+              "unmatched_descriptors": [],
+              "known_aliases": [
+                "Cube_azul",
+                "cubo",
+                "cubo azul"
+              ],
+              "reason": "match por name_score"
+            },
+            {
+              "target_id": "Cube_rojo",
+              "display_name": "Cube_rojo",
+              "legacy_nombre_objeto": "Cube_rojo",
+              "confidence": 90,
+              "score_components": {
+                "name_score": 100,
+                "alias_score": 100,
+                "affordance_score": 100,
+                "context_bonus": 0,
+                "state_context_bonus": 0,
+                "affective_bonus": 0,
+                "risk_penalty": 0,
+                "final_score": 90,
+                "unmatched_descriptor_count": 0
+              },
+              "affordance_decision": {
+                "allowed": true,
+                "status": "allowed",
+                "action": "navegar_a_objeto",
+                "object_id": "Cube_rojo",
+                "display_name": "Cube_rojo",
+                "required": [],
+                "present": [
+                  "mirar"
+                ],
+                "missing": [],
+                "matched": [],
+                "risk_penalty": 0,
+                "reason": "Affordances compatibles con la accion."
+              },
+              "distance": null,
+              "position": null,
+              "unmatched_descriptors": [],
+              "known_aliases": [
+                "Cube_rojo",
+                "cubo",
+                "cubo rojo"
+              ],
+              "reason": "match por name_score"
+            }
+          ],
+          "candidate_correction": null,
+          "reason": "Candidatos cercanos en score requieren aclaracion."
+        },
+        "alias_learning": {
+          "user_query": "ve al cubo",
+          "action": "navegar_a_objeto"
+        }
+      }
+    },
+    {
+      "case": "missing_descriptor_target",
+      "query": "ve al cubo rojo",
+      "visible": [
+        {
+          "id": "Cube_azul",
+          "display_name": "Cube_azul",
+          "aliases": [
+            "cubo",
+            "cubo azul"
+          ],
+          "affordances": [
+            "mirar"
+          ]
+        }
+      ],
+      "fuzzy": {
+        "status": "requires_clarification",
+        "target_id": "Cube_azul",
+        "confidence": 90,
+        "reason": "El objeto pedido no coincide exactamente con la percepcion actual.",
+        "candidates": [
+          {
+            "target_id": "Cube_azul",
+            "display_name": "Cube_azul",
+            "legacy_nombre_objeto": "Cube_azul",
+            "confidence": 90,
+            "score_components": {
+              "name_score": 100,
+              "alias_score": 100,
+              "affordance_score": 100,
+              "context_bonus": 0,
+              "state_context_bonus": 0,
+              "affective_bonus": 0,
+              "risk_penalty": 0,
+              "final_score": 90,
+              "unmatched_descriptor_count": 1
+            },
+            "affordance_decision": {
+              "allowed": true,
+              "status": "allowed",
+              "action": "navegar_a_objeto",
+              "object_id": "Cube_azul",
+              "display_name": "Cube_azul",
+              "required": [],
+              "present": [
+                "mirar"
+              ],
+              "missing": [],
+              "matched": [],
+              "risk_penalty": 0,
+              "reason": "Affordances compatibles con la accion."
+            },
+            "distance": null,
+            "position": null,
+            "unmatched_descriptors": [
+              "rojo"
+            ],
+            "known_aliases": [
+              "Cube_azul",
+              "cubo",
+              "cubo azul"
+            ],
+            "reason": "match por name_score"
+          }
+        ],
+        "candidate_correction": {
+          "requested": "cubo rojo",
+          "suggested_id": "Cube_azul",
+          "suggested_display_name": "Cube_azul",
+          "legacy_nombre_objeto": "Cube_azul",
+          "score": 90,
+          "requires_confirmation": true,
+          "reason": "descriptor_sin_respaldo: rojo"
+        }
+      },
+      "diagnosis": {
+        "estado": "lista",
+        "accion": "navegar_a_objeto",
+        "parametros": {
+          "nombre_objeto": "Cube_azul"
+        }
+      },
+      "output": {
+        "action": "navegar_a_objeto",
+        "valid": true,
+        "parameters": {
+          "nombre_objeto": "Cube_azul"
+        },
+        "dto_json_parameters": {
+          "nombre_objeto": "Cube_azul"
+        },
+        "dispatch": "despachada",
+        "requires_confirmation": false,
+        "reasoning_calls": 0,
+        "motor_process_calls": 1,
+        "error": null,
+        "motor_resolution": {
+          "status": "ready",
+          "action": "navegar_a_objeto",
+          "target_id": "Cube_azul",
+          "target_display_name": "Cube_azul",
+          "legacy_nombre_objeto": "Cube_azul",
+          "confidence": 90,
+          "candidates": [
+            {
+              "target_id": "Cube_azul",
+              "display_name": "Cube_azul",
+              "legacy_nombre_objeto": "Cube_azul",
+              "confidence": 90,
+              "score_components": {
+                "name_score": 100,
+                "alias_score": 100,
+                "affordance_score": 100,
+                "context_bonus": 0,
+                "state_context_bonus": 0,
+                "affective_bonus": 0,
+                "risk_penalty": 0,
+                "final_score": 90,
+                "unmatched_descriptor_count": 0
+              },
+              "affordance_decision": {
+                "allowed": true,
+                "status": "allowed",
+                "action": "navegar_a_objeto",
+                "object_id": "Cube_azul",
+                "display_name": "Cube_azul",
+                "required": [],
+                "present": [
+                  "mirar"
+                ],
+                "missing": [],
+                "matched": [],
+                "risk_penalty": 0,
+                "reason": "Affordances compatibles con la accion."
+              },
+              "distance": null,
+              "position": null,
+              "unmatched_descriptors": [],
+              "known_aliases": [
+                "Cube_azul",
+                "cubo",
+                "cubo azul"
+              ],
+              "reason": "match por name_score"
+            }
+          ],
+          "candidate_correction": null,
+          "reason": "Objeto resuelto con confianza suficiente."
+        },
+        "alias_learning": {
+          "user_query": "ve al cubo rojo",
+          "action": "navegar_a_objeto"
+        }
+      }
+    }
+  ],
+  "capture_limits": {
+    "executed_resolution_cases": 11,
+    "fully_recovered_resolution_cases": 9,
+    "not_recovered": [
+      "two_cubes_red",
+      "duplicate_names"
+    ],
+    "reason": "Command output truncation; no rerun after stop.",
+    "nonfinite_values": "Encoded as +Inf/-Inf/NaN strings only in this evidence artifact; DTO JSON null preserved separately."
+  },
+  "protected_hashes": {
+    "ai_engine/motor_engine.py": "BAF7810F938EBBFEDC08236F8BDD3A80B4EFA96B35356BFE5A03A09BE8E28386",
+    "ai_engine/motor_resolution.py": "AF00D2D0AE908B0855D271743FB1F80A5B13B06D574E6DEADA19D9841DCA0B8B",
+    "ai_engine/motor_schemas.py": "C6ABD68688CB9664D3D9F2928BEA07A1364D00117CE1207FCF53196992FF5F2D",
+    "ai_engine/perception_models.py": "C6E46BD2C5C17EB9C057A8DAD9B0124AC64E7B646CC064DD7699EB93461E395F",
+    "ai_engine/affordance_resolver.py": "D0CE28F914B8A37A3FCF22E7B8B593664AD2133B5448F62A15D2D1293267F7CE",
+    "ai_engine/fuzzy_object_resolver.py": "72BADD2ABB4E4F79A9B912A65054C35E9067CD176B0CDF41A3975616893DE375",
+    "ai_engine/learned_alias_candidates.py": "377BAF846C1162994CB223C8CEEE7DA4812214C8879B061FE7D8343E6E497388",
+    "ai_engine/triage_router.py": "B81FA7D238EDBDA0A46AD359E4F51C307F3A63CE2E040A5B86834EA4C515E2F7",
+    "core/orchestrator.py": "6810A591295BE1B0E4041683543335F7219C124DAD84F9C0FEFC2AEE39D79AC3",
+    "core/audit_trace.py": "393AAFC2A69889E384EA8DD90FAFA15378A11485612A9FB956BE17B24F113918",
+    "core/audit_writer.py": "2C6B3A86B8E1C5E3D58415259925069B9B3309773CAE856E702C3C9E4753872F",
+    "memory/memory_manager.py": "62BD5A0436689387AA27E853734B0E7EE285C5E1F54BAFB48C92134FFB033579",
+    "unity_client/LazzaroAgent.cs": "895647B3BB92079735B3C1C7609D4A52CA9A376744E87AB043E2F4731437070E",
+    "unity_client/MovementController.cs": "26ACCE97E66B52F74FE671BC742E15F25CE19370238A56BB51E33DA8CD7BD7B9",
+    "tools/executor.py": "A2D5E07356C8378BCA4BE996FE928FDDB87C3D750B74FD688A63299751195940",
+    "lazzaro_data/triage_model_intent.joblib": "EF5712BF60B5AF6DCBBC6067511442EA8F6497DE4544BA73CA96C1350BCD267C",
+    "lazzaro_data/triage_model_route.joblib": "9A543B4E3823C8A2AAB4E6581EB8AAF1DEEC694EAAD6519939635CA907B80BB9",
+    "cvs_entrenamiento_final_finaloso_finalisimo_v2_v1/dataset_shingon.csv": "01A07A541E9D86F672AD63976803EBFF370D1C8D0CD1A1C229EAD82F289CD03E",
+    "lazzaro_data/644d5fee-fd11-4187-a03b-37c6b2ade6de/data_level0.bin": "02DD64FFD2DFFBDBFE5F9600798E3C96AA392B3F1D306510CFA4F254A77BF659",
+    "lazzaro_data/644d5fee-fd11-4187-a03b-37c6b2ade6de/length.bin": "CA9905E27DA718E079150D7B929D337B85D7E6B3D0021C8A0E8B41C7362D6E0A",
+    "lazzaro_data/chroma.sqlite3": "884E69923890C2470819E32939F60387C68FCF6C80300688A77364A7C8454363"
+  },
+  "protected_files_unchanged": true,
+  "blocked_operations": [],
+  "write_attempts": [],
+  "transport_sent": false,
+  "physical_execution": false
+}
