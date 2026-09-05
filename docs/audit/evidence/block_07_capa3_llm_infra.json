@@ -1,0 +1,272 @@
+{
+  "block": "FASE 2 / BLOQUE 7 / CAPA 3 + LLM INFRA",
+  "date": "2026-09-05",
+  "semantics": "PASS_REPRODUCED describes reproduced current behavior; it is not provider or safety approval.",
+  "command": "python -B docs/audit/probes/capa3_llm_infra_probe.py",
+  "exit_code": 0,
+  "status": "PASS_REPRODUCED",
+  "isolation": {
+    "network": false,
+    "real_llm": false,
+    "active_chroma": false,
+    "physical_execution": false,
+    "synthetic_secrets_only": true,
+    "unexpected_blocked_operations": [],
+    "write_attempts": [],
+    "expected_platform_subprocess_probes_blocked": 3,
+    "expected_ipv6_capability_binds_blocked": 1,
+    "protected_files_unchanged_during_probe": true
+  },
+  "oracle_contract": {
+    "output_type": "OracleResult",
+    "prompt_inputs": ["pregunta"],
+    "prompt_excludes": ["memory", "state", "task", "perception", "tools"],
+    "empty": "OracleResult fuente=error; no cache write",
+    "malformed_object": "OracleResult fuente=error; no cache write",
+    "valid_non_object": "OracleResult fuente=error; no cache write",
+    "plain_text": "accepted as contenido_tecnico and cached",
+    "unknown_fields": "ignored",
+    "legacy_aliases": "accepted",
+    "nested_content": "stringified",
+    "blank_required_strings_accepted": true,
+    "bad_source_rejected": true,
+    "missing_content_rejected": true
+  },
+  "cache": {
+    "collection": "oracle_cache",
+    "query": "raw question, n_resultados=1",
+    "distance_threshold": 0.35,
+    "semantic_not_exact": true,
+    "normalization_before_query": false,
+    "metadata_keys": [
+      "contenido_tecnico",
+      "fuente",
+      "respuesta",
+      "resumen_para_persona",
+      "timestamp"
+    ],
+    "model_or_provider_stored": false,
+    "ttl_stored": false,
+    "version_stored": false,
+    "source_restored_on_hit": "cache",
+    "malformed_hit": "miss",
+    "direct_search_exception": "RuntimeError escapes OracleMemory",
+    "orchestrator_search_exception": "error stage then provider path continues",
+    "provider_success_write_failure": "successful OracleResult still returned",
+    "identical_concurrent_misses": {
+      "searches": 2,
+      "provider_calls": 2,
+      "writes": 2,
+      "same_result": true
+    }
+  },
+  "determinism": {
+    "same_query_runs": 10,
+    "provider_calls": 1,
+    "cache_writes": 1,
+    "unique_oracle_serializations": 2,
+    "oracle_difference": "first source=api/cache_hit=false; later source=cache/cache_hit=true",
+    "unique_persona_prompts": 2,
+    "unique_actions": 1,
+    "cache_key_inputs": ["question only"],
+    "whitespace_change_caused_fake_exact_miss": true,
+    "context_memory_model_provider_config_in_key": false,
+    "changed_dimensions_preserved_hit": [
+      "context",
+      "memory",
+      "model_id",
+      "provider",
+      "config"
+    ]
+  },
+  "providers": [
+    {
+      "provider": "gemini",
+      "timeout_seconds": null,
+      "max_attempts": 4,
+      "retries": ["empty", "timeout", "connection", "auth-like", "rate-limit-like", "other exception"],
+      "backoff_seconds_on_four_errors": [1.0, 2.0, 4.0, 8.0],
+      "jitter": true,
+      "health": "generate short text and substring ok",
+      "not_ok_accepted_as_healthy": true,
+      "close_isolated": true
+    },
+    {
+      "provider": "groq/xai/kimi/deepseek_api",
+      "implementation": "OpenAICompatibleClient",
+      "timeout_seconds": 45.0,
+      "max_attempts": 1,
+      "health": "generate short text and substring ok",
+      "empty": "empty string + EmptyResponse audit",
+      "close_isolated": true
+    },
+    {
+      "provider": "ollama",
+      "timeout_seconds": 120.0,
+      "max_attempts": 1,
+      "health": "GET /api/tags and exact configured model membership",
+      "empty": "empty string + EmptyResponse audit",
+      "close_isolated": true
+    },
+    {
+      "provider": "oracle_external",
+      "implementation": "OracleClient",
+      "timeout_seconds": 15.0,
+      "max_attempts": 1,
+      "health": null,
+      "empty": "None + EmptyResponse audit",
+      "close": null
+    }
+  ],
+  "provider_error_matrix": {
+    "compatible": {
+      "timeout": "TimeoutError",
+      "connection": "ConnectError",
+      "auth_like": "HTTPStatusError",
+      "rate_limit_like": "HTTPStatusError",
+      "malformed": "ValueError"
+    },
+    "ollama": {
+      "timeout": "TimeoutError",
+      "connection": "ConnectError",
+      "auth_like": "HTTPStatusError",
+      "rate_limit_like": "HTTPStatusError",
+      "malformed": "ValueError"
+    },
+    "oracle_external": {
+      "timeout": "TimeoutError",
+      "connection": "ConnectError",
+      "auth_like": "HTTPStatusError",
+      "rate_limit_like": "HTTPStatusError",
+      "malformed": "ValueError"
+    },
+    "gemini": {
+      "timeout": "TimeoutError x4",
+      "connection": "ConnectionError x4",
+      "auth_like": "SyntheticAuthError x4",
+      "rate_limit_like": "SyntheticRateLimitError x4",
+      "empty": "EmptyResponse x4"
+    },
+    "audit_contains_prompt_response_or_error_message": false
+  },
+  "fallback": {
+    "A_ok": {"calls": [1, 0], "selected": "A"},
+    "A_timeout_no_B": {"calls": [1, 0], "selected": null},
+    "A_error_no_B": {"calls": [1, 0], "selected": null},
+    "A_empty_no_B": {"calls": [1, 0], "selected": null},
+    "A_empty_B_ok": {"calls": [1, 1], "selected": "B", "fallback_used_for_B": true},
+    "A_timeout_B_ok": {"calls": [1, 1], "selected": "B", "fallback_used_for_B": true},
+    "A_empty_B_empty": {"calls": [1, 1], "selected": null},
+    "selection_is_sticky": false,
+    "selection_sequence": ["B", "A"],
+    "health_stops_at_first_healthy": true,
+    "close_continues_after_child_close_error": true,
+    "same_provider_retry_marks_fallback": false,
+    "thread_local_capture_and_selection": true,
+    "global_deadline_or_cancellation": false
+  },
+  "oracle_persona": {
+    "oracle_fact": "La respuesta es 2.",
+    "persona_prompt_received_fact_source_cache": true,
+    "persona_prompt_instructed_no_invention": true,
+    "synthetic_persona_answer": "La respuesta es 3.",
+    "contradiction_accepted": true,
+    "requested_physical_action": "navegar_a_objeto",
+    "effective_action": "hablar",
+    "facts_validated_against_oracle": false
+  },
+  "audittrace_cases": {
+    "cache_hit": {
+      "external_calls": 0,
+      "active_calls": 1,
+      "decision_llm": "persona/model-persona",
+      "cache_source_explicit_in_trace": false
+    },
+    "external_success": {
+      "external_calls": 1,
+      "persona_calls": 1,
+      "decision_llm": "persona/model-persona",
+      "oracle_external_success_retained_in_trace": false
+    },
+    "cache_search_failure": {
+      "functional_action": "hablar",
+      "error_stage": "DecisionError/decision",
+      "provider_continued": true
+    },
+    "external_timeout_active_success": {
+      "timeout_error_stage": "TimeoutError/oracle_external",
+      "active_calls": 2,
+      "decision_llm": "active/model-active",
+      "fallback_used": true
+    },
+    "provider_fallback": {
+      "active_calls": {"A": 2, "B": 2},
+      "decision_llm": "B/model-B",
+      "fallback_used": true
+    },
+    "all_active_empty": {
+      "active_calls": {"A": 3, "B": 3},
+      "final_action": "hablar",
+      "final_text": "Me quede en blanco por un momento.",
+      "decision_provider": null,
+      "fallback_used": true
+    },
+    "writer_failure": {
+      "functional_result_equal_to_control": true,
+      "same_attempted_stages_as_control": true
+    },
+    "all_cases_same_trace_id_within_turn": true,
+    "forbidden_synthetic_prompt_response_error_tokens_in_trace": []
+  },
+  "factory": {
+    "supported": ["gemini", "groq", "xai", "kimi", "deepseek_api", "ollama"],
+    "settings_default_provider": "gemini",
+    "profile_inherited_from_block_1": "gemini; global fallbacks disabled",
+    "fallback_disabled_selected": "gemini",
+    "explicit_order_unknown_filtered": ["groq", "kimi"],
+    "missing_key_when_no_valid_client": "ValueError"
+  },
+  "protected_hashes_sha256": {
+    "ai_engine/ai_client.py": "7992531DA091D3D2932D859DE87CFDA98F7ABF200E06C700D16D8190BEB16402",
+    "ai_engine/client_factory.py": "8DD04DC227220452C6E62DAC2B7BB1C5966C4559F3535B256F1970D99D777D5D",
+    "ai_engine/gemini_client.py": "B42D6223B6E1599063C386006C27B9BAFF9CA7FF6CE16FDEB825BBA3B699202C",
+    "ai_engine/openai_compatible_client.py": "E3E9BDA8B4F8398724351CF4597F989C3309C0704973D2899EA08B883FEFFEBF",
+    "ai_engine/ollama_client.py": "F81D562DEC6010818CDCA1EE386AD0CF2394F31CF2D2AFF679DAC97BC218EA6E",
+    "ai_engine/fallback_ai_client.py": "44EBF4F900D5E3529BE17A5C0E3A536329B411B9A804B28A683092BDC7B1EF05",
+    "ai_engine/llm_generation_adapter.py": "27DC2395548375D79568E203D08CDB5AEFBEF493CFC973D25A70D61BA608620C",
+    "ai_engine/reasoning_engine.py": "504E50A17D3FC55194D4FD0C43B8D2D688DC0C48D9D53A5AE6E87B376CD32637",
+    "ai_engine/oracle_client.py": "5A5D7DCB630A283D7471EAE288913A7AAF8F5FB5A47A3E170D6231DDF2466F16",
+    "ai_engine/oracle_engine.py": "DFBCA8487EAA87AA6B10537DA1245C6E9FFF2C6A2914B9CDED5214C53F81DE0D",
+    "ai_engine/oracle_memory.py": "0FDB2EFA11BF018D2E139EB81CDBED1FE18483A17B66FE08A6A184A05F89CF76",
+    "ai_engine/persona_engine.py": "C13E51C492288A8D734EA3F04B99E21E745E596320E82E2BC56282FE638F01BF",
+    "ai_engine/schemas.py": "1E16BAA220BB442D7343B6724DD09ED96BD11DB539021AB0F8B266461B3B9B33",
+    "config/settings.py": "3B5013E0EA9B85D9A89EA330462C07292DD2BB9D9A9A0A4DCD9A0C3FCF0EAEFD",
+    "core/orchestrator.py": "6810A591295BE1B0E4041683543335F7219C124DAD84F9C0FEFC2AEE39D79AC3",
+    "core/audit_trace.py": "393AAFC2A69889E384EA8DD90FAFA15378A11485612A9FB956BE17B24F113918",
+    "core/audit_writer.py": "2C6B3A86B8E1C5E3D58415259925069B9B3309773CAE856E702C3C9E4753872F",
+    "main.py": "04D179E4EAF16F356619C1E32A8F25B04EC10CB5FE5408AC8A11E612BCCC1141",
+    "lazzaro_data/644d5fee-fd11-4187-a03b-37c6b2ade6de/data_level0.bin": "02DD64FFD2DFFBDBFE5F9600798E3C96AA392B3F1D306510CFA4F254A77BF659",
+    "lazzaro_data/644d5fee-fd11-4187-a03b-37c6b2ade6de/length.bin": "CA9905E27DA718E079150D7B929D337B85D7E6B3D0021C8A0E8B41C7362D6E0A",
+    "lazzaro_data/chroma.sqlite3": "C003D87617B5156E358E4DD56DAB9B8765401AF239F809750627E42A77D23F6D"
+  },
+  "active_chroma_observation": {
+    "sqlite_hash_before_final_probe": "884E69923890C2470819E32939F60387C68FCF6C80300688A77364A7C8454363",
+    "sqlite_hash_at_final_probe": "C003D87617B5156E358E4DD56DAB9B8765401AF239F809750627E42A77D23F6D",
+    "interpretation": "The already-dirty database changed between isolated probe invocations, not during either protected invocation; it remained outside the commit."
+  },
+  "closure_checks": {
+    "regression_probe": {
+      "exit_code": 0,
+      "modules": 25,
+      "executed_units": 161,
+      "pass": 160,
+      "known_xfail": 1,
+      "unexpected_fail": 0,
+      "suite_gate": "PASS",
+      "isolation_gate": "PASS"
+    },
+    "compileall": "PASS",
+    "json_tool": "PASS",
+    "git_diff_check_before_staging": "PASS"
+  }
+}
