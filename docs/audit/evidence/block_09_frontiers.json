@@ -1,0 +1,233 @@
+{
+  "block": "FASE 2 / BLOQUE 9 / FRONTERAS API-TERMINAL-UNITY",
+  "date": "2026-09-05",
+  "base_commit": "bcda3859d3d68932261dbefc58a77977da3fb829",
+  "status": "PASS_REPRODUCED",
+  "semantics": "Current boundary behavior was reproduced; this is not a safety approval.",
+  "probe": {
+    "command": "python -B docs/audit/probes/frontiers_deep_probe.py",
+    "checks": 65,
+    "passed": 65,
+    "failed": 0
+  },
+  "api": {
+    "endpoints": {
+      "/api/v1/evento": ["POST"],
+      "/api/v1/estado": ["GET"],
+      "/api/v1/notificaciones": ["GET"],
+      "/api/v1/constelacion": ["GET"],
+      "/api/v1/comando": ["POST"]
+    },
+    "declared_content_type": "application/json",
+    "validation_status": 422,
+    "empty_body_status": 422,
+    "invalid_json_status": 422,
+    "unknown_origin_status": 422,
+    "missing_or_blank_transaction_status": 422,
+    "invalid_timestamp_status": 422,
+    "unknown_event_type_status": 200,
+    "long_transaction_id_accepted_length": 4096,
+    "text_plain_json_status": 422,
+    "nan_input_in_flexible_details_status": 200,
+    "nonfinite_output": {
+      "http_status": 200,
+      "response_status": "ok",
+      "python_values": ["NaN", "+Infinity", "-Infinity"],
+      "json_values": [null, null, null]
+    },
+    "functional_exception": {
+      "http_status": 500,
+      "response_status": "error",
+      "exception_message_exposed": true
+    },
+    "notification_exception": {
+      "http_status": 200,
+      "body": [],
+      "error_and_empty_indistinguishable": true
+    }
+  },
+  "terminal": {
+    "transport": "httpx over HTTP in production; MockTransport to in-memory ASGI in probe",
+    "generated_event": {
+      "origen": "terminal",
+      "tipo_evento": "comando_usuario",
+      "timestamp_sent": false,
+      "solicita_decision": true,
+      "modo_conversacion": true
+    },
+    "accepted_action": "hablar with non-empty texto_a_comunicar",
+    "motor_action_blocked": true,
+    "none_rejected": true,
+    "pending_rejected": true,
+    "malformed_rejected": true,
+    "private_thought_displayed": false,
+    "reason_displayed": false,
+    "server_error_body_hidden": true,
+    "triage_original_route": "motor",
+    "triage_effective_route": "persona",
+    "automatic_retry": false
+  },
+  "dto_matrix": {
+    "EventoEntrante": {
+      "python": ["origen", "tipo_evento", "id_transaccion", "timestamp", "objeto_involucrado", "detalles"],
+      "unity": ["origen", "tipo_evento", "id_transaccion", "objeto_involucrado", "detalles"],
+      "unity_missing": ["timestamp"]
+    },
+    "AccionSaliente": {
+      "python": ["id_accion", "nombre", "parametros", "razonamiento", "pensamiento_privado", "requiere_confirmacion", "parametros_descripcion"],
+      "unity": ["id_accion", "nombre", "pensamiento_privado", "razonamiento", "parametros", "requiere_confirmacion"],
+      "unity_missing": ["parametros_descripcion"]
+    },
+    "RespuestaAPI": {
+      "python": ["status", "mensaje", "id_transaccion", "accion", "timestamp_servidor"],
+      "unity": ["status", "mensaje", "id_transaccion", "timestamp_servidor", "accion"],
+      "field_names_match": true
+    },
+    "unity_serializer": "Newtonsoft.Json JsonConvert",
+    "encoding": "UTF-8",
+    "naming": "explicit snake_case public fields"
+  },
+  "unity": {
+    "dispatcher_actions": [
+      "navegar_a_objeto",
+      "navegar_a_posicion",
+      "alejarse_de_objeto",
+      "girar_avatar",
+      "cancelar_tarea",
+      "interactuar_objeto_3d",
+      "agarrar_objeto",
+      "soltar_objeto",
+      "aplicar_fuerza",
+      "hablar"
+    ],
+    "unknown_action_reports_failure": true,
+    "confirmation_true_omits_action_and_reports_failure": true,
+    "null_action_returns_without_task_completion": true,
+    "all_non_error_statuses_call_success": true,
+    "timeout_seconds": {"minimum": 15, "default": 90, "maximum": 180},
+    "automatic_retry": false,
+    "backoff": false,
+    "transport_error_includes_response_body": true,
+    "navigation_requires_all_xyz": true,
+    "finite_number_guard": false,
+    "material_effect_paths": ["navegar_a_objeto", "navegar_a_posicion", "alejarse_de_objeto", "girar_avatar", "cancelar_tarea"],
+    "success_without_material_effect": ["interactuar_objeto_3d", "agarrar_objeto", "soltar_objeto", "aplicar_fuerza"],
+    "hablar_reports_outcome_to_backend": false
+  },
+  "result_action": {
+    "fields": ["perception", "accion", "exito", "mensaje_resultado", "optional extra"],
+    "action_id": false,
+    "original_transaction_id": false,
+    "new_transaction_id": true,
+    "duration": false,
+    "capture_timestamp": false,
+    "success_bool_preserved_by_api": true,
+    "failure_bool_preserved_by_api": true,
+    "duplicate_old_result_can_consume_current_alias_candidate": true
+  },
+  "success_type_matrix": [
+    {"wire": true, "python_type": "bool", "task_context_bool": true, "identity_true": true, "identity_false": false},
+    {"wire": false, "python_type": "bool", "task_context_bool": false, "identity_true": false, "identity_false": true},
+    {"wire": "true", "python_type": "str", "task_context_bool": true, "identity_true": false, "identity_false": false},
+    {"wire": "false", "python_type": "str", "task_context_bool": true, "identity_true": false, "identity_false": false},
+    {"wire": 1, "python_type": "int", "task_context_bool": true, "identity_true": false, "identity_false": false},
+    {"wire": 0, "python_type": "int", "task_context_bool": false, "identity_true": false, "identity_false": false},
+    {"wire": null, "python_type": "NoneType", "task_context_bool": null, "identity_true": false, "identity_false": false},
+    {"wire": "<missing>", "python_type": "absent", "task_context_bool": null, "identity_true": false, "identity_false": false}
+  ],
+  "perception": {
+    "snapshot_id": true,
+    "source": "unity",
+    "capture_timestamp": false,
+    "frame_or_generation_id": false,
+    "freshness_verifiable": false,
+    "sort": "distance ascending; no explicit tie-breaker",
+    "normalized_object_fields": ["id", "display_name", "nombre", "runtime_instance_id", "aliases", "position", "distance", "distancia", "affordances", "source", "confidence"]
+  },
+  "pain": {
+    "implemented_event": "alerta_dolor_fisico",
+    "payload_fields": ["perception", "mensaje_critico", "estado_fisico", "direccion_escape", "distancia_escape", "velocidad_escape", "accion", "exito", "impacto"],
+    "impact_fields": ["tipo", "objeto", "velocidad_relativa", "dolor", "riesgo", "direccion_escape", "contactos"],
+    "capture_timestamp": false,
+    "body_part": false,
+    "contact_point": false
+  },
+  "correlation": {
+    "completed_same_transaction_cached": true,
+    "cache_hit_creates_new_trace": true,
+    "cache_hit_trace_stages": ["event_start", "event_end"],
+    "trace_id_crosses_api": false,
+    "outcome_updates_original_trace": false,
+    "unity_returns_action_id": false,
+    "unity_returns_original_transaction_id": false,
+    "canonical_command_action_outcome_chain": false
+  },
+  "new_tickets": [
+    {"id": "UNITY-BOUNDARY-001", "priority": "P1", "status": "OPEN"},
+    {"id": "UNITY-BOUNDARY-002", "priority": "P1", "status": "OPEN"},
+    {"id": "TRANSPORT-AUDIT-001", "priority": "P2", "status": "OPEN"},
+    {"id": "API-BOUNDARY-001", "priority": "P2", "status": "OPEN"}
+  ],
+  "inherited_p0": ["MOTOR-SAFETY-001", "MOTOR-CONTRACT-002"],
+  "inherited_amplified": [
+    "MOTOR-CONTRACT-002", "MOTOR-CONTRACT-001", "API-CONTRACT-001", "API-CONTRACT-002",
+    "DTO-CONTRACT-001", "DTO-CONTRACT-002", "DTO-CONTRACT-003", "DTO-CONTRACT-004",
+    "TOOL-CONTRACT-001", "TOOL-CONTRACT-002", "ORCH-AUDIT-001", "ORCH-AUDIT-003",
+    "ORCH-AUDIT-004", "EXEC-AUDIT-001", "EXEC-AUDIT-002", "TASK-AUDIT-001",
+    "MOTOR-CONTRACT-006", "MOTOR-CONTRACT-007"
+  ],
+  "closure_checks": {
+    "frontiers_probe": "PASS_REPRODUCED",
+    "frontiers_checks": 65,
+    "regression_probe": {
+      "modules": 25,
+      "executed_units": 161,
+      "pass": 160,
+      "known_xfail": 1,
+      "unexpected_fail": 0,
+      "suite_gate": "PASS",
+      "isolation_gate": "PASS",
+      "active_chroma_sha256_unchanged": true
+    },
+    "compileall": "PASS",
+    "json_evidence_files_valid": 6,
+    "git_diff_check": "PASS"
+  },
+  "isolation": {
+    "network": false,
+    "server_process": false,
+    "unity_or_play_mode": false,
+    "real_llm": false,
+    "active_chroma_opened": false,
+    "action_executor_called": false,
+    "physical_execution": false,
+    "synthetic_fixtures_only": true,
+    "unexpected_external_operations": [],
+    "write_attempts_during_probe": [],
+    "protected_files_unchanged_during_probe": true
+  },
+  "protected_hashes_sha256": {
+    "api/__init__.py": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    "api/routes.py": "4A6FBE8E499A0645C84246034A4369C1BE16D8CF69E11D92772AFEE516B7300B",
+    "api/schemas.py": "611D0A595DEB2885D420BFD17F10F00934EC93EF2F3AC4F056B9751C969CC3CC",
+    "main.py": "04D179E4EAF16F356619C1E32A8F25B04EC10CB5FE5408AC8A11E612BCCC1141",
+    "terminal_client/__init__.py": "F363B28BBD552E992909263BAD1F66FE4995BE21E737C1D48A800BE967CCD704",
+    "terminal_client/__main__.py": "610A7C515015F9A1A6B603F6F9B7F59FBBF3F59EB888D69FD71F3F721A3A7533",
+    "terminal_client/chat.py": "891F094DADC16A2EC9ACF2E32728FA22B4F57FC3D133199F6AE5EF7CE2B86B4E",
+    "terminal_client/test_chat.py": "710CD41FE77249E9683526F212AD3C38341AFFFF3D262512E8A4C84F28B5CAA1",
+    "unity_client/ApiClient.cs": "41DD765290B9B16280F2053DE1DD08683CE26D6583037E5466BA1E2F462A4688",
+    "unity_client/DTOs.cs": "13F760FA5122E1E807EBF89A496DDB7D7E24744BC24E9751DF71EC9B31C3CA64",
+    "unity_client/InteractableMetadata.cs": "F5618B33A2B2055C7398073B52F8832804EC2BC26BE83034E15B995AEAC1FD7A",
+    "unity_client/LazzaroAgent.cs": "895647B3BB92079735B3C1C7609D4A52CA9A376744E87AB043E2F4731437070E",
+    "unity_client/MovementController.cs": "26ACCE97E66B52F74FE671BC742E15F25CE19370238A56BB51E33DA8CD7BD7B9",
+    "unity_client/PerceptionSystem.cs": "AD6C4CA5D407B1D255BCD5A06FA67B7B2778E2A1B3D0833DF3C84AF1D8365885",
+    "unity_client/SomatoSensorySystem.cs": "B3890C8EA6A1EC368473DEDB74FA6D526B652E2BC9D3D1FD9ACC9BF0926C4D92",
+    "core/orchestrator.py": "6810A591295BE1B0E4041683543335F7219C124DAD84F9C0FEFC2AEE39D79AC3",
+    "core/audit_trace.py": "393AAFC2A69889E384EA8DD90FAFA15378A11485612A9FB956BE17B24F113918",
+    "core/audit_writer.py": "2C6B3A86B8E1C5E3D58415259925069B9B3309773CAE856E702C3C9E4753872F",
+    "ai_engine/motor_schemas.py": "C6ABD68688CB9664D3D9F2928BEA07A1364D00117CE1207FCF53196992FF5F2D",
+    "lazzaro_data/644d5fee-fd11-4187-a03b-37c6b2ade6de/data_level0.bin": "02DD64FFD2DFFBDBFE5F9600798E3C96AA392B3F1D306510CFA4F254A77BF659",
+    "lazzaro_data/644d5fee-fd11-4187-a03b-37c6b2ade6de/length.bin": "CA9905E27DA718E079150D7B929D337B85D7E6B3D0021C8A0E8B41C7362D6E0A",
+    "lazzaro_data/chroma.sqlite3": "C003D87617B5156E358E4DD56DAB9B8765401AF239F809750627E42A77D23F6D"
+  }
+}
