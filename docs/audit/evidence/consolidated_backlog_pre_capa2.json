@@ -1,0 +1,138 @@
+{
+  "artifact": "consolidated_backlog_pre_capa2",
+  "date": "2026-09-05",
+  "branch": "codex/stabilization/pre-capa2",
+  "input_commit": "f6ef27c5d9256431522d23b91b79945c4e17e066",
+  "scope": "documentation-only consolidation of baseline, AuditTrace and audit blocks 01-09",
+  "no_functional_fixes": true,
+  "no_field_test": true,
+  "no_developmentalcore_design": true,
+  "no_push": true,
+  "source_policy": [
+    "prefer newer evidence",
+    "prefer observed over inferred",
+    "prefer runtime/probe over historical documentation",
+    "record contradictions without rewriting history"
+  ],
+  "administrative_tickets": {
+    "open_total": 105,
+    "priority": {"P0": 2, "P1": 40, "P2": 56, "P3": 7},
+    "multi_ticket_root_members": 73,
+    "one_to_one_tickets": 32,
+    "redundant_manifestation_count": 50
+  },
+  "root_causes": {
+    "total": 55,
+    "priority": {"P0": 2, "P1": 27, "P2": 22, "P3": 4},
+    "multi_ticket_roots": 23,
+    "one_to_one_roots": 32
+  },
+  "excluded_historical": [
+    {"id": "BASE-FIND-001", "decision": "REMEDIATED; credentials removed/rotated"},
+    {"id": "MEM-AUDIT-001", "decision": "provisional candidate replaced by MEM-CONTRACT-004"},
+    {"id": "TEST-AUDIT-001", "decision": "runner issue resolved by regression_probe.py"}
+  ],
+  "documentation_conflicts": [
+    {
+      "id": "LLM-AUDIT-001",
+      "older_meaning": "retired Groq fallback model usability issue",
+      "current_open_meaning": "Block 07 loss of LLM/Oracle provenance below role",
+      "decision": "only the Block 07 meaning is mapped to ROOT-018; history remains unchanged"
+    },
+    {
+      "id": "MOTOR-CONTRACT-002",
+      "older_priority": "P1",
+      "current_priority": "P0",
+      "decision": "count once at current P0 after Block 06 physical-boundary evidence"
+    }
+  ],
+  "roots": [
+    {"id":"ROOT-001","priority":"P0","title":"Target resolution is not fail-closed","tickets":["MOTOR-SAFETY-001"],"depends_on":[],"field_required":true,"developmental_gate":"BLOCKER_IF_PHYSICAL"},
+    {"id":"ROOT-002","priority":"P0","title":"Physical numeric contract is not finite and bounded","tickets":["MOTOR-CONTRACT-002"],"depends_on":[],"field_required":true,"developmental_gate":"BLOCKER_IF_PHYSICAL"},
+    {"id":"ROOT-003","priority":"P1","title":"No canonical action/outcome identity and ledger","tickets":["API-CONTRACT-003","DTO-CONTRACT-003","ORCH-AUDIT-001","ORCH-AUDIT-002","TASK-AUDIT-001","EXEC-AUDIT-001","EXEC-AUDIT-002","UNITY-BOUNDARY-002"],"depends_on":["ROOT-006","ROOT-012"],"field_required":true,"developmental_gate":"BLOCKER"},
+    {"id":"ROOT-004","priority":"P1","title":"Confirmation and execution states are collapsed","tickets":["DTO-CONTRACT-004","TOOL-CONTRACT-002","STATE-AUDIT-001","STATE-AUDIT-002"],"depends_on":["ROOT-003","ROOT-006"],"field_required":true,"developmental_gate":"BLOCKER"},
+    {"id":"ROOT-005","priority":"P1","title":"Consumer success lacks material attestation","tickets":["UNITY-BOUNDARY-001"],"depends_on":["ROOT-003","ROOT-004"],"field_required":true,"developmental_gate":"BLOCKER"},
+    {"id":"ROOT-006","priority":"P1","title":"Effect result and approval booleans are not strict","tickets":["MEM-CONTRACT-002","TOOL-CONTRACT-001","TOOL-CONTRACT-003","TOOL-CONTRACT-004"],"depends_on":[],"field_required":true,"developmental_gate":"BLOCKER"},
+    {"id":"ROOT-007","priority":"P1","title":"Turn processing has no unit of work","tickets":["ORCH-AUDIT-003","ORCH-AUDIT-004","EXEC-AUDIT-003"],"depends_on":["ROOT-003","ROOT-006"],"field_required":true,"developmental_gate":"BLOCKER"},
+    {"id":"ROOT-008","priority":"P1","title":"Decision and fallback lose typed state and provenance","tickets":["AI-CONTRACT-002","MOTOR-CONTRACT-001","PERSONA-AUDIT-002"],"depends_on":["ROOT-020"],"field_required":true,"developmental_gate":"BLOCKER"},
+    {"id":"ROOT-009","priority":"P1","title":"Private cognition crosses the public boundary","tickets":["API-CONTRACT-001"],"depends_on":[],"field_required":true,"developmental_gate":"RECOMMENDED"},
+    {"id":"ROOT-010","priority":"P1","title":"No stable redacted public error envelope","tickets":["CONFIG-AUDIT-006","API-CONTRACT-002","DTO-CONTRACT-001"],"depends_on":["ROOT-006"],"field_required":true,"developmental_gate":"RECOMMENDED"},
+    {"id":"ROOT-011","priority":"P1","title":"Task lifecycle does not express real intent and transitions","tickets":["CORE-AUDIT-001","TASK-AUDIT-002","TASK-AUDIT-003"],"depends_on":["ROOT-003"],"field_required":true,"developmental_gate":"BLOCKER"},
+    {"id":"ROOT-012","priority":"P1","title":"Shared state ownership and atomicity are incomplete","tickets":["CONC-AUDIT-001","CONC-AUDIT-002","CONC-AUDIT-003","CONC-AUDIT-004"],"depends_on":[],"field_required":false,"developmental_gate":"BLOCKER"},
+    {"id":"ROOT-013","priority":"P1","title":"Memory persistence is not schema-faithful","tickets":["MEM-CONTRACT-001","MEM-CONTRACT-005","MEM-CONTRACT-009"],"depends_on":["ROOT-039"],"field_required":false,"developmental_gate":"BLOCKER"},
+    {"id":"ROOT-014","priority":"P1","title":"Retrieval lacks health receipts and bad-record isolation","tickets":["MEM-CONTRACT-003","MEM-CONTRACT-006","MEM-RETRIEVE-001"],"depends_on":["ROOT-039"],"field_required":false,"developmental_gate":"BLOCKER"},
+    {"id":"ROOT-015","priority":"P1","title":"Memory writes are not atomic, idempotent and verifiable","tickets":["MEM-PERSIST-001","MEM-PERSIST-002","MEM-CONC-001","MEM-CONSOLIDATE-001"],"depends_on":["ROOT-006","ROOT-012"],"field_required":false,"developmental_gate":"BLOCKER"},
+    {"id":"ROOT-016","priority":"P1","title":"Identity/self lacks a canonical owner and snapshot","tickets":["CORE-AUDIT-002","IDENTITY-AUDIT-001","PERSONALITY-AUDIT-001"],"depends_on":["ROOT-012"],"field_required":false,"developmental_gate":"BLOCKER"},
+    {"id":"ROOT-017","priority":"P1","title":"Persona is not a verifiable factual renderer","tickets":["ORACLE-AUDIT-001","PERSONA-AUDIT-001"],"depends_on":["ROOT-008","ROOT-016","ROOT-018","ROOT-019"],"field_required":true,"developmental_gate":"BLOCKER"},
+    {"id":"ROOT-018","priority":"P1","title":"Knowledge loses provenance, version and cache identity","tickets":["ORACLE-CACHE-001","LLM-AUDIT-001"],"depends_on":["ROOT-021"],"field_required":false,"developmental_gate":"BLOCKER"},
+    {"id":"ROOT-019","priority":"P1","title":"Untrusted context receives system authority","tickets":["C2-CONTRACT-001"],"depends_on":["ROOT-016"],"field_required":false,"developmental_gate":"BLOCKER"},
+    {"id":"ROOT-020","priority":"P1","title":"Structured parsing lacks a strict degraded result","tickets":["AI-CONTRACT-001","LLM-CONTRACT-001","C2-CONTRACT-002"],"depends_on":[],"field_required":false,"developmental_gate":"BLOCKER"},
+    {"id":"ROOT-021","priority":"P1","title":"LLM calls lack a shared finite deadline and retry budget","tickets":["CONFIG-AUDIT-001","LLM-PROVIDER-001"],"depends_on":[],"field_required":false,"developmental_gate":"RECOMMENDED"},
+    {"id":"ROOT-022","priority":"P1","title":"Startup resources lack symmetric ownership rollback and close","tickets":["BOOT-AUDIT-001","BOOT-AUDIT-002","BOOT-AUDIT-003","BOOT-AUDIT-004","BOOT-AUDIT-007"],"depends_on":["ROOT-031"],"field_required":true,"developmental_gate":"RECOMMENDED"},
+    {"id":"ROOT-023","priority":"P1","title":"Readiness does not represent effective capability","tickets":["BOOT-AUDIT-006","CONFIG-AUDIT-007"],"depends_on":["ROOT-022"],"field_required":true,"developmental_gate":"RECOMMENDED"},
+    {"id":"ROOT-024","priority":"P1","title":"Basic lexical routing is not reproducible","tickets":["TRIAGE-AUDIT-001"],"depends_on":[],"field_required":true,"developmental_gate":"RECOMMENDED"},
+    {"id":"ROOT-025","priority":"P1","title":"UNKNOWN conflates safe class uncertainty and failure","tickets":["TRIAGE-CONTRACT-001"],"depends_on":[],"field_required":true,"developmental_gate":"RECOMMENDED"},
+    {"id":"ROOT-026","priority":"P1","title":"Triage failure fallback is channel-accidental","tickets":["TRIAGE-AUDIT-002"],"depends_on":["ROOT-025"],"field_required":true,"developmental_gate":"RECOMMENDED"},
+    {"id":"ROOT-027","priority":"P1","title":"Unsafe score threshold is unreachable","tickets":["AI-AUDIT-001"],"depends_on":[],"field_required":true,"developmental_gate":"BLOCKER_IF_PHYSICAL"},
+    {"id":"ROOT-028","priority":"P1","title":"Fuzzy resolution loses interaction type","tickets":["AI-AUDIT-002"],"depends_on":[],"field_required":true,"developmental_gate":"BLOCKER_IF_PHYSICAL"},
+    {"id":"ROOT-029","priority":"P1","title":"Perception snapshot lacks identity freshness and ownership","tickets":["MOTOR-CONTRACT-005","MOTOR-CONTRACT-006","MOTOR-CONTRACT-007"],"depends_on":[],"field_required":true,"developmental_gate":"BLOCKER_IF_PHYSICAL"},
+    {"id":"ROOT-030","priority":"P2","title":"Global Chroma cache crosses path and lifecycle","tickets":["BOOT-AUDIT-005"],"depends_on":["ROOT-022"],"field_required":false,"developmental_gate":"CAN_WAIT"},
+    {"id":"ROOT-031","priority":"P2","title":"Logging can prevent import and startup","tickets":["BOOT-AUDIT-008"],"depends_on":[],"field_required":false,"developmental_gate":"PREREQUISITE"},
+    {"id":"ROOT-032","priority":"P2","title":"Configuration lacks a canonical source and path","tickets":["CONFIG-AUDIT-002","CONFIG-AUDIT-005","CONFIG-AUDIT-009"],"depends_on":["ROOT-034"],"field_required":false,"developmental_gate":"CAN_WAIT"},
+    {"id":"ROOT-033","priority":"P3","title":"Provider selection policy is undocumented","tickets":["CONFIG-AUDIT-003"],"depends_on":["ROOT-032"],"field_required":false,"developmental_gate":"CAN_WAIT"},
+    {"id":"ROOT-034","priority":"P2","title":"Settings accepts invalid values","tickets":["CONFIG-AUDIT-004"],"depends_on":[],"field_required":false,"developmental_gate":"CAN_WAIT"},
+    {"id":"ROOT-035","priority":"P3","title":"Legacy Gemini path fails on missing key","tickets":["CONFIG-AUDIT-008"],"depends_on":["ROOT-032"],"field_required":false,"developmental_gate":"CAN_WAIT"},
+    {"id":"ROOT-036","priority":"P2","title":"Packaging and dependencies are not reproducible","tickets":["DEPS-AUDIT-001","DEPS-AUDIT-002"],"depends_on":[],"field_required":false,"developmental_gate":"CAN_WAIT"},
+    {"id":"ROOT-037","priority":"P2","title":"API request normalization is inconsistent","tickets":["API-CONTRACT-004"],"depends_on":[],"field_required":false,"developmental_gate":"CAN_WAIT"},
+    {"id":"ROOT-038","priority":"P2","title":"Python and C# DTOs are duplicated and unversioned","tickets":["DTO-CONTRACT-002"],"depends_on":["ROOT-002","ROOT-003","ROOT-029"],"field_required":true,"developmental_gate":"RECOMMENDED"},
+    {"id":"ROOT-039","priority":"P2","title":"None and empty memory metadata have no stable semantics","tickets":["MEM-CONTRACT-004"],"depends_on":[],"field_required":false,"developmental_gate":"PREREQUISITE"},
+    {"id":"ROOT-040","priority":"P2","title":"Memory score lacks a stable domain","tickets":["MEM-CONTRACT-007"],"depends_on":["ROOT-014"],"field_required":false,"developmental_gate":"CAN_WAIT"},
+    {"id":"ROOT-041","priority":"P2","title":"Memory objects are not deeply immutable","tickets":["MEM-CONTRACT-008"],"depends_on":[],"field_required":false,"developmental_gate":"CAN_WAIT"},
+    {"id":"ROOT-042","priority":"P2","title":"MotorAction does not enforce runtime invariants","tickets":["MOTOR-CONTRACT-003","MOTOR-CONTRACT-004"],"depends_on":["ROOT-002"],"field_required":true,"developmental_gate":"RECOMMENDED"},
+    {"id":"ROOT-043","priority":"P2","title":"Response cache exposes shared mutable instances","tickets":["ORCH-AUDIT-005"],"depends_on":["ROOT-003"],"field_required":false,"developmental_gate":"CAN_WAIT"},
+    {"id":"ROOT-044","priority":"P2","title":"Recent memory filter is a dead contract","tickets":["MEM-RETRIEVE-002"],"depends_on":["ROOT-014"],"field_required":false,"developmental_gate":"CAN_WAIT"},
+    {"id":"ROOT-045","priority":"P3","title":"WorkingMemory ignores n","tickets":["MEM-RAM-001"],"depends_on":[],"field_required":false,"developmental_gate":"CAN_WAIT"},
+    {"id":"ROOT-046","priority":"P2","title":"Triage model lacks evaluation and deployment provenance","tickets":["TRIAGE-DATA-001","TRIAGE-MODEL-001"],"depends_on":["ROOT-024"],"field_required":false,"developmental_gate":"CAN_WAIT"},
+    {"id":"ROOT-047","priority":"P2","title":"Triage confidence mixes scales and non-finite values","tickets":["TRIAGE-CONTRACT-002"],"depends_on":[],"field_required":false,"developmental_gate":"CAN_WAIT"},
+    {"id":"ROOT-048","priority":"P2","title":"Single-label triage drops multi-intent","tickets":["TRIAGE-DATA-002"],"depends_on":["ROOT-024"],"field_required":false,"developmental_gate":"CAN_WAIT"},
+    {"id":"ROOT-049","priority":"P3","title":"Unused legacy triage classifier and mapping","tickets":["TRIAGE-MODEL-002"],"depends_on":["ROOT-046"],"field_required":false,"developmental_gate":"CAN_WAIT"},
+    {"id":"ROOT-050","priority":"P2","title":"Grounding ranking ignores distinguishing descriptors","tickets":["GROUND-AUDIT-001"],"depends_on":["ROOT-028"],"field_required":false,"developmental_gate":"CAN_WAIT"},
+    {"id":"ROOT-051","priority":"P2","title":"Clarification labels do not distinguish candidates","tickets":["GROUND-AUDIT-002"],"depends_on":["ROOT-050"],"field_required":false,"developmental_gate":"CAN_WAIT"},
+    {"id":"ROOT-052","priority":"P2","title":"Desktop Future threshold is unreachable","tickets":["GROUND-AUDIT-003"],"depends_on":[],"field_required":false,"developmental_gate":"CAN_WAIT"},
+    {"id":"ROOT-053","priority":"P2","title":"Oracle cache does not coalesce concurrent misses","tickets":["ORACLE-CACHE-002"],"depends_on":["ROOT-018"],"field_required":false,"developmental_gate":"CAN_WAIT"},
+    {"id":"ROOT-054","priority":"P2","title":"Unity transport drops events without acknowledgement and retry","tickets":["TRANSPORT-AUDIT-001"],"depends_on":["ROOT-003"],"field_required":true,"developmental_gate":"RECOMMENDED"},
+    {"id":"ROOT-055","priority":"P2","title":"Notification API conflates failure with empty","tickets":["API-BOUNDARY-001"],"depends_on":["ROOT-010"],"field_required":false,"developmental_gate":"CAN_WAIT"}
+  ],
+  "fix_order": [
+    "ROOT-002","ROOT-001","ROOT-006","ROOT-012","ROOT-003","ROOT-004","ROOT-005","ROOT-007","ROOT-011","ROOT-010","ROOT-009","ROOT-039","ROOT-013","ROOT-014","ROOT-015","ROOT-020","ROOT-008","ROOT-016","ROOT-019","ROOT-021","ROOT-018","ROOT-017","ROOT-031","ROOT-022","ROOT-023","ROOT-024","ROOT-025","ROOT-026","ROOT-027","ROOT-028","ROOT-029","ROOT-042","ROOT-038","ROOT-054","ROOT-030","ROOT-034","ROOT-032","ROOT-036","ROOT-037","ROOT-040","ROOT-041","ROOT-043","ROOT-044","ROOT-046","ROOT-047","ROOT-048","ROOT-050","ROOT-051","ROOT-052","ROOT-053","ROOT-055","ROOT-033","ROOT-035","ROOT-045","ROOT-049"
+  ],
+  "defer_post_capa2": [
+    "ROOT-030","ROOT-032","ROOT-033","ROOT-034","ROOT-035","ROOT-036","ROOT-037","ROOT-040","ROOT-041","ROOT-043","ROOT-044","ROOT-045","ROOT-046","ROOT-047","ROOT-048","ROOT-049","ROOT-050","ROOT-051","ROOT-052","ROOT-053","ROOT-055"
+  ],
+  "observability": {
+    "OBS-001_to_OBS-008": "CLOSED_PASS",
+    "schema_frozen": true,
+    "audittrace_is_not_operational_ledger": true
+  },
+  "closure_checks": {
+    "regression_probe": {
+      "status": "PASS",
+      "executed_test_units": 161,
+      "pass": 160,
+      "known_xfail": 1,
+      "unexpected_fail": 0,
+      "known_xfail_test": "memory.test_chromadb_flow.test_eliminacion",
+      "suite_gate": "PASS",
+      "isolation_gate": "PASS"
+    },
+    "compileall": "NOT_REQUIRED_NO_SCRIPT_ADDED",
+    "json_valid": "PASS",
+    "git_diff_check": "PASS",
+    "chroma_hashes": {
+      "status": "PASS_UNCHANGED_3_OF_3",
+      "data_level0.bin": "02DD64FFD2DFFBDBFE5F9600798E3C96AA392B3F1D306510CFA4F254A77BF659",
+      "length.bin": "CA9905E27DA718E079150D7B929D337B85D7E6B3D0021C8A0E8B41C7362D6E0A",
+      "chroma.sqlite3": "C003D87617B5156E358E4DD56DAB9B8765401AF239F809750627E42A77D23F6D"
+    }
+  }
+}
