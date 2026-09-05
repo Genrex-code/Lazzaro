@@ -2,9 +2,28 @@
 motor_schemas.py - Esquemas Pydantic para acciones fisicas de la Capa 1.
 """
 
-from typing import Any, Literal, Optional
+import math
+from typing import Annotated, Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+
+
+def _validar_numero_fisico_finito(value: Any) -> Any:
+    """Rechaza bool y no-finitos antes de que Pydantic convierta a float."""
+    if isinstance(value, bool):
+        raise ValueError("Un booleano no es un numero fisico valido.")
+
+    try:
+        normalized = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("El parametro fisico debe ser numerico.") from exc
+
+    if not math.isfinite(normalized):
+        raise ValueError("El parametro fisico debe ser finito.")
+    return value
+
+
+PhysicalFloat = Annotated[float, BeforeValidator(_validar_numero_fisico_finito)]
 
 
 class StrictParams(BaseModel):
@@ -15,7 +34,7 @@ class StrictParams(BaseModel):
 
 class NavigateToObjectParams(StrictParams):
     nombre_objeto: str = Field(..., description="Nombre exacto o aproximado del objeto destino.")
-    distancia: Optional[float] = Field(
+    distancia: Optional[PhysicalFloat] = Field(
         None,
         ge=0.1,
         le=10.0,
@@ -24,9 +43,9 @@ class NavigateToObjectParams(StrictParams):
 
 
 class NavigateToPositionParams(StrictParams):
-    x: float = Field(..., description="Coordenada X en el mundo 3D.")
-    y: float = Field(..., description="Coordenada Y en el mundo 3D.")
-    z: float = Field(..., description="Coordenada Z en el mundo 3D.")
+    x: PhysicalFloat = Field(..., description="Coordenada X en el mundo 3D.")
+    y: PhysicalFloat = Field(..., description="Coordenada Y en el mundo 3D.")
+    z: PhysicalFloat = Field(..., description="Coordenada Z en el mundo 3D.")
 
 
 class InteractObjectParams(StrictParams):
@@ -42,7 +61,7 @@ class GrabObjectParams(StrictParams):
 
 
 class ReleaseObjectParams(StrictParams):
-    fuerza_lanzamiento: float = Field(
+    fuerza_lanzamiento: PhysicalFloat = Field(
         0.0,
         ge=0.0,
         le=20.0,
@@ -52,11 +71,11 @@ class ReleaseObjectParams(StrictParams):
 
 class MoveAwayParams(StrictParams):
     nombre_objeto: str = Field(..., description="Objeto del cual alejarse.")
-    distancia: float = Field(2.0, ge=0.5, le=5.0, description="Metros a retroceder.")
+    distancia: PhysicalFloat = Field(2.0, ge=0.5, le=5.0, description="Metros a retroceder.")
 
 
 class RotateAvatarParams(StrictParams):
-    grados: float = Field(
+    grados: PhysicalFloat = Field(
         ...,
         ge=-360.0,
         le=360.0,
@@ -66,10 +85,10 @@ class RotateAvatarParams(StrictParams):
 
 class ApplyForceParams(StrictParams):
     nombre_objeto: str = Field(..., description="Objeto al que se aplicara fuerza.")
-    vector_x: float = Field(..., description="Componente X de la direccion.")
-    vector_y: float = Field(..., description="Componente Y de la direccion.")
-    vector_z: float = Field(..., description="Componente Z de la direccion.")
-    fuerza: float = Field(..., gt=0.0, le=100.0, description="Magnitud de la fuerza.")
+    vector_x: PhysicalFloat = Field(..., description="Componente X de la direccion.")
+    vector_y: PhysicalFloat = Field(..., description="Componente Y de la direccion.")
+    vector_z: PhysicalFloat = Field(..., description="Componente Z de la direccion.")
+    fuerza: PhysicalFloat = Field(..., gt=0.0, le=100.0, description="Magnitud de la fuerza.")
 
 
 class CancelTaskParams(StrictParams):
@@ -93,6 +112,23 @@ ACTION_SCHEMA_MAP = {
     "aplicar_fuerza": ApplyForceParams,
     "cancelar_tarea": CancelTaskParams,
 }
+
+PHYSICAL_NUMERIC_ACTIONS = frozenset(
+    {
+        "navegar_a_objeto",
+        "navegar_a_posicion",
+        "soltar_objeto",
+        "alejarse_de_objeto",
+        "girar_avatar",
+        "aplicar_fuerza",
+    }
+)
+
+
+def validar_parametros_fisicos(accion: str, parametros: dict[str, Any]) -> dict[str, Any]:
+    """Valida y normaliza parametros usando el schema canonico de la accion Motor."""
+    schema_cls = ACTION_SCHEMA_MAP[accion]
+    return schema_cls.model_validate(parametros).model_dump(exclude_none=True)
 
 
 class MotorAction(BaseModel):

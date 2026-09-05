@@ -15,7 +15,7 @@ from pydantic import ValidationError
 from core.logger import get_logger
 
 from .fuzzy_object_resolver import FuzzyObjectResolver
-from .motor_schemas import ACTION_SCHEMA_MAP, MotorAction
+from .motor_schemas import ACTION_SCHEMA_MAP, MotorAction, validar_parametros_fisicos
 from .motor_resolution import MotorResolution
 from .spatial_reasoner import SpatialReasoner
 
@@ -147,14 +147,14 @@ class MotorEngine:
             )
 
         try:
-            params_validados = schema_cls(**parametros_limpios)
+            parametros_validados = validar_parametros_fisicos(accion, parametros_limpios)
         except ValidationError as e:
             logger.warning("Parametros invalidos para '%s': %s", accion, e.errors())
             return self._none("Parametros invalidos. Accion bloqueada por Capa 1.", metadata=metadata)
 
         motor_action = MotorAction(
             accion=accion,
-            parametros=params_validados.model_dump(exclude_none=True),
+            parametros=parametros_validados,
             razon=f"Accion '{accion}' validada por Capa 1.",
             metadata=metadata,
         )

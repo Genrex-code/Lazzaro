@@ -354,9 +354,10 @@ def main() -> int:
     unexplained_subprocesses = GUARD_COUNTS["subprocess_blocked"] - GUARD_COUNTS["blocked_platform_introspection"]
     if unexplained_subprocesses:
         unexplained_blocked["subprocess_blocked"] = unexplained_subprocesses
+    expected_test_units = sum(len(names) for _, names in inventory)
     report = {
         "expected_modules": len(inventory),
-        "expected_test_units": sum(len(names) for _, names in inventory),
+        "expected_test_units": expected_test_units,
         "executed_test_units": len(results),
         "pass": totals["PASS"],
         "known_xfail": totals["KNOWN_XFAIL"],
@@ -384,8 +385,9 @@ def main() -> int:
         ],
     }
     report["suite_gate"] = "PASS" if (
-        totals["PASS"] == 160 and totals["KNOWN_XFAIL"] == 1 and not totals["FAIL"]
-        and len(results) == sum(len(names) for _, names in inventory)
+        totals["PASS"] + totals["KNOWN_XFAIL"] == expected_test_units
+        and totals["KNOWN_XFAIL"] == 1 and not totals["FAIL"]
+        and len(results) == expected_test_units
         and not import_failures and not fatal
     ) else "FAIL"
     report["isolation_gate"] = "PASS" if (

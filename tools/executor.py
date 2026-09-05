@@ -4,6 +4,8 @@ Valida parámetros, aplica confirmaciones, ejecuta la herramienta y captura erro
 """
 
 from typing import Optional
+
+from ai_engine.motor_schemas import PHYSICAL_NUMERIC_ACTIONS, validar_parametros_fisicos
 from api.schemas import AccionSaliente
 from tools.base import ToolResult
 from tools.registry import ToolRegistry
@@ -31,7 +33,10 @@ class ActionExecutor:
         # 2. Validar parámetros con el esquema Pydantic
         schema_cls = tool_info["schema"]
         try:
-            params_validados = schema_cls(**accion.parametros)
+            parametros = accion.parametros
+            if accion.nombre in PHYSICAL_NUMERIC_ACTIONS:
+                parametros = validar_parametros_fisicos(accion.nombre, parametros)
+            params_validados = schema_cls(**parametros)
         except Exception as e:
             mensaje = f"Parámetros inválidos para {accion.nombre}: {e}"
             logger.warning(mensaje)

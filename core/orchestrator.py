@@ -18,6 +18,7 @@ from ai_engine.ai_client import LLMCallAudit
 from ai_engine.learned_alias_candidates import build_learned_alias_candidate
 from ai_engine.llm_generation_adapter import LLMGenerationAdapter
 from ai_engine.motor_engine import MotorEngine
+from ai_engine.motor_schemas import PHYSICAL_NUMERIC_ACTIONS, validar_parametros_fisicos
 from ai_engine.oracle_client import OracleClient
 from ai_engine.oracle_engine import OracleEngine
 from ai_engine.oracle_memory import OracleMemory
@@ -2464,6 +2465,30 @@ class Orchestrator:
                 valido=False,
                 error=action_response.error or "Respuesta invalida del modelo.",
                 metadata=action_response.metadata,
+            )
+
+        if action_response.accion in PHYSICAL_NUMERIC_ACTIONS:
+            try:
+                parametros_validados = validar_parametros_fisicos(
+                    action_response.accion,
+                    action_response.parametros,
+                )
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Parametros fisicos invalidos para '%s'; se degradara a no-op.",
+                    action_response.accion,
+                )
+                return ActionResponse(
+                    pensamiento=action_response.pensamiento,
+                    accion="none",
+                    parametros={},
+                    razon=action_response.razon,
+                    valido=False,
+                    error="Parametros fisicos invalidos. Accion bloqueada.",
+                    metadata=action_response.metadata,
+                )
+            action_response = action_response.model_copy(
+                update={"parametros": parametros_validados}
             )
 
         if (
