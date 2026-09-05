@@ -7,6 +7,7 @@ simples sin LLM cuando es seguro, y nunca maneja personalidad ni conversacion.
 
 from __future__ import annotations
 
+from dataclasses import replace
 import re
 from typing import Any, Dict, Iterable, Optional
 
@@ -17,6 +18,7 @@ from core.logger import get_logger
 from .fuzzy_object_resolver import FuzzyObjectResolver
 from .motor_schemas import ACTION_SCHEMA_MAP, MotorAction, validar_parametros_fisicos
 from .motor_resolution import MotorResolution
+from .perception_models import PerceptionSnapshot, normalize_perception
 from .spatial_reasoner import SpatialReasoner
 
 logger = get_logger(__name__)
@@ -261,10 +263,6 @@ class MotorEngine:
                     "metadata": metadata,
                 }
 
-            parametros_legacy = self._construir_parametros_legacy_con_objeto(accion, mensaje, percepcion)
-            if parametros_legacy is not None and self._puede_usar_fallback_legacy(resolucion):
-                return {"estado": "lista", "accion": accion, "parametros": parametros_legacy, "metadata": {}}
-
             return {
                 "estado": resolucion.status,
                 "accion": accion,
@@ -401,11 +399,6 @@ class MotorEngine:
                     or resolucion.target_id
                     or nombre
                 )
-            if self._puede_usar_fallback_legacy(resolucion):
-                nombre_visible = self._resolver_alias_visible(nombre, percepcion)
-                if nombre_visible:
-                    parametros["nombre_objeto"] = nombre_visible
-                    return parametros, {}
             return parametros, metadata
 
         nombre_normalizado = self.spatial.normalizar_texto(nombre)
@@ -433,16 +426,54 @@ class MotorEngine:
             return None
 
         try:
+            percepcion_resoluble = self._percepcion_con_aliases_legacy(percepcion)
             return self.fuzzy_resolver.resolve(
                 query,
-                percepcion,
+                percepcion_resoluble,
                 intent=intent,
                 action=accion,
                 context=contexto_motor,
             )
         except Exception as exc:
-            logger.warning("FuzzyObjectResolver fallo; se conserva fallback legacy: %s", exc, exc_info=True)
-            return None
+            logger.warning(
+                "FuzzyObjectResolver fallo con percepcion moderna; accion bloqueada: %s",
+                exc,
+                exc_info=True,
+            )
+            return MotorResolution(
+                status="requires_clarification",
+                action=accion,
+                reason="No fue posible verificar el objetivo contra la percepcion actual.",
+                audit={
+                    "status_reason": "resolver_exception",
+                    "error_type": type(exc).__name__,
+                },
+            )
+
+    def _percepcion_con_aliases_legacy(
+        self,
+        percepcion: Dict[str, Any],
+    ) -> PerceptionSnapshot:
+        """Hace visibles aliases historicos antes de decidir ejecutabilidad."""
+        percepcion_moderna = dict(percepcion)
+        percepcion_moderna.pop("objetos_visibles", None)
+        percepcion_moderna.pop("resumen_percepcion", None)
+        snapshot = normalize_perception(percepcion_moderna)
+        objects = []
+        for obj in snapshot.objects:
+            aliases = list(obj.aliases)
+            names = {
+                self.spatial.normalizar_texto(obj.id),
+                self.spatial.normalizar_texto(obj.display_name),
+            }
+            for canonical, known_aliases in self.ALIAS_OBJETOS.items():
+                if not any(canonical in name for name in names):
+                    continue
+                for alias in known_aliases:
+                    if alias not in aliases:
+                        aliases.append(alias)
+            objects.append(replace(obj, aliases=aliases))
+        return replace(snapshot, objects=objects)
 
     @staticmethod
     def _percepcion_tiene_objetos_normalizados(percepcion: Dict[str, Any]) -> bool:
@@ -450,15 +481,9 @@ class MotorEngine:
             return False
         for key in ("objetos_normalizados", "objects", "perceived_objects"):
             value = percepcion.get(key)
-            if isinstance(value, list) and value:
+            if isinstance(value, list):
                 return True
         return False
-
-    @staticmethod
-    def _puede_usar_fallback_legacy(resolucion: MotorResolution) -> bool:
-        if resolucion.status not in {"not_found", "requires_clarification"}:
-            return False
-        return len(resolucion.candidates) <= 1
 
     def _extraer_objeto_objetivo(self, mensaje: str, percepcion: Dict[str, Any]) -> Optional[str]:
         texto = self.spatial.normalizar_texto(mensaje)
