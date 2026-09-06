@@ -122,7 +122,16 @@ class BehaviorCore:
         self.state_engine.aplicar_evento(evento_emocional, intensidad, contexto=detalles)
         self.personality.update_from_event(evento_emocional, intensidad)
 
-        if self.task_context is not None and accion is not None and type(exito) is bool:
+        task_outcome_allowed = self._resultado_pertenece_a_tarea_actual(
+            tipo_evento,
+            detalles,
+        )
+        if (
+            self.task_context is not None
+            and accion is not None
+            and type(exito) is bool
+            and task_outcome_allowed
+        ):
             self.task_context.registrar_intento(str(accion), exito)
             self.task_context.actualizar_umbral_abandono(self.personality.paciencia)
             if self.task_context.detectar_loop():
@@ -292,6 +301,7 @@ class BehaviorCore:
                 return {
                     "state": self.state_engine.obtener_estado(),
                     "task": {
+                        "task_instance_id": tarea.task_instance_id,
                         "objetivo_id": tarea.objetivo_id,
                         "intentos_totales": tarea.intentos_totales,
                         "intentos_fallidos": tarea.intentos_fallidos,
@@ -344,6 +354,27 @@ class BehaviorCore:
         if tipo_evento == "comando_usuario":
             return "comando_usuario"
         return tipo_evento
+
+    def _resultado_pertenece_a_tarea_actual(
+        self,
+        tipo_evento: str,
+        detalles: dict[str, Any],
+    ) -> bool:
+        """Aplica outcomes correlacionados solo a la instancia de task de origen.
+
+        Las llamadas internas legacy que no activan el enforcement conservan su
+        contrato; produccion lo activa despues de resolver el action ledger.
+        """
+        if tipo_evento != "resultado_accion":
+            return True
+        if detalles.get("_task_correlation_enforced") is not True:
+            return True
+        expected = str(detalles.get("_task_instance_id_correlacion") or "").strip()
+        return bool(
+            expected
+            and self.task_context is not None
+            and self.task_context.task_instance_id == expected
+        )
 
     def _sincronizar_tarea_desde_detalles(self, tipo_evento: str, detalles: dict[str, Any]) -> None:
         objetivo = self._extraer_objetivo_desde_detalles(tipo_evento, detalles)

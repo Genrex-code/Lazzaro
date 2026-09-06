@@ -175,7 +175,7 @@ def test_snapshot_reads_no_narrative_or_task_detectors() -> None:
          patch.object(core.state_engine, "tick", side_effect=AssertionError("no mutar estado")):
         snapshot = core.obtener_snapshot_audit()
     assert_true(snapshot["state"]["energia"] == 80, "La lectura no debe aplicar eventos/tick.")
-    assert_true(set(snapshot["task"]) == {"objetivo_id", "intentos_totales", "intentos_fallidos", "frustracion_local", "umbral_abandono"}, "La tarea debe ser acotada, sin historial ni detectores recalculados.")
+    assert_true(set(snapshot["task"]) == {"task_instance_id", "objetivo_id", "intentos_totales", "intentos_fallidos", "frustracion_local", "umbral_abandono"}, "La tarea debe ser acotada e identificable, sin historial ni detectores recalculados.")
     assert_true("SECRET_TASK_HISTORY" not in json.dumps(snapshot), "No debe copiar el microhistorial.")
     core.task_context = None
     assert_true(core.obtener_snapshot_audit()["task"] == {}, "Una lectura válida sin tarea debe representarse como objeto vacío.")

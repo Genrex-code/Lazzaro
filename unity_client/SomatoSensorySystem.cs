@@ -58,7 +58,7 @@ public class SomatoSensorySystem : MonoBehaviour
             objetoGolpeado: nombreObjeto,
             direccionEscape: direccionEscape,
             distanciaEscape: distanciaEscapeDolor,
-            accionFallida: lazzaroAgent.UltimaAccionMovimiento,
+            accionFallida: lazzaroAgent.AccionMovimientoActiva,
             detallesExtra: CrearDetallesImpacto(nombreObjeto, fuerzaDelGolpe, choque, direccionEscape)
         );
     }

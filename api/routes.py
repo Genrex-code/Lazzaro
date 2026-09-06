@@ -14,6 +14,11 @@ from api.schemas import (
     NotificacionSaliente,
 )
 from core.logger import get_logger
+from core.action_ledger import (
+    ActionLedgerError,
+    TransactionConflictError,
+    TransactionIncompleteError,
+)
 
 logger = get_logger(__name__)
 
@@ -66,6 +71,35 @@ async def procesar_evento(
             accion=accion,
         )
 
+    except TransactionIncompleteError:
+        pendiente = RespuestaAPI(
+            status="pendiente",
+            mensaje="La transaccion existe pero quedo incompleta; replay automatico bloqueado.",
+            id_transaccion=evento.id_transaccion,
+            accion=None,
+        )
+        return JSONResponse(status_code=409, content=pendiente.model_dump(mode="json"))
+    except TransactionConflictError:
+        conflicto = RespuestaAPI(
+            status="error",
+            mensaje="El id_transaccion ya pertenece a otro evento.",
+            id_transaccion=evento.id_transaccion,
+            accion=None,
+        )
+        return JSONResponse(status_code=409, content=conflicto.model_dump(mode="json"))
+    except ActionLedgerError:
+        logger.error(
+            "Action ledger no disponible para %s.",
+            evento.id_transaccion,
+            exc_info=True,
+        )
+        error_ledger = RespuestaAPI(
+            status="error",
+            mensaje="No se pudo persistir la identidad operacional; accion bloqueada.",
+            id_transaccion=evento.id_transaccion,
+            accion=None,
+        )
+        return JSONResponse(status_code=503, content=error_ledger.model_dump(mode="json"))
     except Exception as e:
         logger.error("Error al procesar evento %s: %s", evento.id_transaccion, e, exc_info=True)
         error = RespuestaAPI(

@@ -5,6 +5,7 @@ y un microhistorial para detectar patrones no deseados (loops, estancamiento, co
 """
 
 import time
+import uuid
 from core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -25,6 +26,7 @@ class TaskContext:
     }
 
     def __init__(self, objetivo_id: str = "", max_historial: int = 20):
+        self.task_instance_id = str(uuid.uuid4())
         self.objetivo_id = objetivo_id
         self.intentos_totales = 0
         self.intentos_fallidos = 0
@@ -37,6 +39,7 @@ class TaskContext:
 
     def reset(self, nuevo_objetivo: str = ""):
         """Reinicia el contexto para una nueva tarea."""
+        self.task_instance_id = str(uuid.uuid4())
         self.objetivo_id = nuevo_objetivo
         self.intentos_totales = 0
         self.intentos_fallidos = 0
@@ -162,6 +165,7 @@ class TaskContext:
     def obtener_resumen(self) -> dict:
         """Devuelve un diccionario con los datos relevantes para el resto del sistema."""
         return {
+            "task_instance_id": self.task_instance_id,
             "objetivo_id": self.objetivo_id,
             "objetivo": self.objetivo_id,
             "intentos_totales": self.intentos_totales,

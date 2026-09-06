@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     OPENAI_COMPAT_TIMEOUT: float = 45.0
 
     CHROMA_DB_PATH: str = "./lazzaro_data"
+    ACTION_LEDGER_PATH: str = "./lazzaro_data/action_ledger.sqlite3"
     DEEPSEEK_MODEL: str = "deepseek-r1:8b"
 
     model_config = SettingsConfigDict(

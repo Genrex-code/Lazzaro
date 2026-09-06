@@ -1215,7 +1215,7 @@ def test_mensajes_concurrentes_consumen_descanso_terminal_una_sola_vez() -> None
     assert_true(orchestrator.memory.consolidaciones == 0, "La carrera no debe consolidar memoria.")
 
 
-def test_guardado_manual_despierta_y_su_retry_no_recupera_dos_veces() -> None:
+def test_guardado_manual_despierta_y_same_id_no_repite_persistencia() -> None:
     reloj = _FakeClock()
     estado = _TrackingStateEngine(clock=reloj)
     orchestrator, _ = _orquestador_aislado(
@@ -1247,15 +1247,15 @@ def test_guardado_manual_despierta_y_su_retry_no_recupera_dos_veces() -> None:
     assert_true(primera is not None and "No pude guardar" in primera.parametros["texto_a_comunicar"], "Debe informar el fallo real.")
     assert_true(
         segunda is not None
-        and segunda.parametros["texto_a_comunicar"] == "Está bien, lo recordaré para después.",
-        "El retry debe conservar el contrato publico de guardado exitoso.",
+        and "No pude guardar" in segunda.parametros["texto_a_comunicar"],
+        "El retry durable debe reconstruir el mismo fallo sin repetir efectos.",
     )
     assert_true(estado.descansos_finalizados == 1, "El guardado debe despertar exactamente una vez.")
     assert_true(estado.descansando is False, "El retry manual no debe rearmar el descanso.")
     assert_true(estado.energia == energia_tras_primera, "El retry manual no debe mutar otra vez la energia.")
     assert_true(
-        orchestrator.memory.guardados_manuales == [guardar.id_transaccion, guardar.id_transaccion],
-        "El fallo debe reintentar solo la persistencia manual.",
+        orchestrator.memory.guardados_manuales == [guardar.id_transaccion],
+        "El mismo ID no debe reintentar ni siquiera la persistencia manual.",
     )
     assert_true(orchestrator.memory.consolidaciones == 0, "Guardar al despertar no debe consolidar.")
 
@@ -1393,7 +1393,7 @@ def test_terminal_guarda_ram_como_conversacion_y_no_registra_el_control() -> Non
     )
 
 
-def test_terminal_reintenta_un_guardado_fallido_sin_exito_falso() -> None:
+def test_terminal_same_id_no_repite_guardado_fallido_ni_inventa_exito() -> None:
     orchestrator, _ = _orquestador_aislado(
         "persona",
         intent="CONVERSATION_SAVE",
@@ -1424,19 +1424,18 @@ def test_terminal_reintenta_un_guardado_fallido_sin_exito_falso() -> None:
     )
     assert_true(
         segunda is not None
-        and segunda.parametros["texto_a_comunicar"] == "Está bien, lo recordaré para después.",
-        "El mismo ID debe poder recuperarse cuando la persistencia vuelve.",
+        and "No pude guardar" in segunda.parametros["texto_a_comunicar"],
+        "El mismo ID debe devolver el receipt durable original sin inventar exito.",
     )
     assert_true(
         orchestrator.memory.guardados_manuales == [
             evento.id_transaccion,
-            evento.id_transaccion,
         ],
-        "La respuesta de error no debe bloquear el retry de la misma transacción.",
+        "La respuesta de error debe bloquear el replay de la misma transaccion.",
     )
     assert_true(
         evento.id_transaccion in orchestrator._transacciones_procesadas,
-        "Solo el resultado exitoso debe quedar cacheado.",
+        "El receipt durable puede poblar el cache RAM despues de resolver la autoridad.",
     )
     assert_true(
         len(orchestrator.memory.experiencias) == 1,

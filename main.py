@@ -83,6 +83,7 @@ async def lifespan(app: FastAPI):
             memory_manager=memory_manager,
             reasoning_engine=reasoning_engine,
             tool_registry=ToolRegistry,
+            action_ledger_path=settings.ACTION_LEDGER_PATH,
         )
 
         app.state.orchestrator = orchestrator

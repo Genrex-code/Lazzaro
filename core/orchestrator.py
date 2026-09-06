@@ -27,6 +27,18 @@ from ai_engine.schemas import ActionResponse, OracleResult
 from ai_engine.subjective_effort import SubjectiveEffortCalculator
 from ai_engine.triage_router import TriageRouter
 from api.schemas import AccionSaliente, EstadoAgente, EventoEntrante, NotificacionSaliente
+from core.action_ledger import (
+    ActionLedger,
+    ActionLedgerError,
+    ActionRecord,
+    ActionRecordStatus,
+    OutcomeConsumptionStatus,
+    OutcomeRecordStatus,
+    TransactionClaimStatus,
+    TransactionCompletionStatus,
+    TransactionConflictError,
+    TransactionIncompleteError,
+)
 from core.audit_trace import AuditTrace, safe_preview
 from core.audit_writer import AuditTraceJSONLWriter
 from core.logger import get_logger
@@ -53,6 +65,7 @@ class Orchestrator:
         reasoning_engine,
         tool_registry,
         audit_writer: AuditTraceJSONLWriter | None = None,
+        action_ledger_path: str | None = None,
     ):
         self.behavior = behavior_core
         self.memory = memory_manager
@@ -91,6 +104,7 @@ class Orchestrator:
         self.audit_writer = (
             audit_writer if audit_writer is not None else AuditTraceJSONLWriter()
         )
+        self.action_ledger = ActionLedger(action_ledger_path or ":memory:")
         logger.info("Orchestrator inicializado.")
 
     def _conectar_aliases_aprendidos(self) -> None:
@@ -578,10 +592,67 @@ class Orchestrator:
         Procesa un evento externo y devuelve la accion que el agente decide ejecutar.
         Si el evento ya fue procesado, devuelve la accion almacenada.
         """
+        ledger = self._obtener_action_ledger()
+        claim = ledger.claim_transaction(
+            str(evento.id_transaccion),
+            origin=str(evento.origen),
+            event_type=str(evento.tipo_evento),
+        )
+        if claim.status == TransactionClaimStatus.CONFLICT:
+            raise TransactionConflictError(
+                f"id_transaccion reutilizado con otro contrato: {evento.id_transaccion}"
+            )
+        if claim.status == TransactionClaimStatus.INCOMPLETE:
+            raise TransactionIncompleteError(
+                f"Transaccion durable incompleta; replay bloqueado: {evento.id_transaccion}"
+            )
+        if claim.status == TransactionClaimStatus.COMPLETED:
+            cacheada = self._obtener_transaccion_cacheada(evento.id_transaccion)
+            if cacheada is not None:
+                logger.info(
+                    "Evento %s ya completado en ledger; devolviendo accion cacheada.",
+                    evento.id_transaccion,
+                )
+                return cacheada
+            restaurada = self._restaurar_accion_desde_ledger(claim.transaction.response_action)
+            if restaurada is not None:
+                self._cachear_transaccion(evento.id_transaccion, restaurada)
+            logger.info(
+                "Evento %s ya completado en ledger; devolviendo respuesta durable.",
+                evento.id_transaccion,
+            )
+            return restaurada
+
         cacheada = self._obtener_transaccion_cacheada(evento.id_transaccion)
         if cacheada is not None:
-            logger.info("Evento %s ya procesado, devolviendo accion cacheada.", evento.id_transaccion)
+            self._persistir_identidad_accion(
+                evento,
+                cacheada,
+                tarea=None,
+            )
+            self._completar_transaccion_ledger(evento.id_transaccion, cacheada)
+            logger.info(
+                "Evento %s migrado desde cache RAM al ledger.", evento.id_transaccion
+            )
             return cacheada
+
+        outcome_action: ActionRecord | None = None
+        outcome_action_id: str | None = None
+        if evento.tipo_evento == "resultado_accion":
+            outcome_receipt = self._registrar_outcome_entrante(evento)
+            if outcome_receipt.status != OutcomeRecordStatus.ACCEPTED:
+                self._completar_transaccion_ledger(evento.id_transaccion, None)
+                logger.warning(
+                    "Outcome ignorado sin mutaciones. transaction_id=%s status=%s",
+                    evento.id_transaccion,
+                    outcome_receipt.status.value,
+                )
+                return None
+            outcome_action = outcome_receipt.action
+            if outcome_action is None:
+                raise ActionLedgerError("Outcome aceptado sin identidad de accion")
+            outcome_action_id = outcome_action.action_id
+            evento = self._correlacionar_evento_outcome(evento, outcome_action)
 
         retry_guardado = self._reintentar_guardado_conversacional_pendiente(evento)
         if retry_guardado is not None:
@@ -778,6 +849,12 @@ class Orchestrator:
         action_response = self._blindar_salida_terminal(evento, action_response)
         action_response = self._adjuntar_esfuerzo_subjetivo(action_response)
         accion_saliente = self._a_accion_saliente(action_response, politica)
+        if outcome_action is None:
+            self._persistir_identidad_accion(
+                evento,
+                accion_saliente,
+                tarea=tarea,
+            )
         decision_duration_ms = self._elapsed_ms(decision_started_ns)
         llm_events = self._consumir_llm_audit()
         failed_llm_events = [event for event in llm_events if event.status != "ok"]
@@ -875,6 +952,20 @@ class Orchestrator:
             accion_saliente,
             action_response=action_response,
         )
+        sandbox_outcome_action_id: str | None = None
+        if outcome_action is None and self._debe_ejecutar_localmente(evento) and accion_saliente.nombre != "none":
+            sandbox_outcome_action_id = accion_saliente.id_accion
+            sandbox_receipt = ledger.record_outcome(
+                action_id=accion_saliente.id_accion,
+                outcome_transaction_id=f"sandbox:{accion_saliente.id_accion}",
+                success=resultado_memoria == "ok",
+                action_name=accion_saliente.nombre,
+                payload=self._payload_outcome_minimo(detalles_resultado or {}),
+            )
+            if sandbox_receipt.status != OutcomeRecordStatus.ACCEPTED:
+                raise ActionLedgerError(
+                    f"Outcome sandbox no aceptado: {sandbox_receipt.status.value}"
+                )
         execution_duration_ms = self._elapsed_ms(execution_started_ns)
         execution_error_type = (
             "ExecutionFailed" if resultado_memoria == "error" else None
@@ -896,10 +987,18 @@ class Orchestrator:
             )
         if resultado_memoria == "ok":
             self._aprobar_alias_pendiente_por_id(accion_saliente.id_accion)
+        working_action = outcome_action.action_name if outcome_action is not None else accion_saliente.nombre
+        working_result = (
+            "ok" if evento.detalles.get("exito") is True else "error"
+        ) if outcome_action is not None else resultado_memoria
+        working_details = dict(detalles_resultado or {})
+        working_details["id_accion"] = (
+            outcome_action.action_id if outcome_action is not None else accion_saliente.id_accion
+        )
         self.memory.agregar_accion(
-            accion=accion_saliente.nombre,
-            resultado=resultado_memoria,
-            detalles=detalles_resultado,
+            accion=working_action,
+            resultado=working_result,
+            detalles=working_details,
         )
         self._registrar_turno_conversacional_si_aplica(
             evento=evento,
@@ -908,10 +1007,8 @@ class Orchestrator:
             accion_saliente=accion_saliente,
         )
 
-        if self._debe_cachear_transaccion(action_response):
-            self._olvidar_guardado_conversacional_pendiente(evento.id_transaccion)
-            self._cachear_transaccion(evento.id_transaccion, accion_saliente)
-        elif self._es_error_guardado_conversacional(action_response):
+        should_cache = self._debe_cachear_transaccion(action_response)
+        if not should_cache and self._es_error_guardado_conversacional(action_response):
             self._marcar_guardado_conversacional_pendiente(
                 evento.id_transaccion,
                 politica,
@@ -920,8 +1017,27 @@ class Orchestrator:
         self._registrar_estado_identidad(evento, triage_decision, action_response)
         self._armar_descanso_terminal_si_corresponde(evento, triage_decision)
 
+        if outcome_action_id is not None:
+            consumed = ledger.mark_outcome_consumed(outcome_action_id)
+            if consumed != OutcomeConsumptionStatus.CONSUMED:
+                raise ActionLedgerError(
+                    f"No se pudo consumir outcome {outcome_action_id}: {consumed.value}"
+                )
+        if sandbox_outcome_action_id is not None:
+            consumed = ledger.mark_outcome_consumed(sandbox_outcome_action_id)
+            if consumed != OutcomeConsumptionStatus.CONSUMED:
+                raise ActionLedgerError(
+                    f"No se pudo consumir outcome sandbox {sandbox_outcome_action_id}: {consumed.value}"
+                )
+
+        respuesta_durable = None if outcome_action is not None else accion_saliente
+        self._completar_transaccion_ledger(evento.id_transaccion, respuesta_durable)
+        if should_cache and respuesta_durable is not None:
+            self._olvidar_guardado_conversacional_pendiente(evento.id_transaccion)
+            self._cachear_transaccion(evento.id_transaccion, respuesta_durable)
+
         logger.info("Evento %s procesado. Accion: %s", evento.id_transaccion, accion_saliente.nombre)
-        return accion_saliente
+        return respuesta_durable
 
     def _obtener_contexto_memoria_completa(
         self,
@@ -1036,6 +1152,7 @@ class Orchestrator:
                     "origen": evento.origen,
                     "objeto": evento.objeto_involucrado,
                     "estado_fisico": evento.detalles.get("estado_fisico"),
+                    "id_accion": evento.detalles.get("id_accion"),
                     "accion": evento.detalles.get("accion"),
                     "exito": evento.detalles.get("exito"),
                 },
@@ -1193,32 +1310,10 @@ class Orchestrator:
             if not isinstance(pending_store, OrderedDict) or not pending_store:
                 return None
 
-            id_accion = str(
-                detalles.get("id_accion")
-                or detalles.get("accion_id")
-                or detalles.get("action_id")
-                or ""
-            ).strip()
-            if id_accion:
-                pending = pending_store.pop(id_accion, None)
-                if pending is not None:
-                    return pending
-
-            accion = str(detalles.get("accion") or "").strip()
-            target = str(
-                detalles.get("nombre_objeto")
-                or detalles.get("objeto")
-                or detalles.get("target")
-                or detalles.get("object_id")
-                or ""
-            ).strip()
-            for key, pending in reversed(list(pending_store.items())):
-                if accion and pending.get("action") != accion:
-                    continue
-                if target and target not in {pending.get("target_name"), pending.get("motor_resolution", {}).get("target_id")}:
-                    continue
-                return pending_store.pop(key)
-            return None
+            id_accion = str(detalles.get("id_accion") or "").strip()
+            if not id_accion:
+                return None
+            return pending_store.pop(id_accion, None)
 
     def _persistir_alias_pendiente(self, pending: dict) -> None:
         candidate = build_learned_alias_candidate(
@@ -2364,9 +2459,157 @@ class Orchestrator:
             self._notificaciones.clear()
             return notificaciones
 
+    def _obtener_action_ledger(self) -> ActionLedger:
+        """Crea un ledger efimero solo para fakes legacy sin ``__init__``."""
+        ledger = getattr(self, "action_ledger", None)
+        if ledger is None:
+            ledger = ActionLedger(":memory:")
+            self.action_ledger = ledger
+        return ledger
+
+    def _registrar_outcome_entrante(self, evento: EventoEntrante):
+        detalles = evento.detalles if isinstance(evento.detalles, dict) else {}
+        return self._obtener_action_ledger().record_outcome(
+            action_id=str(detalles.get("id_accion") or ""),
+            outcome_transaction_id=str(evento.id_transaccion),
+            success=detalles.get("exito"),
+            action_name=str(detalles.get("accion") or "") or None,
+            originating_transaction_id=(
+                str(detalles.get("id_transaccion_origen") or "").strip() or None
+            ),
+            payload=self._payload_outcome_minimo(detalles),
+        )
+
+    @staticmethod
+    def _payload_outcome_minimo(detalles: dict) -> dict:
+        permitidos = {
+            "mensaje_resultado",
+            "objeto",
+            "nombre_objeto",
+            "target",
+            "object_id",
+            "movimiento_finalizado",
+            "distancia_objeto",
+            "fuerza_lanzamiento",
+            "fuerza",
+            "vector_x",
+            "vector_y",
+            "vector_z",
+            "grados",
+            "x",
+            "y",
+            "z",
+        }
+        return {
+            key: value
+            for key, value in detalles.items()
+            if key in permitidos
+        }
+
+    @staticmethod
+    def _correlacionar_evento_outcome(
+        evento: EventoEntrante,
+        action: ActionRecord,
+    ) -> EventoEntrante:
+        correlacionado = evento.model_copy(deep=True)
+        detalles = dict(correlacionado.detalles or {})
+        detalles["accion"] = action.action_name
+        detalles["id_accion"] = action.action_id
+        detalles["id_transaccion_origen"] = action.transaction_id
+        detalles["_task_correlation_enforced"] = True
+        detalles["_task_instance_id_correlacion"] = action.task_instance_id
+        correlacionado.detalles = detalles
+        return correlacionado
+
+    def _persistir_identidad_accion(
+        self,
+        evento: EventoEntrante,
+        accion: AccionSaliente,
+        *,
+        tarea: dict | None,
+    ) -> None:
+        task_instance_id = None
+        if isinstance(tarea, dict):
+            task_instance_id = str(tarea.get("task_instance_id") or "").strip() or None
+        receipt = self._obtener_action_ledger().record_action(
+            action_id=accion.id_accion,
+            transaction_id=str(evento.id_transaccion),
+            action_name=accion.nombre,
+            parameters=dict(accion.parametros or {}),
+            requires_confirmation=accion.requiere_confirmacion,
+            task_instance_id=task_instance_id,
+            intended_client=str(evento.origen),
+            outcome_expected=self._accion_requiere_outcome(evento, accion),
+        )
+        if receipt.status == ActionRecordStatus.CONFLICT:
+            raise TransactionConflictError(
+                f"Identidad de accion en conflicto: {accion.id_accion}"
+            )
+
+    @staticmethod
+    def _accion_requiere_outcome(
+        evento: EventoEntrante,
+        accion: AccionSaliente,
+    ) -> bool:
+        if accion.nombre in {"none", "hablar"}:
+            return False
+        return evento.origen != "terminal"
+
+    @staticmethod
+    def _serializar_accion_durable(
+        accion: AccionSaliente | None,
+    ) -> dict | None:
+        if accion is None:
+            return None
+        return {
+            "id_accion": accion.id_accion,
+            "nombre": accion.nombre,
+            "parametros": dict(accion.parametros or {}),
+            "requiere_confirmacion": accion.requiere_confirmacion,
+        }
+
+    @staticmethod
+    def _restaurar_accion_desde_ledger(
+        payload: dict | None,
+    ) -> AccionSaliente | None:
+        if not isinstance(payload, dict):
+            return None
+        return AccionSaliente(
+            id_accion=str(payload.get("id_accion") or ""),
+            nombre=str(payload.get("nombre") or "none"),
+            parametros=(
+                dict(payload.get("parametros") or {})
+                if isinstance(payload.get("parametros"), dict)
+                else {}
+            ),
+            razonamiento="",
+            pensamiento_privado="",
+            requiere_confirmacion=payload.get("requiere_confirmacion") is True,
+        )
+
+    def _completar_transaccion_ledger(
+        self,
+        transaction_id: str,
+        accion: AccionSaliente | None,
+    ) -> None:
+        status = self._obtener_action_ledger().complete_transaction(
+            str(transaction_id),
+            self._serializar_accion_durable(accion),
+        )
+        if status not in {
+            TransactionCompletionStatus.COMPLETED,
+            TransactionCompletionStatus.ALREADY_COMPLETED,
+        }:
+            raise ActionLedgerError(
+                f"Completion durable rechazada para {transaction_id}: {status.value}"
+            )
+
     def close(self) -> None:
         """Cierra recursos auxiliares persistentes del orquestador."""
-        close_oracle_memory = getattr(self.oracle_memory, "close", None)
+        close_ledger = getattr(getattr(self, "action_ledger", None), "close", None)
+        if callable(close_ledger):
+            close_ledger()
+        close_oracle_memory = getattr(getattr(self, "oracle_memory", None), "close", None)
         if callable(close_oracle_memory):
             close_oracle_memory()
 

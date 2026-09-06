@@ -211,22 +211,26 @@ def test_handler_exception_is_a_single_controlled_failure() -> None:
     assert_true(len(calls) == 1, "La excepción no debe reejecutar el efecto.")
 
 
-def test_resultado_accion_accepts_bool_or_absent() -> None:
+def test_resultado_accion_accepts_only_identified_strict_booleans() -> None:
     for value in (True, False):
         event = EventoEntrante(
             origen="unity",
             tipo_evento="resultado_accion",
             id_transaccion=f"strict-{value}",
-            detalles={"exito": value},
+            detalles={"id_accion": f"action-{value}", "exito": value},
         )
         assert_true(event.detalles["exito"] is value, "El bool debe conservar identidad.")
-    absent = EventoEntrante(
-        origen="unity",
-        tipo_evento="resultado_accion",
-        id_transaccion="strict-absent",
-        detalles={},
-    )
-    assert_true("exito" not in absent.detalles, "Ausencia no debe inventar resultado.")
+    for detalles in ({"id_accion": "action-absent"}, {"exito": True}):
+        try:
+            EventoEntrante(
+                origen="unity",
+                tipo_evento="resultado_accion",
+                id_transaccion="strict-absent",
+                detalles=detalles,
+            )
+        except ValidationError:
+            continue
+        raise AssertionError("Outcome sin id_accion o exito debe fallar cerrado.")
 
 
 def test_resultado_accion_rejects_every_ambiguous_boolean() -> None:
@@ -236,7 +240,7 @@ def test_resultado_accion_rejects_every_ambiguous_boolean() -> None:
                 origen="unity",
                 tipo_evento="resultado_accion",
                 id_transaccion="strict-invalid",
-                detalles={"exito": value},
+                detalles={"id_accion": "strict-action", "exito": value},
             )
         except ValidationError:
             continue

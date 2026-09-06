@@ -28,7 +28,10 @@ class EventoEntrante(BaseModel):
     id_transaccion: str = Field(
         ...,
         min_length=1,
-        description="UUID unico generado por el cliente. Garantiza idempotencia y trazabilidad.",
+        description=(
+            "Idempotency key canonica, opaca, estable y no vacia generada por el cliente. "
+            "No se reutiliza para otro evento."
+        ),
     )
     timestamp: Optional[datetime] = Field(
         default_factory=datetime.utcnow,
@@ -67,12 +70,14 @@ class EventoEntrante(BaseModel):
         return value.strip()
 
     @model_validator(mode="after")
-    def resultado_accion_exige_exito_booleano(self) -> "EventoEntrante":
-        if (
-            self.tipo_evento == "resultado_accion"
-            and "exito" in self.detalles
-            and type(self.detalles["exito"]) is not bool
-        ):
+    def resultado_accion_exige_identidad_y_exito(self) -> "EventoEntrante":
+        if self.tipo_evento != "resultado_accion":
+            return self
+        action_id = self.detalles.get("id_accion")
+        if not isinstance(action_id, str) or not action_id.strip():
+            raise ValueError("resultado_accion.detalles.id_accion es requerido y no puede estar vacio")
+        self.detalles["id_accion"] = action_id.strip()
+        if "exito" not in self.detalles or type(self.detalles["exito"]) is not bool:
             raise ValueError("resultado_accion.detalles.exito debe ser un bool estricto")
         return self
 

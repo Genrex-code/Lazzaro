@@ -24,10 +24,10 @@ public class LazzaroAgent : MonoBehaviour
     private bool movimientoTerminadoPendiente = false;
     private bool ultimoMovimientoExitoso = false;
     private string ultimoResultadoMovimiento = "";
-    private string ultimoObjetoNavegacion = "ninguno";
-    public string UltimaAccionMovimiento { get; private set; } = "navegar_a_objeto";
     private string tareaUsuarioActual = "";
-    private Dictionary<string, object> ultimosParametrosMovimiento = new Dictionary<string, object>();
+    private string tareaUsuarioActualIdTransaccion = "";
+    private readonly Dictionary<string, ContextoAccion> accionesMovimientoPendientes =
+        new Dictionary<string, ContextoAccion>();
     private const float DistanciaMaximaInteraccion = 2.0f;
     private const float DistanciaMaximaAgarrar = 1.5f;
     private const int MaxTareasUsuarioEnCola = 8;
@@ -35,6 +35,75 @@ public class LazzaroAgent : MonoBehaviour
         @"\s+(?:y\s+luego|luego|despues|después|finalmente)\s+",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant
     );
+
+    private sealed class ContextoAccion
+    {
+        public readonly string IdAccion;
+        public readonly string IdTransaccionOrigen;
+        public readonly string Nombre;
+        public readonly JObject Parametros;
+        public readonly Dictionary<string, object> DetallesResultado;
+        public readonly string ObjetoInvolucrado;
+
+        public ContextoAccion(
+            string idAccion,
+            string idTransaccionOrigen,
+            string nombre,
+            JObject parametros
+        )
+        {
+            IdAccion = idAccion;
+            IdTransaccionOrigen = idTransaccionOrigen;
+            Nombre = nombre;
+            Parametros = parametros;
+            DetallesResultado = new Dictionary<string, object>();
+            ObjetoInvolucrado = "ninguno";
+        }
+
+        private ContextoAccion(
+            string idAccion,
+            string idTransaccionOrigen,
+            string nombre,
+            JObject parametros,
+            Dictionary<string, object> detallesResultado,
+            string objetoInvolucrado
+        )
+        {
+            IdAccion = idAccion;
+            IdTransaccionOrigen = idTransaccionOrigen;
+            Nombre = nombre;
+            Parametros = parametros;
+            DetallesResultado = detallesResultado;
+            ObjetoInvolucrado = objetoInvolucrado;
+        }
+
+        public ContextoAccion ConDetalles(
+            Dictionary<string, object> detalles,
+            string objetoInvolucrado = "ninguno"
+        )
+        {
+            return new ContextoAccion(
+                IdAccion,
+                IdTransaccionOrigen,
+                Nombre,
+                Parametros,
+                detalles ?? new Dictionary<string, object>(),
+                string.IsNullOrWhiteSpace(objetoInvolucrado) ? "ninguno" : objetoInvolucrado
+            );
+        }
+    }
+
+    public string AccionMovimientoActiva
+    {
+        get
+        {
+            foreach (ContextoAccion contexto in accionesMovimientoPendientes.Values)
+            {
+                return contexto.Nombre;
+            }
+            return "accion_fisica_desconocida";
+        }
+    }
 
     [Header("Interfaz Visual (Nubes)")]
     public TextMeshProUGUI textoPensamientoUI;
@@ -188,18 +257,27 @@ public class LazzaroAgent : MonoBehaviour
             { "tareas_restantes", colaTareasUsuario.Count }
         };
 
-        EnviarEvento("comando_usuario", detalles, "usuario");
+        tareaUsuarioActualIdTransaccion = EnviarEvento("comando_usuario", detalles, "usuario");
     }
 
-    private void CompletarTareaUsuarioActual(bool exito, string mensaje)
+    private void CompletarTareaUsuarioActual(
+        string idTransaccionOrigen,
+        bool exito,
+        string mensaje
+    )
     {
-        if (!tareaUsuarioEnCurso)
+        if (
+            !tareaUsuarioEnCurso
+            || string.IsNullOrWhiteSpace(idTransaccionOrigen)
+            || idTransaccionOrigen != tareaUsuarioActualIdTransaccion
+        )
         {
             return;
         }
 
         string tareaCompletada = tareaUsuarioActual;
         tareaUsuarioActual = "";
+        tareaUsuarioActualIdTransaccion = "";
         tareaUsuarioEnCurso = false;
 
         if (!exito)
@@ -232,6 +310,7 @@ public class LazzaroAgent : MonoBehaviour
         colaTareasUsuario.Clear();
         tareaUsuarioEnCurso = false;
         tareaUsuarioActual = "";
+        tareaUsuarioActualIdTransaccion = "";
 
         if (pendientes > 0 || mostrarLogsCognitivos)
         {
@@ -391,7 +470,7 @@ public class LazzaroAgent : MonoBehaviour
             .Replace("ü", "u");
     }
 
-    public void EnviarEvento(
+    public string EnviarEvento(
         string tipoEvento,
         Dictionary<string, object> detalles,
         string objetoInvolucrado = "ninguno",
@@ -419,6 +498,7 @@ public class LazzaroAgent : MonoBehaviour
         {
             StartCoroutine(ProcesarColaEventos());
         }
+        return evento.id_transaccion;
     }
 
     public void ReportarDolor(
@@ -446,8 +526,8 @@ public class LazzaroAgent : MonoBehaviour
         EnviarEvento("alerta_dolor_fisico", detalles, objetoGolpeado, true);
     }
 
-    public void ReportarResultadoAccion(
-        string nombreAccion,
+    private void ReportarResultadoAccion(
+        ContextoAccion contexto,
         bool exito,
         string mensaje,
         Dictionary<string, object> detallesExtra = null,
@@ -455,14 +535,17 @@ public class LazzaroAgent : MonoBehaviour
     )
     {
         var detalles = percepcion.EscanearEntorno();
-        detalles["accion"] = nombreAccion;
+        detalles["id_accion"] = contexto.IdAccion;
+        detalles["id_transaccion_origen"] = contexto.IdTransaccionOrigen;
+        detalles["accion"] = contexto.Nombre;
         detalles["exito"] = exito;
         detalles["mensaje_resultado"] = mensaje;
 
+        AgregarDetallesExtra(detalles, contexto.DetallesResultado);
         AgregarDetallesExtra(detalles, detallesExtra);
 
         EnviarEvento("resultado_accion", detalles, objetoInvolucrado);
-        CompletarTareaUsuarioActual(exito, mensaje);
+        CompletarTareaUsuarioActual(contexto.IdTransaccionOrigen, exito, mensaje);
     }
 
     private IEnumerator ProcesarColaEventos()
@@ -476,7 +559,7 @@ public class LazzaroAgent : MonoBehaviour
             yield return StartCoroutine(
                 api.EnviarEvento(
                     evento,
-                    ProcesarRespuestaDelCerebro,
+                    respuesta => ProcesarRespuestaDelCerebro(evento.id_transaccion, respuesta),
                     mensajeError => Debug.LogWarning($"No se pudo enviar el evento {evento.tipo_evento}: {mensajeError}")
                 )
             );
@@ -484,12 +567,45 @@ public class LazzaroAgent : MonoBehaviour
         procesandoCola = false;
     }
 
-    private void ProcesarRespuestaDelCerebro(RespuestaAPI respuesta)
+    private void ProcesarRespuestaDelCerebro(
+        string idTransaccionSolicitud,
+        RespuestaAPI respuesta
+    )
     {
-        if (respuesta == null || respuesta.accion == null)
+        if (
+            respuesta == null
+            || string.IsNullOrWhiteSpace(respuesta.id_transaccion)
+            || respuesta.id_transaccion != idTransaccionSolicitud
+        )
         {
-            return; // Validacion de seguridad
+            Debug.LogWarning("Respuesta sin correlacion exacta; no se ejecutara ni cerrara otra subtarea.");
+            return;
         }
+        if (respuesta.accion == null)
+        {
+            CompletarTareaUsuarioActual(
+                idTransaccionSolicitud,
+                false,
+                "El backend no produjo una accion para esta solicitud exacta."
+            );
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(respuesta.accion.id_accion))
+        {
+            CompletarTareaUsuarioActual(
+                idTransaccionSolicitud,
+                false,
+                "El backend produjo una accion sin identidad canonica."
+            );
+            return;
+        }
+
+        ContextoAccion contexto = new ContextoAccion(
+            respuesta.accion.id_accion,
+            idTransaccionSolicitud,
+            respuesta.accion.nombre,
+            respuesta.accion.parametros
+        );
 
         // 1. Mostrar Pensamiento Privado en la UI
         if (textoPensamientoUI != null && !string.IsNullOrEmpty(respuesta.accion.pensamiento_privado))
@@ -513,7 +629,11 @@ public class LazzaroAgent : MonoBehaviour
 
         if (string.IsNullOrEmpty(respuesta.accion.nombre) || respuesta.accion.nombre == "none")
         {
-            CompletarTareaUsuarioActual(false, "El backend no genero una accion ejecutable para la subtarea actual.");
+            CompletarTareaUsuarioActual(
+                contexto.IdTransaccionOrigen,
+                false,
+                "El backend no genero una accion ejecutable para la subtarea actual."
+            );
             return;
         }
 
@@ -521,7 +641,7 @@ public class LazzaroAgent : MonoBehaviour
         {
             Debug.LogWarning($"Accion '{respuesta.accion.nombre}' requiere confirmacion. Se omite en Unity.");
             ReportarResultadoAccion(
-                respuesta.accion.nombre,
+                contexto,
                 false,
                 "La accion fue omitida porque requiere confirmacion manual."
             );
@@ -533,39 +653,39 @@ public class LazzaroAgent : MonoBehaviour
         switch (respuesta.accion.nombre)
         {
             case "navegar_a_objeto":
-                EjecutarNavegarAObjeto(respuesta.accion.parametros);
+                EjecutarNavegarAObjeto(contexto);
                 break;
             case "navegar_a_posicion":
-                EjecutarNavegarAPosicion(respuesta.accion.parametros);
+                EjecutarNavegarAPosicion(contexto);
                 break;
             case "alejarse_de_objeto":
-                EjecutarAlejarseDeObjeto(respuesta.accion.parametros);
+                EjecutarAlejarseDeObjeto(contexto);
                 break;
             case "girar_avatar":
-                EjecutarGirarAvatar(respuesta.accion.parametros);
+                EjecutarGirarAvatar(contexto);
                 break;
             case "cancelar_tarea":
-                EjecutarCancelarTarea(respuesta.accion.parametros);
+                EjecutarCancelarTarea(contexto);
                 break;
             case "interactuar_objeto_3d":
-                EjecutarInteraccion(respuesta.accion.parametros);
+                EjecutarInteraccion(contexto);
                 break;
             case "agarrar_objeto":
-                EjecutarAgarrar(respuesta.accion.parametros);
+                EjecutarAgarrar(contexto);
                 break;
             case "soltar_objeto":
-                EjecutarSoltar(respuesta.accion.parametros);
+                EjecutarSoltar(contexto);
                 break;
             case "aplicar_fuerza":
-                EjecutarAplicarFuerza(respuesta.accion.parametros);
+                EjecutarAplicarFuerza(contexto);
                 break;
             case "hablar":
-                EjecutarHablar(respuesta.accion.parametros);
+                EjecutarHablar(contexto);
                 break;
             default:
                 Debug.LogWarning($"No hay manejador Unity para la accion: {respuesta.accion.nombre}");
                 ReportarResultadoAccion(
-                    respuesta.accion.nombre,
+                    contexto,
                     false,
                     "Unity no tenia implementado un manejador para esta accion."
                 );
@@ -573,8 +693,9 @@ public class LazzaroAgent : MonoBehaviour
         }
     }
 
-    private void EjecutarCancelarTarea(JObject parametros)
+    private void EjecutarCancelarTarea(ContextoAccion contexto)
     {
+        JObject parametros = contexto.Parametros;
         string motivo = parametros?["motivo"]?.ToString() ?? "Solicitud explicita del usuario.";
         bool cancelarMovimiento = parametros?["cancelar_movimiento"]?.Value<bool>() ?? true;
         bool cancelarCola = parametros?["cancelar_cola"]?.Value<bool>() ?? true;
@@ -586,12 +707,7 @@ public class LazzaroAgent : MonoBehaviour
             movimientoTerminadoPendiente = false;
             ultimoMovimientoExitoso = false;
             ultimoResultadoMovimiento = "Movimiento cancelado por solicitud del usuario.";
-            ultimoObjetoNavegacion = "ninguno";
-            UltimaAccionMovimiento = "cancelar_tarea";
-            ultimosParametrosMovimiento = new Dictionary<string, object>
-            {
-                { "motivo", motivo }
-            };
+            accionesMovimientoPendientes.Clear();
         }
 
         if (cancelarCola)
@@ -609,6 +725,11 @@ public class LazzaroAgent : MonoBehaviour
             Debug.Log($"[VOZ LAZZARO]: {textoConfirmacion}");
         }
         Debug.Log($"Tarea cancelada por usuario. {motivo}");
+        ReportarResultadoAccion(
+            contexto,
+            true,
+            "La tarea y actividad fisica pendientes fueron canceladas."
+        );
     }
 
     private static string ConstruirManualEspacial()
@@ -629,30 +750,32 @@ REGLAS FISICAS Y DE ENTORNO:
 - INTERACCION: Si ya estas cerca del objeto objetivo, usa 'interactuar_objeto_3d'.";
     }
 
-    private void EjecutarNavegarAObjeto(JObject parametros)
+    private void EjecutarNavegarAObjeto(ContextoAccion contexto)
     {
+        JObject parametros = contexto.Parametros;
         string objeto = parametros?["nombre_objeto"]?.ToString() ?? "";
         if (string.IsNullOrWhiteSpace(objeto))
         {
             ReportarResultadoAccion(
-                "navegar_a_objeto",
+                contexto,
                 false,
                 "La accion navegar_a_objeto no incluyo el parametro nombre_objeto."
             );
             return;
         }
 
-        ultimoObjetoNavegacion = objeto;
-        UltimaAccionMovimiento = "navegar_a_objeto";
-        ultimosParametrosMovimiento = new Dictionary<string, object>
+        ContextoAccion movimientoContexto = contexto.ConDetalles(
+            new Dictionary<string, object>
         {
             { "nombre_objeto", objeto },
-        };
-        movimiento.NavegarAObjeto(objeto);
+        }, objeto);
+        accionesMovimientoPendientes[contexto.IdAccion] = movimientoContexto;
+        movimiento.NavegarAObjeto(contexto.IdAccion, objeto);
     }
 
-    private void EjecutarNavegarAPosicion(JObject parametros)
+    private void EjecutarNavegarAPosicion(ContextoAccion contexto)
     {
+        JObject parametros = contexto.Parametros;
         if (
             !TryLeerFloat(parametros, "x", out float x)
             || !TryLeerFloat(parametros, "y", out float y)
@@ -660,7 +783,7 @@ REGLAS FISICAS Y DE ENTORNO:
         )
         {
             ReportarResultadoAccion(
-                "navegar_a_posicion",
+                contexto,
                 false,
                 "La accion navegar_a_posicion requiere parametros numericos x, y, z."
             );
@@ -668,50 +791,53 @@ REGLAS FISICAS Y DE ENTORNO:
         }
 
         Vector3 destino = new Vector3(x, y, z);
-        ultimoObjetoNavegacion = $"posicion({x:0.##}, {y:0.##}, {z:0.##})";
-        UltimaAccionMovimiento = "navegar_a_posicion";
-        ultimosParametrosMovimiento = new Dictionary<string, object>
+        string etiqueta = $"posicion({x:0.##}, {y:0.##}, {z:0.##})";
+        ContextoAccion movimientoContexto = contexto.ConDetalles(
+            new Dictionary<string, object>
         {
             { "x", Math.Round(x, 2) },
             { "y", Math.Round(y, 2) },
             { "z", Math.Round(z, 2) },
-        };
+        }, etiqueta);
 
-        movimiento.NavegarAPosicion(destino, ultimoObjetoNavegacion);
+        accionesMovimientoPendientes[contexto.IdAccion] = movimientoContexto;
+        movimiento.NavegarAPosicion(contexto.IdAccion, destino, etiqueta);
     }
 
-    private void EjecutarAlejarseDeObjeto(JObject parametros)
+    private void EjecutarAlejarseDeObjeto(ContextoAccion contexto)
     {
+        JObject parametros = contexto.Parametros;
         string objeto = parametros?["nombre_objeto"]?.ToString() ?? "";
         float distancia = parametros?["distancia"]?.Value<float>() ?? 2.0f;
 
         if (string.IsNullOrWhiteSpace(objeto))
         {
             ReportarResultadoAccion(
-                "alejarse_de_objeto",
+                contexto,
                 false,
                 "La accion alejarse_de_objeto no incluyo el parametro nombre_objeto."
             );
             return;
         }
 
-        ultimoObjetoNavegacion = objeto;
-        UltimaAccionMovimiento = "alejarse_de_objeto";
-        ultimosParametrosMovimiento = new Dictionary<string, object>
+        ContextoAccion movimientoContexto = contexto.ConDetalles(
+            new Dictionary<string, object>
         {
             { "nombre_objeto", objeto },
             { "distancia", Math.Round(distancia, 2) },
-        };
+        }, objeto);
 
-        movimiento.AlejarseDeObjeto(objeto, distancia);
+        accionesMovimientoPendientes[contexto.IdAccion] = movimientoContexto;
+        movimiento.AlejarseDeObjeto(contexto.IdAccion, objeto, distancia);
     }
 
-    private void EjecutarGirarAvatar(JObject parametros)
+    private void EjecutarGirarAvatar(ContextoAccion contexto)
     {
+        JObject parametros = contexto.Parametros;
         if (!TryLeerFloat(parametros, "grados", out float grados))
         {
             ReportarResultadoAccion(
-                "girar_avatar",
+                contexto,
                 false,
                 "La accion girar_avatar requiere el parametro numerico grados."
             );
@@ -722,44 +848,42 @@ REGLAS FISICAS Y DE ENTORNO:
         if (Mathf.Abs(grados) < 1f)
         {
             ReportarResultadoAccion(
-                "girar_avatar",
+                contexto,
                 false,
                 "La rotacion solicitada es demasiado pequena para ejecutarse."
             );
             return;
         }
 
-        ultimoObjetoNavegacion = "rotacion";
-        UltimaAccionMovimiento = "girar_avatar";
-        ultimosParametrosMovimiento = new Dictionary<string, object>
+        ContextoAccion movimientoContexto = contexto.ConDetalles(
+            new Dictionary<string, object>
         {
             { "grados", Math.Round(grados, 2) },
-        };
+        }, "rotacion");
 
-        movimiento.GirarAvatar(grados);
+        accionesMovimientoPendientes[contexto.IdAccion] = movimientoContexto;
+        movimiento.GirarAvatar(contexto.IdAccion, grados);
     }
 
-    private void ManejarMovimientoCompletado(bool exito, string mensaje)
+    private void ManejarMovimientoCompletado(string idAccion, bool exito, string mensaje)
     {
         movimientoTerminadoPendiente = true;
         ultimoMovimientoExitoso = exito;
         ultimoResultadoMovimiento = mensaje;
 
-        Dictionary<string, object> detallesMovimiento = new Dictionary<string, object>
+        if (!accionesMovimientoPendientes.TryGetValue(idAccion, out ContextoAccion contexto))
         {
-            { "movimiento_finalizado", true },
-        };
-        foreach (KeyValuePair<string, object> par in ultimosParametrosMovimiento)
-        {
-            detallesMovimiento[par.Key] = par.Value;
+            Debug.LogWarning($"Resultado de movimiento desconocido: id_accion={idAccion}");
+            return;
         }
+        accionesMovimientoPendientes.Remove(idAccion);
 
         ReportarResultadoAccion(
-            UltimaAccionMovimiento,
+            contexto,
             exito,
             mensaje,
-            detallesMovimiento,
-            ultimoObjetoNavegacion
+            new Dictionary<string, object> { { "movimiento_finalizado", true } },
+            contexto.ObjetoInvolucrado
         );
     }
 
@@ -779,18 +903,19 @@ REGLAS FISICAS Y DE ENTORNO:
         );
     }
 
-    private void EjecutarInteraccion(JObject parametros)
+    private void EjecutarInteraccion(ContextoAccion contexto)
     {
+        JObject parametros = contexto.Parametros;
         string objeto = parametros?["nombre_objeto"]?.ToString() ?? "objeto_desconocido";
         string tipo = parametros?["tipo_accion"]?.ToString() ?? "mirar";
-        if (!TryBuscarObjetoCercano(objeto, DistanciaMaximaInteraccion, "interactuar_objeto_3d", out Collider objetivo))
+        if (!TryBuscarObjetoCercano(contexto, objeto, DistanciaMaximaInteraccion, out Collider objetivo))
         {
             return;
         }
 
         Debug.Log($"Interactuando con {objetivo.name} mediante '{tipo}'.");
         ReportarResultadoAccion(
-            "interactuar_objeto_3d",
+            contexto,
             true,
             $"Interaccion '{tipo}' ejecutada sobre '{objetivo.name}'.",
             new Dictionary<string, object>
@@ -801,32 +926,35 @@ REGLAS FISICAS Y DE ENTORNO:
         );
     }
 
-    private void EjecutarAgarrar(JObject parametros)
+    private void EjecutarAgarrar(ContextoAccion contexto)
     {
+        JObject parametros = contexto.Parametros;
         string objeto = parametros?["nombre_objeto"]?.ToString() ?? "objeto_desconocido";
-        if (!TryBuscarObjetoCercano(objeto, DistanciaMaximaAgarrar, "agarrar_objeto", out Collider objetivo))
+        if (!TryBuscarObjetoCercano(contexto, objeto, DistanciaMaximaAgarrar, out Collider objetivo))
         {
             return;
         }
 
         Debug.Log($"Lazzaro intenta agarrar {objetivo.name}.");
-        ReportarResultadoAccion("agarrar_objeto", true, $"Objeto '{objetivo.name}' agarrado.", null, objetivo.name);
+        ReportarResultadoAccion(contexto, true, $"Objeto '{objetivo.name}' agarrado.", null, objetivo.name);
     }
 
-    private void EjecutarSoltar(JObject parametros)
+    private void EjecutarSoltar(ContextoAccion contexto)
     {
+        JObject parametros = contexto.Parametros;
         float fuerza = parametros?["fuerza_lanzamiento"]?.Value<float>() ?? 0f;
         Debug.Log($"Lazzaro suelta el objeto con fuerza {fuerza}.");
         ReportarResultadoAccion(
-            "soltar_objeto",
+            contexto,
             true,
             $"Objeto soltado con fuerza {fuerza}.",
             new Dictionary<string, object> { { "fuerza_lanzamiento", Math.Round(fuerza, 2) } }
         );
     }
 
-    private void EjecutarAplicarFuerza(JObject parametros)
+    private void EjecutarAplicarFuerza(ContextoAccion contexto)
     {
+        JObject parametros = contexto.Parametros;
         string objeto = parametros?["nombre_objeto"]?.ToString() ?? "objeto_desconocido";
         float vx = parametros?["vector_x"]?.Value<float>() ?? 0f;
         float vy = parametros?["vector_y"]?.Value<float>() ?? 0f;
@@ -834,7 +962,7 @@ REGLAS FISICAS Y DE ENTORNO:
         float fuerza = parametros?["fuerza"]?.Value<float>() ?? 0f;
         Debug.Log($"Aplicando fuerza {fuerza} a '{objeto}' en direccion ({vx}, {vy}, {vz}).");
         ReportarResultadoAccion(
-            "aplicar_fuerza",
+            contexto,
             true,
             $"Fuerza aplicada a '{objeto}'.",
             new Dictionary<string, object>
@@ -848,32 +976,41 @@ REGLAS FISICAS Y DE ENTORNO:
         );
     }
 
-    private void EjecutarHablar(JObject parametros)
+    private void EjecutarHablar(ContextoAccion contexto)
     {
+        JObject parametros = contexto.Parametros;
         string texto = parametros?["texto_a_comunicar"]?.ToString() ?? "...";
         Debug.Log($"[VOZ LAZZARO]: {texto}");
-        CompletarTareaUsuarioActual(true, "Salida hablar completada.");
+        CompletarTareaUsuarioActual(
+            contexto.IdTransaccionOrigen,
+            true,
+            "Salida hablar completada."
+        );
         // ¡Magia de la Estabilización! Aquí NO llamamos a ReportarResultadoAccion para evitar el bucle.
     }
 
     private bool TryBuscarObjetoCercano(
+        ContextoAccion contexto,
         string nombreObjeto,
         float distanciaMaxima,
-        string accion,
         out Collider objetivo
     )
     {
         objetivo = null;
         if (string.IsNullOrWhiteSpace(nombreObjeto) || nombreObjeto == "objeto_desconocido")
         {
-            ReportarResultadoAccion(accion, false, $"La accion {accion} no incluyo un objeto valido.");
+            ReportarResultadoAccion(
+                contexto,
+                false,
+                $"La accion {contexto.Nombre} no incluyo un objeto valido."
+            );
             return false;
         }
 
         objetivo = percepcion.BuscarObjeto(nombreObjeto);
         if (objetivo == null)
         {
-            ReportarResultadoAccion(accion, false, $"No pude encontrar el objeto '{nombreObjeto}'.");
+            ReportarResultadoAccion(contexto, false, $"No pude encontrar el objeto '{nombreObjeto}'.");
             return false;
         }
 
@@ -881,7 +1018,7 @@ REGLAS FISICAS Y DE ENTORNO:
         if (distancia > distanciaMaxima)
         {
             ReportarResultadoAccion(
-                accion,
+                contexto,
                 false,
                 $"El objeto '{objetivo.name}' esta demasiado lejos ({distancia:0.##}m). Primero debo acercarme.",
                 new Dictionary<string, object> { { "distancia_objeto", Math.Round(distancia, 2) } },

@@ -10,7 +10,7 @@ using UnityEngine.AI;
 public class MovementController : MonoBehaviour
 {
     public bool IsMoving { get; private set; } = false;
-    public Action<bool, string> OnMovimientoCompletado;
+    public Action<string, bool, string> OnMovimientoCompletado;
     public float velocidadDeseada = 3.5f;
 
     private NavMeshAgent navAgent;
@@ -34,48 +34,48 @@ public class MovementController : MonoBehaviour
         navAgent.stoppingDistance = Mathf.Max(0.1f, navAgent.stoppingDistance);
     }
 
-    public void NavegarAObjeto(string nombreObjeto)
+    public void NavegarAObjeto(string actionId, string nombreObjeto)
     {
         if (!PuedeNavegar(out string mensajeError))
         {
-            RechazarMovimiento(mensajeError);
+            RechazarMovimiento(actionId, mensajeError);
             return;
         }
 
         Collider objetivo = percepcion.BuscarObjeto(nombreObjeto);
         if (objetivo == null)
         {
-            RechazarMovimiento($"No pude encontrar el objeto '{nombreObjeto}'.");
+            RechazarMovimiento(actionId, $"No pude encontrar el objeto '{nombreObjeto}'.");
             return;
         }
 
         Vector3 destino = objetivo.ClosestPoint(transform.position);
-        IniciarNavegacionA(destino, objetivo.name);
+        IniciarNavegacionA(actionId, destino, objetivo.name);
     }
 
-    public void NavegarAPosicion(Vector3 destino, string etiquetaDestino = "destino")
+    public void NavegarAPosicion(string actionId, Vector3 destino, string etiquetaDestino = "destino")
     {
         if (!PuedeNavegar(out string mensajeError))
         {
-            RechazarMovimiento(mensajeError);
+            RechazarMovimiento(actionId, mensajeError);
             return;
         }
 
-        IniciarNavegacionA(destino, etiquetaDestino);
+        IniciarNavegacionA(actionId, destino, etiquetaDestino);
     }
 
-    public void AlejarseDeObjeto(string nombreObjeto, float distancia)
+    public void AlejarseDeObjeto(string actionId, string nombreObjeto, float distancia)
     {
         if (!PuedeNavegar(out string mensajeError))
         {
-            RechazarMovimiento(mensajeError);
+            RechazarMovimiento(actionId, mensajeError);
             return;
         }
 
         Collider objetivo = percepcion.BuscarObjeto(nombreObjeto);
         if (objetivo == null)
         {
-            RechazarMovimiento($"No pude encontrar el objeto '{nombreObjeto}'.");
+            RechazarMovimiento(actionId, $"No pude encontrar el objeto '{nombreObjeto}'.");
             return;
         }
 
@@ -89,25 +89,25 @@ public class MovementController : MonoBehaviour
         }
 
         Vector3 destino = transform.position + direccionEscape.normalized * Mathf.Clamp(distancia, 0.5f, 5f);
-        IniciarNavegacionA(destino, $"alejarme de {objetivo.name}");
+        IniciarNavegacionA(actionId, destino, $"alejarme de {objetivo.name}");
     }
 
-    public void GirarAvatar(float grados)
+    public void GirarAvatar(string actionId, float grados)
     {
         if (!PuedeEjecutarOrden("rotacion", out string mensajeError))
         {
-            RechazarMovimiento(mensajeError);
+            RechazarMovimiento(actionId, mensajeError);
             return;
         }
 
         float gradosClamped = Mathf.Clamp(grados, -360f, 360f);
         if (Mathf.Abs(gradosClamped) < 1f)
         {
-            RechazarMovimiento("La rotacion solicitada es demasiado pequena.");
+            RechazarMovimiento(actionId, "La rotacion solicitada es demasiado pequena.");
             return;
         }
 
-        IniciarRutinaMovimiento(GirarHastaAngulo(gradosClamped));
+        IniciarRutinaMovimiento(GirarHastaAngulo(actionId, gradosClamped));
     }
 
     public void FrenarMovimiento()
@@ -148,20 +148,20 @@ public class MovementController : MonoBehaviour
         return true;
     }
 
-    private void RechazarMovimiento(string mensaje)
+    private void RechazarMovimiento(string actionId, string mensaje)
     {
-        OnMovimientoCompletado?.Invoke(false, mensaje);
+        OnMovimientoCompletado?.Invoke(actionId, false, mensaje);
     }
 
-    private void IniciarNavegacionA(Vector3 destino, string etiquetaDestino)
+    private void IniciarNavegacionA(string actionId, Vector3 destino, string etiquetaDestino)
     {
         if (!NavMesh.SamplePosition(destino, out NavMeshHit navHit, 2f, NavMesh.AllAreas))
         {
-            RechazarMovimiento($"No encontre una ruta navegable hacia '{etiquetaDestino}'.");
+            RechazarMovimiento(actionId, $"No encontre una ruta navegable hacia '{etiquetaDestino}'.");
             return;
         }
 
-        IniciarRutinaMovimiento(NavegarHastaDestino(etiquetaDestino, navHit.position));
+        IniciarRutinaMovimiento(NavegarHastaDestino(actionId, etiquetaDestino, navHit.position));
     }
 
     private void IniciarRutinaMovimiento(IEnumerator rutina)
@@ -174,7 +174,7 @@ public class MovementController : MonoBehaviour
         rutinaMovimiento = StartCoroutine(rutina);
     }
 
-    private IEnumerator NavegarHastaDestino(string nombreObjeto, Vector3 destino)
+    private IEnumerator NavegarHastaDestino(string actionId, string nombreObjeto, Vector3 destino)
     {
         IsMoving = true;
         animator.SetBool("isWalking", true);
@@ -194,7 +194,7 @@ public class MovementController : MonoBehaviour
             if (!navAgent.pathPending && navAgent.pathStatus == NavMeshPathStatus.PathInvalid)
             {
                 DetenerMovimientoActual();
-                OnMovimientoCompletado?.Invoke(false, $"La ruta hacia '{nombreObjeto}' no es valida.");
+                OnMovimientoCompletado?.Invoke(actionId, false, $"La ruta hacia '{nombreObjeto}' no es valida.");
                 yield break;
             }
 
@@ -217,6 +217,7 @@ public class MovementController : MonoBehaviour
                 {
                     DetenerMovimientoActual();
                     OnMovimientoCompletado?.Invoke(
+                        actionId,
                         false,
                         $"Me atasque fisicamente intentando llegar a '{nombreObjeto}'."
                     );
@@ -232,10 +233,10 @@ public class MovementController : MonoBehaviour
         }
 
         DetenerMovimientoActual();
-        OnMovimientoCompletado?.Invoke(true, $"Llegue cerca de '{nombreObjeto}'.");
+        OnMovimientoCompletado?.Invoke(actionId, true, $"Llegue cerca de '{nombreObjeto}'.");
     }
 
-    private IEnumerator GirarHastaAngulo(float grados)
+    private IEnumerator GirarHastaAngulo(string actionId, float grados)
     {
         IsMoving = true;
         animator.SetBool("isWalking", false);
@@ -260,7 +261,7 @@ public class MovementController : MonoBehaviour
 
         rb.MoveRotation(rotacionDestino);
         DetenerMovimientoActual();
-        OnMovimientoCompletado?.Invoke(true, $"Gire {grados:0.#} grados.");
+        OnMovimientoCompletado?.Invoke(actionId, true, $"Gire {grados:0.#} grados.");
     }
 
     private void AplicarMovimientoFisico(Vector3 direccion)
