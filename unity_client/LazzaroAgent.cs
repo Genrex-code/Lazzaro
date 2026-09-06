@@ -11,11 +11,13 @@ using TMPro;    // Corregido para UI
 [RequireComponent(typeof(PerceptionSystem))]
 [RequireComponent(typeof(MovementController))]
 [RequireComponent(typeof(SomatoSensorySystem))]
+[RequireComponent(typeof(ObjectMaterializationController))]
 public class LazzaroAgent : MonoBehaviour
 {
     private ApiClient api;
     private PerceptionSystem percepcion;
     private MovementController movimiento;
+    private ObjectMaterializationController materializacion;
     private readonly LinkedList<EventoEntrante> colaEventos = new LinkedList<EventoEntrante>();
     private readonly Queue<string> colaTareasUsuario = new Queue<string>();
     private bool procesandoCola = false;
@@ -124,6 +126,7 @@ public class LazzaroAgent : MonoBehaviour
         api = GetComponent<ApiClient>();
         percepcion = GetComponent<PerceptionSystem>();
         movimiento = GetComponent<MovementController>();
+        materializacion = GetComponent<ObjectMaterializationController>();
         movimiento.OnMovimientoCompletado += ManejarMovimientoCompletado;
     }
 
@@ -993,12 +996,13 @@ REGLAS FISICAS Y DE ENTORNO:
             return false;
         }
 
-        return float.TryParse(
+        bool parsed = float.TryParse(
             parametros[clave].ToString(),
             NumberStyles.Float,
             CultureInfo.InvariantCulture,
             out valor
         );
+        return parsed && !float.IsNaN(valor) && !float.IsInfinity(valor);
     }
 
     private void EjecutarInteraccion(ContextoAccion contexto)
@@ -1006,71 +1010,157 @@ REGLAS FISICAS Y DE ENTORNO:
         JObject parametros = contexto.Parametros;
         string objeto = parametros?["nombre_objeto"]?.ToString() ?? "objeto_desconocido";
         string tipo = parametros?["tipo_accion"]?.ToString() ?? "mirar";
-        if (!TryBuscarObjetoCercano(contexto, objeto, DistanciaMaximaInteraccion, out Collider objetivo))
+        if (!EsTipoInteraccionCanonico(tipo))
         {
+            ReportarResultadoMaterial(
+                contexto,
+                MaterialEffectReceipt.Unsupported(
+                    contexto.IdAccion,
+                    MaterialEffectKind.Interact,
+                    objeto,
+                    "interaction_type_unsupported",
+                    $"El tipo de interaccion '{tipo}' no pertenece al contrato canonico."
+                )
+            );
+            return;
+        }
+        if (!TryBuscarObjetoCercano(
+            contexto,
+            objeto,
+            DistanciaMaximaInteraccion,
+            MaterialEffectKind.Interact,
+            out Collider objetivo,
+            out MaterialEffectReceipt falloBusqueda
+        ))
+        {
+            ReportarResultadoMaterial(contexto, falloBusqueda);
             return;
         }
 
-        Debug.Log($"Interactuando con {objetivo.name} mediante '{tipo}'.");
-        ReportarResultadoAccion(
-            contexto,
-            true,
-            $"Interaccion '{tipo}' ejecutada sobre '{objetivo.name}'.",
-            new Dictionary<string, object>
-            {
-                { "tipo_accion", tipo },
-            },
-            objetivo.name
+        MaterialEffectReceipt receipt = materializacion.TryInteract(
+            contexto.IdAccion, objetivo, tipo
         );
+        ReportarResultadoMaterial(contexto, receipt);
     }
 
     private void EjecutarAgarrar(ContextoAccion contexto)
     {
         JObject parametros = contexto.Parametros;
         string objeto = parametros?["nombre_objeto"]?.ToString() ?? "objeto_desconocido";
-        if (!TryBuscarObjetoCercano(contexto, objeto, DistanciaMaximaAgarrar, out Collider objetivo))
+        if (!TryBuscarObjetoCercano(
+            contexto,
+            objeto,
+            DistanciaMaximaAgarrar,
+            MaterialEffectKind.Grab,
+            out Collider objetivo,
+            out MaterialEffectReceipt falloBusqueda
+        ))
         {
+            ReportarResultadoMaterial(contexto, falloBusqueda);
             return;
         }
 
-        Debug.Log($"Lazzaro intenta agarrar {objetivo.name}.");
-        ReportarResultadoAccion(contexto, true, $"Objeto '{objetivo.name}' agarrado.", null, objetivo.name);
+        MaterialEffectReceipt receipt = materializacion.TryGrab(contexto.IdAccion, objetivo);
+        ReportarResultadoMaterial(contexto, receipt);
     }
 
     private void EjecutarSoltar(ContextoAccion contexto)
     {
         JObject parametros = contexto.Parametros;
-        float fuerza = parametros?["fuerza_lanzamiento"]?.Value<float>() ?? 0f;
-        Debug.Log($"Lazzaro suelta el objeto con fuerza {fuerza}.");
-        ReportarResultadoAccion(
-            contexto,
-            true,
-            $"Objeto soltado con fuerza {fuerza}.",
-            new Dictionary<string, object> { { "fuerza_lanzamiento", Math.Round(fuerza, 2) } }
-        );
+        float fuerza = 0f;
+        if (
+            parametros != null
+            && parametros["fuerza_lanzamiento"] != null
+            && !TryLeerFloat(parametros, "fuerza_lanzamiento", out fuerza)
+        )
+        {
+            ReportarResultadoMaterial(
+                contexto,
+                MaterialEffectReceipt.Failed(
+                    contexto.IdAccion,
+                    MaterialEffectKind.Release,
+                    materializacion.HeldObjectId ?? "none",
+                    "invalid_physical_parameters",
+                    "fuerza_lanzamiento no cumple el contrato fisico."
+                )
+            );
+            return;
+        }
+        if (fuerza < 0f || fuerza > 20f)
+        {
+            ReportarResultadoMaterial(
+                contexto,
+                MaterialEffectReceipt.Failed(
+                    contexto.IdAccion,
+                    MaterialEffectKind.Release,
+                    materializacion.HeldObjectId ?? "none",
+                    "invalid_physical_parameters",
+                    "fuerza_lanzamiento quedo fuera del rango canonico 0..20."
+                )
+            );
+            return;
+        }
+
+        MaterialEffectReceipt receipt = materializacion.TryRelease(contexto.IdAccion, fuerza);
+        ReportarResultadoMaterial(contexto, receipt);
     }
 
     private void EjecutarAplicarFuerza(ContextoAccion contexto)
     {
         JObject parametros = contexto.Parametros;
         string objeto = parametros?["nombre_objeto"]?.ToString() ?? "objeto_desconocido";
-        float vx = parametros?["vector_x"]?.Value<float>() ?? 0f;
-        float vy = parametros?["vector_y"]?.Value<float>() ?? 0f;
-        float vz = parametros?["vector_z"]?.Value<float>() ?? 0f;
-        float fuerza = parametros?["fuerza"]?.Value<float>() ?? 0f;
-        Debug.Log($"Aplicando fuerza {fuerza} a '{objeto}' en direccion ({vx}, {vy}, {vz}).");
-        ReportarResultadoAccion(
+        if (
+            !TryLeerFloat(parametros, "vector_x", out float vx)
+            || !TryLeerFloat(parametros, "vector_y", out float vy)
+            || !TryLeerFloat(parametros, "vector_z", out float vz)
+            || !TryLeerFloat(parametros, "fuerza", out float fuerza)
+        )
+        {
+            ReportarResultadoMaterial(
+                contexto,
+                MaterialEffectReceipt.Failed(
+                    contexto.IdAccion,
+                    MaterialEffectKind.Force,
+                    objeto,
+                    "invalid_physical_parameters",
+                    "aplicar_fuerza recibio parametros fuera del contrato fisico."
+                )
+            );
+            return;
+        }
+        if (fuerza <= 0f || fuerza > 100f)
+        {
+            ReportarResultadoMaterial(
+                contexto,
+                MaterialEffectReceipt.Failed(
+                    contexto.IdAccion,
+                    MaterialEffectKind.Force,
+                    objeto,
+                    "invalid_physical_parameters",
+                    "fuerza quedo fuera del rango canonico (0, 100]."
+                )
+            );
+            return;
+        }
+        if (!TryBuscarObjetoCercano(
             contexto,
-            true,
-            $"Fuerza aplicada a '{objeto}'.",
-            new Dictionary<string, object>
-            {
-                { "vector_x", Math.Round(vx, 2) },
-                { "vector_y", Math.Round(vy, 2) },
-                { "vector_z", Math.Round(vz, 2) },
-                { "fuerza", Math.Round(fuerza, 2) },
-            },
-            objeto
+            objeto,
+            DistanciaMaximaInteraccion,
+            MaterialEffectKind.Force,
+            out Collider objetivo,
+            out MaterialEffectReceipt falloBusqueda
+        ))
+        {
+            ReportarResultadoMaterial(contexto, falloBusqueda);
+            return;
+        }
+
+        materializacion.ApplyForce(
+            contexto.IdAccion,
+            objetivo,
+            new Vector3(vx, vy, vz),
+            fuerza,
+            receipt => ReportarResultadoMaterial(contexto, receipt)
         );
     }
 
@@ -1082,19 +1172,76 @@ REGLAS FISICAS Y DE ENTORNO:
         ReportarResultadoAccion(contexto, true, "Salida hablar reportada por Unity.");
     }
 
+    private void ReportarResultadoMaterial(
+        ContextoAccion contexto,
+        MaterialEffectReceipt receipt
+    )
+    {
+        MaterialEffectKind expectedEffect = EffectKindForAction(contexto.Nombre);
+        if (receipt == null || !receipt.IsValidFor(contexto.IdAccion, expectedEffect))
+        {
+            Debug.LogWarning(
+                $"Receipt material invalido; no se reporta outcome. id_accion={contexto.IdAccion} effect={expectedEffect}"
+            );
+            return;
+        }
+        ReportarResultadoAccion(
+            contexto,
+            receipt.IsApplied,
+            receipt.Message,
+            new Dictionary<string, object>
+            {
+                { "material_attestation", receipt.ToWirePayload() }
+            },
+            receipt.ObjectId
+        );
+    }
+
+    private static MaterialEffectKind EffectKindForAction(string actionName)
+    {
+        switch (actionName)
+        {
+            case "interactuar_objeto_3d":
+                return MaterialEffectKind.Interact;
+            case "agarrar_objeto":
+                return MaterialEffectKind.Grab;
+            case "soltar_objeto":
+                return MaterialEffectKind.Release;
+            case "aplicar_fuerza":
+                return MaterialEffectKind.Force;
+            default:
+                return MaterialEffectKind.Unknown;
+        }
+    }
+
+    private static bool EsTipoInteraccionCanonico(string tipo)
+    {
+        return tipo == "mirar"
+            || tipo == "tocar"
+            || tipo == "inspeccionar"
+            || tipo == "golpear"
+            || tipo == "usar"
+            || tipo == "activar";
+    }
+
     private bool TryBuscarObjetoCercano(
         ContextoAccion contexto,
         string nombreObjeto,
         float distanciaMaxima,
-        out Collider objetivo
+        MaterialEffectKind effectKind,
+        out Collider objetivo,
+        out MaterialEffectReceipt failureReceipt
     )
     {
         objetivo = null;
+        failureReceipt = null;
         if (string.IsNullOrWhiteSpace(nombreObjeto) || nombreObjeto == "objeto_desconocido")
         {
-            ReportarResultadoAccion(
-                contexto,
-                false,
+            failureReceipt = MaterialEffectReceipt.Failed(
+                contexto.IdAccion,
+                effectKind,
+                "none",
+                "target_missing",
                 $"La accion {contexto.Nombre} no incluyo un objeto valido."
             );
             return false;
@@ -1103,19 +1250,26 @@ REGLAS FISICAS Y DE ENTORNO:
         objetivo = percepcion.BuscarObjeto(nombreObjeto);
         if (objetivo == null)
         {
-            ReportarResultadoAccion(contexto, false, $"No pude encontrar el objeto '{nombreObjeto}'.");
+            failureReceipt = MaterialEffectReceipt.Failed(
+                contexto.IdAccion,
+                effectKind,
+                nombreObjeto,
+                "target_not_found",
+                $"No pude encontrar el objeto '{nombreObjeto}'."
+            );
             return false;
         }
 
         float distancia = Vector3.Distance(transform.position, objetivo.transform.position);
         if (distancia > distanciaMaxima)
         {
-            ReportarResultadoAccion(
-                contexto,
-                false,
+            failureReceipt = MaterialEffectReceipt.NoEffect(
+                contexto.IdAccion,
+                effectKind,
+                objetivo.name,
+                "target_too_far",
                 $"El objeto '{objetivo.name}' esta demasiado lejos ({distancia:0.##}m). Primero debo acercarme.",
-                new Dictionary<string, object> { { "distancia_objeto", Math.Round(distancia, 2) } },
-                objetivo.name
+                new Dictionary<string, object> { { "distance", Math.Round(distancia, 2) } }
             );
             return false;
         }

@@ -35,6 +35,7 @@ from core.action_ledger import (
     ActionState,
     ActionTransitionEvent,
     OutcomeConsumptionStatus,
+    OutcomeRecordResult,
     OutcomeRecordStatus,
     TransitionClassification,
     TransactionClaimStatus,
@@ -45,6 +46,10 @@ from core.action_ledger import (
 from core.audit_trace import AuditTrace, safe_preview
 from core.audit_writer import AuditTraceJSONLWriter
 from core.logger import get_logger
+from core.material_attestation import (
+    canonical_material_attestation,
+    validate_material_attestation,
+)
 from core.tool_policy import ToolPolicy
 from memory.memory_manager import ManualConversationSaveResult
 from tools.executor import ActionExecutor
@@ -2515,15 +2520,45 @@ class Orchestrator:
 
     def _registrar_outcome_entrante(self, evento: EventoEntrante):
         detalles = evento.detalles if isinstance(evento.detalles, dict) else {}
-        return self._obtener_action_ledger().record_outcome(
-            action_id=str(detalles.get("id_accion") or ""),
+        ledger = self._obtener_action_ledger()
+        action_id = str(detalles.get("id_accion") or "")
+        action = ledger.get_action(action_id)
+        outcome_payload_details = detalles
+        if action is not None:
+            attestation = validate_material_attestation(
+                action_name=action.action_name,
+                action_id=action.action_id,
+                success=detalles.get("exito"),
+                payload=detalles,
+            )
+            if not attestation.valid:
+                logger.warning(
+                    "Outcome material rechazado antes del ledger. "
+                    "action_id=%s validation=%s",
+                    action.action_id,
+                    attestation.status.value,
+                )
+                return OutcomeRecordResult(
+                    OutcomeRecordStatus.INVALID_ATTESTATION,
+                    action,
+                    None,
+                )
+            outcome_payload_details = dict(detalles)
+            if attestation.receipt is None:
+                outcome_payload_details.pop("material_attestation", None)
+            else:
+                outcome_payload_details["material_attestation"] = (
+                    attestation.receipt.to_payload()
+                )
+        return ledger.record_outcome(
+            action_id=action_id,
             outcome_transaction_id=str(evento.id_transaccion),
             success=detalles.get("exito"),
             action_name=str(detalles.get("accion") or "") or None,
             originating_transaction_id=(
                 str(detalles.get("id_transaccion_origen") or "").strip() or None
             ),
-            payload=self._payload_outcome_minimo(detalles),
+            payload=self._payload_outcome_minimo(outcome_payload_details),
         )
 
     def _validar_replay_lifecycle(self, evento: EventoEntrante) -> None:
@@ -2675,11 +2710,17 @@ class Orchestrator:
             "y",
             "z",
         }
-        return {
+        payload = {
             key: value
             for key, value in detalles.items()
             if key in permitidos
         }
+        material_attestation = canonical_material_attestation(
+            detalles.get("material_attestation")
+        )
+        if material_attestation is not None:
+            payload["material_attestation"] = material_attestation
+        return payload
 
     @staticmethod
     def _correlacionar_evento_outcome(

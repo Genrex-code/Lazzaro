@@ -68,6 +68,7 @@ class OutcomeRecordStatus(str, Enum):
     UNKNOWN = "unknown"
     MISMATCH = "mismatch"
     INVALID_STATE = "invalid_state"
+    INVALID_ATTESTATION = "invalid_attestation"
 
 
 class ActionState(str, Enum):
