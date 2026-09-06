@@ -134,12 +134,8 @@ class BehaviorCore:
         ):
             self.task_context.registrar_intento(str(accion), exito)
             self.task_context.actualizar_umbral_abandono(self.personality.paciencia)
-            if self.task_context.detectar_loop():
-                self.procesar_evento("loop_detectado", {"intensidad": 1.0})
-            if self.task_context.detectar_estancamiento():
-                self.procesar_evento("fracaso", {"intensidad": 0.5})
-            if self.task_context.detectar_compulsion():
-                self.procesar_evento("sobrecarga", {"intensidad": 0.3})
+            # Los detectores permanecen visibles en el resumen de TaskContext.
+            # No son outcomes adicionales y, por tanto, no reaplican State/Personality.
         elif accion is not None and exito is not None and type(exito) is not bool:
             logger.warning(
                 "Resultado de accion ignorado por exito no booleano: %s",

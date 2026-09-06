@@ -63,10 +63,17 @@ async def procesar_evento(
                 accion = None
             )
 
-        # Si hay acción, la empaquetamos
+        # El status API describe el request; el estado durable vive en la acción.
+        esperando_autorizacion = (
+            accion.estado_ejecucion == "awaiting_authorization"
+        )
         return RespuestaAPI(
-            status="ok",
-            mensaje="Acción generada correctamente.",
+            status="pendiente" if esperando_autorizacion else "ok",
+            mensaje=(
+                "Acción pendiente de autorización explícita."
+                if esperando_autorizacion
+                else "Acción procesada correctamente."
+            ),
             id_transaccion=evento.id_transaccion,
             accion=accion,
         )

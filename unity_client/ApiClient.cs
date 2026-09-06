@@ -41,9 +41,13 @@ public class ApiClient : MonoBehaviour
                     {
                         onFailure?.Invoke(respuesta.mensaje);
                     }
-                    else
+                    else if (respuesta.status == "ok" || respuesta.status == "pendiente")
                     {
                         onSuccess?.Invoke(respuesta);
+                    }
+                    else
+                    {
+                        onFailure?.Invoke($"Status de respuesta desconocido: {respuesta.status}");
                     }
                 }
                 catch (Exception e)

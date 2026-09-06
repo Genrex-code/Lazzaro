@@ -97,7 +97,7 @@ class IdentityState:
             self,
             intent: str ="",
             route: str = "",
-            success: bool = True,
+            success: bool | None = None,
             es_descanso: bool = False,
             intensidad: float = 1.0,
     ):
@@ -108,6 +108,8 @@ class IdentityState:
         if es_descanso:
             self._aplicar_descanso()
             return
+        if success is not None and type(success) is not bool:
+            raise TypeError("IdentityState.success exige bool estricto o None")
 
         delta_energia = 0.0
         delta_estres = 0.0
@@ -125,7 +127,7 @@ class IdentityState:
             delta_estres += 2.0 * intensidad # razonar cansa mentalmente
 
         #2.- coste adicional si hubo fallo ( fallback negativo)
-        if not success:
+        if success is False:
             delta_estres += 15.0 * intensidad
             delta_enfoque -= 10.0 * intensidad
             logger.info ("[BOLOGIA] Aumento de estres por fallo en tarea.")

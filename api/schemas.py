@@ -70,15 +70,29 @@ class EventoEntrante(BaseModel):
         return value.strip()
 
     @model_validator(mode="after")
-    def resultado_accion_exige_identidad_y_exito(self) -> "EventoEntrante":
-        if self.tipo_evento != "resultado_accion":
+    def lifecycle_exige_identidad_y_payload_estricto(self) -> "EventoEntrante":
+        if self.tipo_evento not in {
+            "resultado_accion",
+            "confirmacion_accion",
+            "inicio_ejecucion_accion",
+        }:
             return self
         action_id = self.detalles.get("id_accion")
         if not isinstance(action_id, str) or not action_id.strip():
-            raise ValueError("resultado_accion.detalles.id_accion es requerido y no puede estar vacio")
+            raise ValueError(
+                f"{self.tipo_evento}.detalles.id_accion es requerido y no puede estar vacio"
+            )
         self.detalles["id_accion"] = action_id.strip()
-        if "exito" not in self.detalles or type(self.detalles["exito"]) is not bool:
+        if (
+            self.tipo_evento == "resultado_accion"
+            and ("exito" not in self.detalles or type(self.detalles["exito"]) is not bool)
+        ):
             raise ValueError("resultado_accion.detalles.exito debe ser un bool estricto")
+        if (
+            self.tipo_evento == "confirmacion_accion"
+            and ("approved" not in self.detalles or type(self.detalles["approved"]) is not bool)
+        ):
+            raise ValueError("confirmacion_accion.detalles.approved debe ser un bool estricto")
         return self
 
 
@@ -123,6 +137,25 @@ class AccionSaliente(BaseModel):
     requiere_confirmacion: StrictBool = Field(
         False,
         description="Si es True, el frontend deberia pedir confirmacion antes de ejecutar.",
+    )
+    estado_ejecucion: Literal[
+        "legacy_unknown",
+        "created",
+        "awaiting_authorization",
+        "authorized",
+        "dispatched",
+        "executing",
+        "reported_success",
+        "reported_failure",
+        "rejected",
+        "skipped",
+    ] = Field(
+        "legacy_unknown",
+        description="Snapshot durable del lifecycle; independiente del status HTTP.",
+    )
+    id_transaccion_origen: Optional[str] = Field(
+        None,
+        description="Transaccion que creó la identidad canonica de esta accion.",
     )
     parametros_descripcion: List[ParametroHerramienta] = Field(
         default_factory=list,

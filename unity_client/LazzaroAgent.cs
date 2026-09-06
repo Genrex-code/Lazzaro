@@ -28,6 +28,10 @@ public class LazzaroAgent : MonoBehaviour
     private string tareaUsuarioActualIdTransaccion = "";
     private readonly Dictionary<string, ContextoAccion> accionesMovimientoPendientes =
         new Dictionary<string, ContextoAccion>();
+    private readonly Dictionary<string, ContextoAccion> accionesEsperandoAutorizacion =
+        new Dictionary<string, ContextoAccion>();
+    private readonly Dictionary<string, EventoEntrante> eventosEnVuelo =
+        new Dictionary<string, EventoEntrante>();
     private const float DistanciaMaximaInteraccion = 2.0f;
     private const float DistanciaMaximaAgarrar = 1.5f;
     private const int MaxTareasUsuarioEnCola = 8;
@@ -501,6 +505,39 @@ public class LazzaroAgent : MonoBehaviour
         return evento.id_transaccion;
     }
 
+    public void ConfirmarAccion(string idAccion, bool approved)
+    {
+        if (
+            string.IsNullOrWhiteSpace(idAccion)
+            || !accionesEsperandoAutorizacion.ContainsKey(idAccion)
+        )
+        {
+            Debug.LogWarning($"No existe una acción pendiente exacta para confirmar: {idAccion}");
+            return;
+        }
+        EnviarEvento(
+            "confirmacion_accion",
+            new Dictionary<string, object>
+            {
+                { "id_accion", idAccion },
+                { "approved", approved }
+            }
+        );
+    }
+
+    private void EncolarInicioEjecucion(ContextoAccion contexto)
+    {
+        EnviarEvento(
+            "inicio_ejecucion_accion",
+            new Dictionary<string, object>
+            {
+                { "id_accion", contexto.IdAccion },
+                { "id_transaccion_origen", contexto.IdTransaccionOrigen }
+            },
+            prioridadMaxima: true
+        );
+    }
+
     public void ReportarDolor(
         string causaDelDolor,
         string objetoGolpeado,
@@ -524,6 +561,29 @@ public class LazzaroAgent : MonoBehaviour
         AgregarDetallesExtra(detalles, detallesExtra);
 
         EnviarEvento("alerta_dolor_fisico", detalles, objetoGolpeado, true);
+    }
+
+    private void CerrarTareaUsuarioActualNeutral(
+        string idTransaccionOrigen,
+        string mensaje
+    )
+    {
+        if (
+            !tareaUsuarioEnCurso
+            || string.IsNullOrWhiteSpace(idTransaccionOrigen)
+            || idTransaccionOrigen != tareaUsuarioActualIdTransaccion
+        )
+        {
+            return;
+        }
+        tareaUsuarioActual = "";
+        tareaUsuarioActualIdTransaccion = "";
+        tareaUsuarioEnCurso = false;
+        Debug.Log($"Subtarea cerrada sin resultado de ejecución: {mensaje}");
+        if (colaTareasUsuario.Count > 0)
+        {
+            StartCoroutine(IniciarSiguienteTareaEnSiguienteFrame());
+        }
     }
 
     private void ReportarResultadoAccion(
@@ -555,6 +615,7 @@ public class LazzaroAgent : MonoBehaviour
         {
             EventoEntrante evento = colaEventos.First.Value;
             colaEventos.RemoveFirst();
+            eventosEnVuelo[evento.id_transaccion] = evento;
 
             yield return StartCoroutine(
                 api.EnviarEvento(
@@ -572,6 +633,21 @@ public class LazzaroAgent : MonoBehaviour
         RespuestaAPI respuesta
     )
     {
+        if (!eventosEnVuelo.TryGetValue(idTransaccionSolicitud, out EventoEntrante solicitud))
+        {
+            Debug.LogWarning("Respuesta para un request que ya no está en vuelo.");
+            return;
+        }
+        eventosEnVuelo.Remove(idTransaccionSolicitud);
+        ProcesarRespuestaDelCerebro(solicitud, respuesta);
+    }
+
+    private void ProcesarRespuestaDelCerebro(
+        EventoEntrante solicitud,
+        RespuestaAPI respuesta
+    )
+    {
+        string idTransaccionSolicitud = solicitud.id_transaccion;
         if (
             respuesta == null
             || string.IsNullOrWhiteSpace(respuesta.id_transaccion)
@@ -583,11 +659,17 @@ public class LazzaroAgent : MonoBehaviour
         }
         if (respuesta.accion == null)
         {
-            CompletarTareaUsuarioActual(
-                idTransaccionSolicitud,
-                false,
-                "El backend no produjo una accion para esta solicitud exacta."
-            );
+            if (
+                solicitud.tipo_evento != "confirmacion_accion"
+                && solicitud.tipo_evento != "inicio_ejecucion_accion"
+                && solicitud.tipo_evento != "resultado_accion"
+            )
+            {
+                CerrarTareaUsuarioActualNeutral(
+                    idTransaccionSolicitud,
+                    "El backend no produjo una acción ejecutable."
+                );
+            }
             return;
         }
         if (string.IsNullOrWhiteSpace(respuesta.accion.id_accion))
@@ -602,10 +684,45 @@ public class LazzaroAgent : MonoBehaviour
 
         ContextoAccion contexto = new ContextoAccion(
             respuesta.accion.id_accion,
-            idTransaccionSolicitud,
+            string.IsNullOrWhiteSpace(respuesta.accion.id_transaccion_origen)
+                ? idTransaccionSolicitud
+                : respuesta.accion.id_transaccion_origen,
             respuesta.accion.nombre,
             respuesta.accion.parametros
         );
+
+        string estadoEjecucion = respuesta.accion.estado_ejecucion ?? "";
+        if (respuesta.status == "pendiente")
+        {
+            if (estadoEjecucion != "awaiting_authorization")
+            {
+                Debug.LogWarning("Respuesta pending sin estado awaiting_authorization; se bloquea.");
+                return;
+            }
+            accionesEsperandoAutorizacion[contexto.IdAccion] = contexto;
+            Debug.Log($"Acción pendiente de autorización: {contexto.IdAccion}");
+            return;
+        }
+        if (respuesta.status != "ok")
+        {
+            Debug.LogWarning($"Status no ejecutable: {respuesta.status}");
+            return;
+        }
+        if (estadoEjecucion == "rejected" || estadoEjecucion == "skipped")
+        {
+            accionesEsperandoAutorizacion.Remove(contexto.IdAccion);
+            CerrarTareaUsuarioActualNeutral(
+                contexto.IdTransaccionOrigen,
+                $"Estado terminal neutral: {estadoEjecucion}."
+            );
+            return;
+        }
+        if (estadoEjecucion != "dispatched")
+        {
+            Debug.LogWarning($"Estado de ejecución desconocido o no ejecutable: {estadoEjecucion}");
+            return;
+        }
+        accionesEsperandoAutorizacion.Remove(contexto.IdAccion);
 
         // 1. Mostrar Pensamiento Privado en la UI
         if (textoPensamientoUI != null && !string.IsNullOrEmpty(respuesta.accion.pensamiento_privado))
@@ -627,28 +744,9 @@ public class LazzaroAgent : MonoBehaviour
             textoVozUI.text = ""; // Limpia la burbuja de voz si hace otra cosa
         }
 
-        if (string.IsNullOrEmpty(respuesta.accion.nombre) || respuesta.accion.nombre == "none")
-        {
-            CompletarTareaUsuarioActual(
-                contexto.IdTransaccionOrigen,
-                false,
-                "El backend no genero una accion ejecutable para la subtarea actual."
-            );
-            return;
-        }
-
-        if (respuesta.accion.requiere_confirmacion)
-        {
-            Debug.LogWarning($"Accion '{respuesta.accion.nombre}' requiere confirmacion. Se omite en Unity.");
-            ReportarResultadoAccion(
-                contexto,
-                false,
-                "La accion fue omitida porque requiere confirmacion manual."
-            );
-            return;
-        }
-
         if (mostrarLogsCognitivos) Debug.Log($"Pensamiento de Lazzaro: {respuesta.accion.pensamiento_privado}");
+
+        EncolarInicioEjecucion(contexto);
 
         switch (respuesta.accion.nombre)
         {
@@ -981,12 +1079,7 @@ REGLAS FISICAS Y DE ENTORNO:
         JObject parametros = contexto.Parametros;
         string texto = parametros?["texto_a_comunicar"]?.ToString() ?? "...";
         Debug.Log($"[VOZ LAZZARO]: {texto}");
-        CompletarTareaUsuarioActual(
-            contexto.IdTransaccionOrigen,
-            true,
-            "Salida hablar completada."
-        );
-        // ¡Magia de la Estabilización! Aquí NO llamamos a ReportarResultadoAccion para evitar el bucle.
+        ReportarResultadoAccion(contexto, true, "Salida hablar reportada por Unity.");
     }
 
     private bool TryBuscarObjetoCercano(

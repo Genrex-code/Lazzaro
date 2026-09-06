@@ -19,7 +19,7 @@ import threading
 from typing import Any
 
 
-LEDGER_SCHEMA_VERSION = 1
+LEDGER_SCHEMA_VERSION = 2
 MAX_JSON_BYTES = 64 * 1024
 _SENSITIVE_KEY_PARTS = (
     "api_key",
@@ -67,6 +67,43 @@ class OutcomeRecordStatus(str, Enum):
     CONFLICT = "conflict"
     UNKNOWN = "unknown"
     MISMATCH = "mismatch"
+    INVALID_STATE = "invalid_state"
+
+
+class ActionState(str, Enum):
+    """Estados durables del lifecycle; no describen calidad material del efecto."""
+
+    LEGACY_UNKNOWN = "legacy_unknown"
+    CREATED = "created"
+    AWAITING_AUTHORIZATION = "awaiting_authorization"
+    AUTHORIZED = "authorized"
+    DISPATCHED = "dispatched"
+    EXECUTING = "executing"
+    REPORTED_SUCCESS = "reported_success"
+    REPORTED_FAILURE = "reported_failure"
+    REJECTED = "rejected"
+    SKIPPED = "skipped"
+
+
+class ActionTransitionEvent(str, Enum):
+    ACTION_RECORDED = "action_recorded"
+    REQUIRE_AUTHORIZATION = "require_authorization"
+    AUTO_AUTHORIZE = "auto_authorize"
+    AUTHORIZE = "authorize"
+    REJECT = "reject"
+    DISPATCH = "dispatch"
+    START_EXECUTION = "start_execution"
+    REPORT_SUCCESS = "report_success"
+    REPORT_FAILURE = "report_failure"
+    SKIP = "skip"
+
+
+class TransitionClassification(str, Enum):
+    APPLIED = "applied"
+    ALREADY_APPLIED = "already_applied"
+    INVALID_TRANSITION = "invalid_transition"
+    UNKNOWN_ACTION = "unknown_action"
+    CONFLICT = "conflict"
 
 
 class TransactionCompletionStatus(str, Enum):
@@ -111,6 +148,9 @@ class ActionRecord:
     intended_client: str
     outcome_expected: bool
     created_at: str
+    decision_valid: bool | None = None
+    action_state: ActionState = ActionState.LEGACY_UNKNOWN
+    state_updated_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -146,6 +186,60 @@ class OutcomeAttemptRecord:
     payload_fingerprint: str
     received_at: str
 
+
+@dataclass(frozen=True)
+class ActionTransitionRecord:
+    transition_id: int
+    action_id: str
+    state_before: ActionState | None
+    state_after: ActionState
+    event: ActionTransitionEvent | None
+    receipt_id: str | None
+    created_at: str
+
+
+@dataclass(frozen=True)
+class ActionTransitionResult:
+    action_id: str
+    state_before: ActionState | None
+    state_after: ActionState | None
+    classification: TransitionClassification
+    timestamp: str
+    receipt_id: str | None = None
+
+
+@dataclass(frozen=True)
+class ExecutionPermit:
+    """Permiso explícito emitido sólo para una acción durable en EXECUTING."""
+
+    action_id: str
+    state: ActionState
+    issued_at: str
+
+
+_ALLOWED_TRANSITIONS: dict[
+    tuple[ActionState, ActionTransitionEvent], ActionState
+] = {
+    (ActionState.CREATED, ActionTransitionEvent.REQUIRE_AUTHORIZATION):
+        ActionState.AWAITING_AUTHORIZATION,
+    (ActionState.CREATED, ActionTransitionEvent.AUTO_AUTHORIZE): ActionState.AUTHORIZED,
+    (ActionState.CREATED, ActionTransitionEvent.SKIP): ActionState.SKIPPED,
+    (ActionState.AWAITING_AUTHORIZATION, ActionTransitionEvent.AUTHORIZE):
+        ActionState.AUTHORIZED,
+    (ActionState.AWAITING_AUTHORIZATION, ActionTransitionEvent.REJECT): ActionState.REJECTED,
+    (ActionState.AUTHORIZED, ActionTransitionEvent.DISPATCH): ActionState.DISPATCHED,
+    (ActionState.AUTHORIZED, ActionTransitionEvent.START_EXECUTION): ActionState.EXECUTING,
+    (ActionState.DISPATCHED, ActionTransitionEvent.START_EXECUTION): ActionState.EXECUTING,
+    (ActionState.EXECUTING, ActionTransitionEvent.REPORT_SUCCESS):
+        ActionState.REPORTED_SUCCESS,
+    (ActionState.EXECUTING, ActionTransitionEvent.REPORT_FAILURE):
+        ActionState.REPORTED_FAILURE,
+    # Compatibilidad temporal con clientes ROOT-003 que aún no emiten START_EXECUTION.
+    (ActionState.DISPATCHED, ActionTransitionEvent.REPORT_SUCCESS):
+        ActionState.REPORTED_SUCCESS,
+    (ActionState.DISPATCHED, ActionTransitionEvent.REPORT_FAILURE):
+        ActionState.REPORTED_FAILURE,
+}
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
@@ -264,6 +358,9 @@ class ActionLedger:
             intended_client TEXT NOT NULL,
             outcome_expected INTEGER NOT NULL CHECK(outcome_expected IN (0, 1)),
             created_at TEXT NOT NULL,
+            decision_valid INTEGER CHECK(decision_valid IN (0, 1) OR decision_valid IS NULL),
+            action_state TEXT NOT NULL DEFAULT 'legacy_unknown',
+            state_updated_at TEXT,
             FOREIGN KEY(transaction_id) REFERENCES transactions(transaction_id)
         );
         CREATE TABLE IF NOT EXISTS outcomes (
@@ -290,6 +387,14 @@ class ActionLedger:
         """
         with self._lock:
             self._connection.executescript(schema)
+            meta = self._connection.execute(
+                "SELECT value FROM ledger_meta WHERE key = 'schema_version'"
+            ).fetchone()
+            if meta is not None and meta["value"] == "1":
+                self._migrate_v1_to_v2()
+            elif meta is not None and meta["value"] != str(LEDGER_SCHEMA_VERSION):
+                raise ActionLedgerError("Version de action ledger incompatible")
+            self._create_v2_tables()
             self._connection.execute(
                 "INSERT OR IGNORE INTO ledger_meta(key, value) VALUES('schema_version', ?)",
                 (str(LEDGER_SCHEMA_VERSION),),
@@ -299,6 +404,69 @@ class ActionLedger:
             ).fetchone()
             if row is None or row["value"] != str(LEDGER_SCHEMA_VERSION):
                 raise ActionLedgerError("Version de action ledger incompatible")
+
+    def _migrate_v1_to_v2(self) -> None:
+        """Migra sin inferir autorización, dispatch ni éxito de filas históricas."""
+        try:
+            self._begin()
+            columns = {
+                row["name"]
+                for row in self._connection.execute("PRAGMA table_info(actions)").fetchall()
+            }
+            if "decision_valid" not in columns:
+                self._connection.execute(
+                    "ALTER TABLE actions ADD COLUMN decision_valid INTEGER"
+                )
+            if "action_state" not in columns:
+                self._connection.execute(
+                    "ALTER TABLE actions ADD COLUMN action_state TEXT NOT NULL "
+                    "DEFAULT 'legacy_unknown'"
+                )
+            if "state_updated_at" not in columns:
+                self._connection.execute(
+                    "ALTER TABLE actions ADD COLUMN state_updated_at TEXT"
+                )
+            self._connection.execute(
+                "UPDATE actions SET action_state = 'legacy_unknown', "
+                "decision_valid = NULL WHERE action_state IS NULL "
+                "OR action_state = ''"
+            )
+            self._connection.execute(
+                "UPDATE ledger_meta SET value = ? WHERE key = 'schema_version'",
+                (str(LEDGER_SCHEMA_VERSION),),
+            )
+            self._commit()
+        except (OSError, sqlite3.Error):
+            self._rollback()
+            raise
+
+    def _create_v2_tables(self) -> None:
+        self._connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS action_transitions (
+                transition_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                action_id TEXT NOT NULL,
+                state_before TEXT,
+                state_after TEXT NOT NULL,
+                event TEXT,
+                receipt_id TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(action_id) REFERENCES actions(action_id)
+            );
+            CREATE TABLE IF NOT EXISTS transition_receipts (
+                receipt_id TEXT PRIMARY KEY,
+                action_id TEXT NOT NULL,
+                event TEXT NOT NULL,
+                fingerprint TEXT NOT NULL,
+                classification TEXT NOT NULL,
+                state_before TEXT,
+                state_after TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_action_transitions_action_id
+                ON action_transitions(action_id, transition_id);
+            """
+        )
 
     def _begin(self) -> None:
         self._connection.execute("BEGIN IMMEDIATE")
@@ -375,6 +543,7 @@ class ActionLedger:
         task_instance_id: str | None,
         intended_client: str,
         outcome_expected: bool,
+        decision_valid: bool | None = None,
     ) -> ActionRecordResult:
         action_id = _clean_id(action_id, "action_id")
         transaction_id = _clean_id(transaction_id, "transaction_id")
@@ -382,7 +551,14 @@ class ActionLedger:
         intended_client = _clean_id(intended_client, "intended_client")
         task_instance_id = str(task_instance_id).strip() if task_instance_id else None
         parameters_json = _canonical_json(parameters or {})
+        if decision_valid is not None and type(decision_valid) is not bool:
+            raise TypeError("decision_valid debe ser bool estricto o None")
         created_at = _utc_now()
+        initial_state = (
+            ActionState.CREATED
+            if decision_valid is not None
+            else ActionState.LEGACY_UNKNOWN
+        )
         expected = {
             "action_id": action_id,
             "transaction_id": transaction_id,
@@ -392,6 +568,8 @@ class ActionLedger:
             "task_instance_id": task_instance_id,
             "intended_client": intended_client,
             "outcome_expected": int(outcome_expected),
+            "decision_valid": None if decision_valid is None else int(decision_valid),
+            "action_state": initial_state.value,
         }
         with self._lock:
             try:
@@ -425,8 +603,9 @@ class ActionLedger:
                     INSERT INTO actions(
                         action_id, transaction_id, action_name, parameters_json,
                         requires_confirmation, task_instance_id, intended_client,
-                        outcome_expected, created_at
-                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        outcome_expected, created_at, decision_valid, action_state,
+                        state_updated_at
+                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         action_id,
@@ -438,8 +617,26 @@ class ActionLedger:
                         intended_client,
                         int(outcome_expected),
                         created_at,
+                        None if decision_valid is None else int(decision_valid),
+                        initial_state.value,
+                        created_at if initial_state == ActionState.CREATED else None,
                     ),
                 )
+                if initial_state == ActionState.CREATED:
+                    self._connection.execute(
+                        """
+                        INSERT INTO action_transitions(
+                            action_id, state_before, state_after, event,
+                            receipt_id, created_at
+                        ) VALUES(?, NULL, ?, ?, NULL, ?)
+                        """,
+                        (
+                            action_id,
+                            ActionState.CREATED.value,
+                            ActionTransitionEvent.ACTION_RECORDED.value,
+                            created_at,
+                        ),
+                    )
                 self._connection.execute(
                     "UPDATE transactions SET action_id = ? WHERE transaction_id = ?",
                     (action_id, transaction_id),
@@ -468,6 +665,184 @@ class ActionLedger:
                 "SELECT * FROM actions WHERE transaction_id = ?", (transaction_id,)
             ).fetchone()
         return self._action_from_row(row) if row is not None else None
+
+    def get_action_state(self, action_id: str) -> ActionState | None:
+        action = self.get_action(action_id)
+        return action.action_state if action is not None else None
+
+    def get_action_transitions(self, action_id: str) -> list[ActionTransitionRecord]:
+        action_id = _clean_id(action_id, "action_id")
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT * FROM action_transitions WHERE action_id = ? "
+                "ORDER BY transition_id",
+                (action_id,),
+            ).fetchall()
+        return [self._transition_from_row(row) for row in rows]
+
+    def transition_action(
+        self,
+        action_id: str,
+        event: ActionTransitionEvent | str,
+        *,
+        receipt_id: str | None = None,
+    ) -> ActionTransitionResult:
+        """Aplica una transición completa dentro de un único BEGIN IMMEDIATE."""
+        action_id = _clean_id(action_id, "action_id")
+        event = ActionTransitionEvent(event)
+        if event == ActionTransitionEvent.ACTION_RECORDED:
+            raise ValueError("action_recorded sólo puede producirlo record_action")
+        cleaned_receipt = (
+            _clean_id(receipt_id, "receipt_id") if receipt_id is not None else None
+        )
+        timestamp = _utc_now()
+        fingerprint = sha256(
+            f"{action_id}\0{event.value}".encode("utf-8")
+        ).hexdigest()
+        with self._lock:
+            try:
+                self._begin()
+                if cleaned_receipt is not None:
+                    prior = self._connection.execute(
+                        "SELECT * FROM transition_receipts WHERE receipt_id = ?",
+                        (cleaned_receipt,),
+                    ).fetchone()
+                    if prior is not None:
+                        self._commit()
+                        if (
+                            prior["action_id"] != action_id
+                            or prior["fingerprint"] != fingerprint
+                        ):
+                            return ActionTransitionResult(
+                                action_id=action_id,
+                                state_before=self._optional_state(prior["state_before"]),
+                                state_after=self._optional_state(prior["state_after"]),
+                                classification=TransitionClassification.CONFLICT,
+                                timestamp=prior["created_at"],
+                                receipt_id=cleaned_receipt,
+                            )
+                        prior_classification = TransitionClassification(
+                            prior["classification"]
+                        )
+                        return ActionTransitionResult(
+                            action_id=action_id,
+                            state_before=self._optional_state(prior["state_before"]),
+                            state_after=self._optional_state(prior["state_after"]),
+                            classification=(
+                                TransitionClassification.ALREADY_APPLIED
+                                if prior_classification
+                                in {
+                                    TransitionClassification.APPLIED,
+                                    TransitionClassification.ALREADY_APPLIED,
+                                }
+                                else prior_classification
+                            ),
+                            timestamp=prior["created_at"],
+                            receipt_id=cleaned_receipt,
+                        )
+
+                action_row = self._connection.execute(
+                    "SELECT * FROM actions WHERE action_id = ?", (action_id,)
+                ).fetchone()
+                if action_row is None:
+                    result = ActionTransitionResult(
+                        action_id,
+                        None,
+                        None,
+                        TransitionClassification.UNKNOWN_ACTION,
+                        timestamp,
+                        cleaned_receipt,
+                    )
+                    self._insert_transition_receipt_locked(
+                        result, event, fingerprint
+                    )
+                    self._commit()
+                    return result
+
+                before = ActionState(action_row["action_state"])
+                target = _ALLOWED_TRANSITIONS.get((before, event))
+                if target is None:
+                    prior_applied = self._connection.execute(
+                        "SELECT 1 FROM action_transitions "
+                        "WHERE action_id = ? AND event = ? LIMIT 1",
+                        (action_id, event.value),
+                    ).fetchone()
+                    terminal = before in {
+                        ActionState.REPORTED_SUCCESS,
+                        ActionState.REPORTED_FAILURE,
+                        ActionState.REJECTED,
+                        ActionState.SKIPPED,
+                    }
+                    classification = (
+                        TransitionClassification.ALREADY_APPLIED
+                        if prior_applied is not None and not terminal
+                        else TransitionClassification.INVALID_TRANSITION
+                    )
+                    result = ActionTransitionResult(
+                        action_id,
+                        before,
+                        before,
+                        classification,
+                        timestamp,
+                        cleaned_receipt,
+                    )
+                    self._insert_transition_receipt_locked(
+                        result, event, fingerprint
+                    )
+                    self._commit()
+                    return result
+
+                self._connection.execute(
+                    "UPDATE actions SET action_state = ?, state_updated_at = ? "
+                    "WHERE action_id = ? AND action_state = ?",
+                    (target.value, timestamp, action_id, before.value),
+                )
+                self._connection.execute(
+                    """
+                    INSERT INTO action_transitions(
+                        action_id, state_before, state_after, event,
+                        receipt_id, created_at
+                    ) VALUES(?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        action_id,
+                        before.value,
+                        target.value,
+                        event.value,
+                        cleaned_receipt,
+                        timestamp,
+                    ),
+                )
+                result = ActionTransitionResult(
+                    action_id,
+                    before,
+                    target,
+                    TransitionClassification.APPLIED,
+                    timestamp,
+                    cleaned_receipt,
+                )
+                self._insert_transition_receipt_locked(result, event, fingerprint)
+                self._commit()
+                return result
+            except (OSError, sqlite3.Error) as exc:
+                self._rollback()
+                raise ActionLedgerError("No se pudo aplicar la transición") from exc
+
+    def issue_execution_permit(self, action_id: str) -> ExecutionPermit | None:
+        """Emite un permit descriptivo sólo si el ledger ya está en EXECUTING."""
+        action_id = _clean_id(action_id, "action_id")
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT action_state, state_updated_at FROM actions WHERE action_id = ?",
+                (action_id,),
+            ).fetchone()
+        if row is None or row["action_state"] != ActionState.EXECUTING.value:
+            return None
+        return ExecutionPermit(
+            action_id=action_id,
+            state=ActionState.EXECUTING,
+            issued_at=row["state_updated_at"] or _utc_now(),
+        )
 
     def record_outcome(
         self,
@@ -570,6 +945,77 @@ class ActionLedger:
                     self._commit()
                     return OutcomeRecordResult(status, action, self._outcome_from_row(outcome_row))
 
+                transition_event = (
+                    ActionTransitionEvent.REPORT_SUCCESS
+                    if success
+                    else ActionTransitionEvent.REPORT_FAILURE
+                )
+                current_state = action.action_state
+                terminal_state = _ALLOWED_TRANSITIONS.get(
+                    (current_state, transition_event)
+                )
+                if (
+                    current_state != ActionState.LEGACY_UNKNOWN
+                    and terminal_state is None
+                ):
+                    self._insert_attempt(
+                        outcome_transaction_id,
+                        action_id,
+                        OutcomeRecordStatus.INVALID_STATE,
+                        fingerprint,
+                        received_at,
+                    )
+                    self._commit()
+                    return OutcomeRecordResult(
+                        OutcomeRecordStatus.INVALID_STATE,
+                        action,
+                        None,
+                    )
+
+                if terminal_state is not None:
+                    receipt_id = f"outcome:{outcome_transaction_id}"
+                    self._connection.execute(
+                        "UPDATE actions SET action_state = ?, state_updated_at = ? "
+                        "WHERE action_id = ? AND action_state = ?",
+                        (
+                            terminal_state.value,
+                            received_at,
+                            action_id,
+                            current_state.value,
+                        ),
+                    )
+                    self._connection.execute(
+                        """
+                        INSERT INTO action_transitions(
+                            action_id, state_before, state_after, event,
+                            receipt_id, created_at
+                        ) VALUES(?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            action_id,
+                            current_state.value,
+                            terminal_state.value,
+                            transition_event.value,
+                            receipt_id,
+                            received_at,
+                        ),
+                    )
+                    transition_fingerprint = sha256(
+                        f"{action_id}\0{transition_event.value}".encode("utf-8")
+                    ).hexdigest()
+                    self._insert_transition_receipt_locked(
+                        ActionTransitionResult(
+                            action_id,
+                            current_state,
+                            terminal_state,
+                            TransitionClassification.APPLIED,
+                            received_at,
+                            receipt_id,
+                        ),
+                        transition_event,
+                        transition_fingerprint,
+                    )
+
                 self._connection.execute(
                     """
                     INSERT INTO outcomes(
@@ -596,6 +1042,9 @@ class ActionLedger:
                 )
                 outcome_row = self._connection.execute(
                     "SELECT * FROM outcomes WHERE action_id = ?", (action_id,)
+                ).fetchone()
+                action_row = self._connection.execute(
+                    "SELECT * FROM actions WHERE action_id = ?", (action_id,)
                 ).fetchone()
                 self._commit()
             except (OSError, sqlite3.Error) as exc:
@@ -724,6 +1173,37 @@ class ActionLedger:
             (transaction_id, action_id, status.value, fingerprint, received_at),
         )
 
+    def _insert_transition_receipt_locked(
+        self,
+        result: ActionTransitionResult,
+        event: ActionTransitionEvent,
+        fingerprint: str,
+    ) -> None:
+        if result.receipt_id is None:
+            return
+        self._connection.execute(
+            """
+            INSERT INTO transition_receipts(
+                receipt_id, action_id, event, fingerprint, classification,
+                state_before, state_after, created_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                result.receipt_id,
+                result.action_id,
+                event.value,
+                fingerprint,
+                result.classification.value,
+                result.state_before.value if result.state_before is not None else None,
+                result.state_after.value if result.state_after is not None else None,
+                result.timestamp,
+            ),
+        )
+
+    @staticmethod
+    def _optional_state(value: str | None) -> ActionState | None:
+        return ActionState(value) if value else None
+
     @staticmethod
     def _outcome_fingerprint(success: bool, action_name: str, payload_json: str) -> str:
         canonical = _canonical_json(
@@ -761,6 +1241,25 @@ class ActionLedger:
             task_instance_id=row["task_instance_id"],
             intended_client=row["intended_client"],
             outcome_expected=bool(row["outcome_expected"]),
+            created_at=row["created_at"],
+            decision_valid=(
+                None if row["decision_valid"] is None else bool(row["decision_valid"])
+            ),
+            action_state=ActionState(row["action_state"]),
+            state_updated_at=row["state_updated_at"],
+        )
+
+    @staticmethod
+    def _transition_from_row(row: sqlite3.Row) -> ActionTransitionRecord:
+        return ActionTransitionRecord(
+            transition_id=int(row["transition_id"]),
+            action_id=row["action_id"],
+            state_before=(
+                ActionState(row["state_before"]) if row["state_before"] else None
+            ),
+            state_after=ActionState(row["state_after"]),
+            event=(ActionTransitionEvent(row["event"]) if row["event"] else None),
+            receipt_id=row["receipt_id"],
             created_at=row["created_at"],
         )
 

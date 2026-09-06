@@ -21,6 +21,8 @@ public class AccionSaliente
     public string razonamiento;
     public JObject parametros;
     public bool requiere_confirmacion;
+    public string estado_ejecucion;
+    public string id_transaccion_origen;
 }
 
 [Serializable]

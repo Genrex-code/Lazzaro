@@ -7,6 +7,7 @@ from typing import Optional
 
 from ai_engine.motor_schemas import PHYSICAL_NUMERIC_ACTIONS, validar_parametros_fisicos
 from api.schemas import AccionSaliente
+from core.action_ledger import ActionState, ExecutionPermit
 from tools.base import ToolResult
 from tools.registry import ToolRegistry
 from core.logger import get_logger
@@ -18,7 +19,11 @@ class ActionExecutor:
     """Responsable de llevar a cabo una acción decidida por el agente."""
 
     @staticmethod
-    def ejecutar(accion: AccionSaliente) -> ToolResult:
+    def ejecutar(
+        accion: AccionSaliente,
+        *,
+        permit: ExecutionPermit | None = None,
+    ) -> ToolResult:
         """
         Ejecuta la acción indicada.
         Retorna un ToolResult con el resultado de la herramienta o un error.
@@ -42,16 +47,25 @@ class ActionExecutor:
             logger.warning(mensaje)
             return ToolResult(exito=False, mensaje=mensaje, error=str(e))
 
-        # 3. Verificar confirmación requerida
+        # 3. Verificar permiso durable; el requisito nunca equivale a aprobación.
         requires_confirmation = tool_info.get("requires_confirmation", False)
         if type(requires_confirmation) is not bool:
             mensaje = f"Contrato de confirmacion invalido para {accion.nombre}."
             logger.error(mensaje)
             return ToolResult(exito=False, mensaje=mensaje, error=mensaje)
-        if requires_confirmation and accion.requiere_confirmacion is not True:
+        valid_permit = (
+            isinstance(permit, ExecutionPermit)
+            and permit.action_id == accion.id_accion
+            and permit.state == ActionState.EXECUTING
+        )
+        if requires_confirmation and not valid_permit:
             mensaje = f"La herramienta {accion.nombre} requiere confirmación explícita."
             logger.warning(mensaje)
-            return ToolResult(exito=False, mensaje=mensaje, error="Confirmación denegada automáticamente.")
+            return ToolResult(
+                exito=False,
+                mensaje=mensaje,
+                error="No existe un permiso de ejecución durable para esta acción.",
+            )
 
         # 4. Ejecutar la función
         try:

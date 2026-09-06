@@ -32,8 +32,11 @@ from core.action_ledger import (
     ActionLedgerError,
     ActionRecord,
     ActionRecordStatus,
+    ActionState,
+    ActionTransitionEvent,
     OutcomeConsumptionStatus,
     OutcomeRecordStatus,
+    TransitionClassification,
     TransactionClaimStatus,
     TransactionCompletionStatus,
     TransactionConflictError,
@@ -607,8 +610,15 @@ class Orchestrator:
                 f"Transaccion durable incompleta; replay bloqueado: {evento.id_transaccion}"
             )
         if claim.status == TransactionClaimStatus.COMPLETED:
+            if evento.tipo_evento in {
+                "confirmacion_accion",
+                "inicio_ejecucion_accion",
+            }:
+                self._validar_replay_lifecycle(evento)
+                return None
             cacheada = self._obtener_transaccion_cacheada(evento.id_transaccion)
             if cacheada is not None:
+                cacheada = self._actualizar_snapshot_accion(cacheada)
                 logger.info(
                     "Evento %s ya completado en ledger; devolviendo accion cacheada.",
                     evento.id_transaccion,
@@ -629,12 +639,22 @@ class Orchestrator:
                 evento,
                 cacheada,
                 tarea=None,
+                decision_valid=None,
             )
             self._completar_transaccion_ledger(evento.id_transaccion, cacheada)
             logger.info(
                 "Evento %s migrado desde cache RAM al ledger.", evento.id_transaccion
             )
             return cacheada
+
+        if evento.tipo_evento == "confirmacion_accion":
+            respuesta_confirmacion = self._procesar_confirmacion_accion(evento)
+            self._completar_transaccion_ledger(evento.id_transaccion, None)
+            return respuesta_confirmacion
+        if evento.tipo_evento == "inicio_ejecucion_accion":
+            self._procesar_inicio_ejecucion_accion(evento)
+            self._completar_transaccion_ledger(evento.id_transaccion, None)
+            return None
 
         outcome_action: ActionRecord | None = None
         outcome_action_id: str | None = None
@@ -854,6 +874,7 @@ class Orchestrator:
                 evento,
                 accion_saliente,
                 tarea=tarea,
+                decision_valid=action_response.valido,
             )
         decision_duration_ms = self._elapsed_ms(decision_started_ns)
         llm_events = self._consumir_llm_audit()
@@ -952,8 +973,14 @@ class Orchestrator:
             accion_saliente,
             action_response=action_response,
         )
+        accion_saliente = self._actualizar_snapshot_accion(accion_saliente)
         sandbox_outcome_action_id: str | None = None
-        if outcome_action is None and self._debe_ejecutar_localmente(evento) and accion_saliente.nombre != "none":
+        if (
+            outcome_action is None
+            and self._debe_ejecutar_localmente(evento)
+            and accion_saliente.nombre != "none"
+            and resultado_memoria in {"ok", "error"}
+        ):
             sandbox_outcome_action_id = accion_saliente.id_accion
             sandbox_receipt = ledger.record_outcome(
                 action_id=accion_saliente.id_accion,
@@ -966,6 +993,14 @@ class Orchestrator:
                 raise ActionLedgerError(
                     f"Outcome sandbox no aceptado: {sandbox_receipt.status.value}"
                 )
+            if sandbox_receipt.action is None:
+                raise ActionLedgerError("Outcome sandbox aceptado sin action")
+            self._aplicar_outcome_local_a_behavior(
+                sandbox_receipt.action,
+                resultado_memoria == "ok",
+                detalles_resultado or {},
+            )
+            accion_saliente = self._actualizar_snapshot_accion(accion_saliente)
         execution_duration_ms = self._elapsed_ms(execution_started_ns)
         execution_error_type = (
             "ExecutionFailed" if resultado_memoria == "error" else None
@@ -1014,7 +1049,17 @@ class Orchestrator:
                 politica,
             )
         self._agregar_notificacion_si_corresponde(action_response)
-        self._registrar_estado_identidad(evento, triage_decision, action_response)
+        execution_success: bool | None = None
+        if outcome_action is not None:
+            execution_success = evento.detalles.get("exito")
+        elif sandbox_outcome_action_id is not None:
+            execution_success = resultado_memoria == "ok"
+        self._registrar_estado_identidad(
+            evento,
+            triage_decision,
+            action_response,
+            execution_success=execution_success,
+        )
         self._armar_descanso_terminal_si_corresponde(evento, triage_decision)
 
         if outcome_action_id is not None:
@@ -2369,6 +2414,8 @@ class Orchestrator:
         evento: EventoEntrante,
         triage_decision: dict,
         action_response: ActionResponse,
+        *,
+        execution_success: bool | None = None,
     ) -> None:
         """Actualiza energia, estres y enfoque despues de procesar el evento."""
         try:
@@ -2386,11 +2433,10 @@ class Orchestrator:
                 except Exception as e:
                     logger.error("Error consolidando memorias durante descanso: %s", e, exc_info=True)
 
-            success = bool(action_response.valido and not action_response.error)
             self.identity_state.registrar_evento(
                 intent=intent,
                 route=route,
-                success=success,
+                success=execution_success,
                 es_descanso=es_descanso,
                 intensidad=self._intensidad_identidad(evento, route),
             )
@@ -2480,6 +2526,135 @@ class Orchestrator:
             payload=self._payload_outcome_minimo(detalles),
         )
 
+    def _validar_replay_lifecycle(self, evento: EventoEntrante) -> None:
+        """Valida contenido de un receipt repetido sin repetir su side effect."""
+        detalles = evento.detalles if isinstance(evento.detalles, dict) else {}
+        event = (
+            ActionTransitionEvent.AUTHORIZE
+            if evento.tipo_evento == "confirmacion_accion" and detalles.get("approved") is True
+            else ActionTransitionEvent.REJECT
+            if evento.tipo_evento == "confirmacion_accion"
+            else ActionTransitionEvent.START_EXECUTION
+        )
+        result = self._obtener_action_ledger().transition_action(
+            str(detalles.get("id_accion") or ""),
+            event,
+            receipt_id=f"lifecycle:{evento.id_transaccion}",
+        )
+        if result.classification == TransitionClassification.CONFLICT:
+            raise TransactionConflictError(
+                f"Receipt lifecycle reutilizado con otro contenido: {evento.id_transaccion}"
+            )
+
+    def _procesar_inicio_ejecucion_accion(self, evento: EventoEntrante):
+        detalles = evento.detalles if isinstance(evento.detalles, dict) else {}
+        result = self._obtener_action_ledger().transition_action(
+            str(detalles.get("id_accion") or ""),
+            ActionTransitionEvent.START_EXECUTION,
+            receipt_id=f"lifecycle:{evento.id_transaccion}",
+        )
+        if result.classification == TransitionClassification.CONFLICT:
+            raise TransactionConflictError("Receipt de inicio reutilizado con otro contenido")
+        if result.classification not in {
+            TransitionClassification.APPLIED,
+            TransitionClassification.ALREADY_APPLIED,
+            TransitionClassification.UNKNOWN_ACTION,
+            TransitionClassification.INVALID_TRANSITION,
+        }:
+            raise ActionLedgerError(
+                f"Receipt de inicio no clasificable: {result.classification.value}"
+            )
+        return result
+
+    def _procesar_confirmacion_accion(
+        self,
+        evento: EventoEntrante,
+    ) -> AccionSaliente | None:
+        detalles = evento.detalles if isinstance(evento.detalles, dict) else {}
+        approved = detalles.get("approved")
+        transition_event = (
+            ActionTransitionEvent.AUTHORIZE
+            if approved is True
+            else ActionTransitionEvent.REJECT
+        )
+        ledger = self._obtener_action_ledger()
+        result = ledger.transition_action(
+            str(detalles.get("id_accion") or ""),
+            transition_event,
+            receipt_id=f"lifecycle:{evento.id_transaccion}",
+        )
+        if result.classification == TransitionClassification.CONFLICT:
+            raise TransactionConflictError("Receipt de confirmacion reutilizado con otro contenido")
+        if result.classification != TransitionClassification.APPLIED:
+            return None
+
+        record = ledger.get_action(result.action_id)
+        if record is None:
+            return None
+        if approved is not True:
+            return self._accion_desde_record(record)
+
+        if record.intended_client != "sandbox":
+            dispatch = ledger.transition_action(
+                record.action_id,
+                ActionTransitionEvent.DISPATCH,
+                receipt_id=f"confirmation-dispatch:{evento.id_transaccion}",
+            )
+            self._exigir_transicion(dispatch, "dispatch_after_confirmation")
+            updated = ledger.get_action(record.action_id)
+            return self._accion_desde_record(updated or record)
+
+        start = ledger.transition_action(
+            record.action_id,
+            ActionTransitionEvent.START_EXECUTION,
+            receipt_id=f"confirmation-start:{evento.id_transaccion}",
+        )
+        self._exigir_transicion(start, "local_start_after_confirmation")
+        permit = ledger.issue_execution_permit(record.action_id)
+        if permit is None:
+            raise ActionLedgerError("Confirmacion local no produjo execution permit")
+        action = self._accion_desde_record(ledger.get_action(record.action_id) or record)
+        tool_result = ActionExecutor.ejecutar(action, permit=permit)
+        details = {
+            "mensaje_resultado": tool_result.mensaje,
+            "error": tool_result.error,
+            "datos_extra": tool_result.datos_extra,
+        }
+        outcome = ledger.record_outcome(
+            action_id=record.action_id,
+            outcome_transaction_id=f"confirmation-outcome:{evento.id_transaccion}",
+            success=tool_result.exito is True,
+            action_name=record.action_name,
+            originating_transaction_id=record.transaction_id,
+            payload=self._payload_outcome_minimo(details),
+        )
+        if outcome.status != OutcomeRecordStatus.ACCEPTED or outcome.action is None:
+            raise ActionLedgerError(
+                f"Outcome local confirmado rechazado: {outcome.status.value}"
+            )
+        self._aplicar_outcome_local_a_behavior(
+            outcome.action,
+            tool_result.exito is True,
+            details,
+        )
+        self.identity_state.registrar_evento(
+            route="motor",
+            success=tool_result.exito is True,
+            intensidad=0.2,
+        )
+        self.memory.agregar_accion(
+            accion=record.action_name,
+            resultado="ok" if tool_result.exito is True else "error",
+            detalles={"id_accion": record.action_id, **details},
+        )
+        if tool_result.exito is True:
+            self._aprobar_alias_pendiente_por_id(record.action_id)
+        consumed = ledger.mark_outcome_consumed(record.action_id)
+        if consumed != OutcomeConsumptionStatus.CONSUMED:
+            raise ActionLedgerError("Outcome local confirmado no pudo consumirse")
+        updated = ledger.get_action(record.action_id)
+        return self._accion_desde_record(updated or record)
+
     @staticmethod
     def _payload_outcome_minimo(detalles: dict) -> dict:
         permitidos = {
@@ -2521,12 +2696,33 @@ class Orchestrator:
         correlacionado.detalles = detalles
         return correlacionado
 
+    def _aplicar_outcome_local_a_behavior(
+        self,
+        action: ActionRecord,
+        success: bool,
+        details: dict,
+    ) -> None:
+        """Proyecta una vez el ToolResult terminal sin reconstruir el comando."""
+        outcome_details = dict(self._payload_outcome_minimo(details))
+        outcome_details.update(
+            {
+                "accion": action.action_name,
+                "id_accion": action.action_id,
+                "id_transaccion_origen": action.transaction_id,
+                "exito": success,
+                "_task_correlation_enforced": True,
+                "_task_instance_id_correlacion": action.task_instance_id,
+            }
+        )
+        self.behavior.procesar_evento("resultado_accion", outcome_details)
+
     def _persistir_identidad_accion(
         self,
         evento: EventoEntrante,
         accion: AccionSaliente,
         *,
         tarea: dict | None,
+        decision_valid: bool | None = None,
     ) -> None:
         task_instance_id = None
         if isinstance(tarea, dict):
@@ -2540,6 +2736,7 @@ class Orchestrator:
             task_instance_id=task_instance_id,
             intended_client=str(evento.origen),
             outcome_expected=self._accion_requiere_outcome(evento, accion),
+            decision_valid=decision_valid,
         )
         if receipt.status == ActionRecordStatus.CONFLICT:
             raise TransactionConflictError(
@@ -2551,7 +2748,7 @@ class Orchestrator:
         evento: EventoEntrante,
         accion: AccionSaliente,
     ) -> bool:
-        if accion.nombre in {"none", "hablar"}:
+        if accion.nombre == "none":
             return False
         return evento.origen != "terminal"
 
@@ -2566,15 +2763,17 @@ class Orchestrator:
             "nombre": accion.nombre,
             "parametros": dict(accion.parametros or {}),
             "requiere_confirmacion": accion.requiere_confirmacion,
+            "estado_ejecucion": accion.estado_ejecucion,
+            "id_transaccion_origen": accion.id_transaccion_origen,
         }
 
-    @staticmethod
     def _restaurar_accion_desde_ledger(
+        self,
         payload: dict | None,
     ) -> AccionSaliente | None:
         if not isinstance(payload, dict):
             return None
-        return AccionSaliente(
+        accion = AccionSaliente(
             id_accion=str(payload.get("id_accion") or ""),
             nombre=str(payload.get("nombre") or "none"),
             parametros=(
@@ -2585,6 +2784,45 @@ class Orchestrator:
             razonamiento="",
             pensamiento_privado="",
             requiere_confirmacion=payload.get("requiere_confirmacion") is True,
+            estado_ejecucion=str(
+                payload.get("estado_ejecucion") or ActionState.LEGACY_UNKNOWN.value
+            ),
+            id_transaccion_origen=(
+                str(payload.get("id_transaccion_origen") or "").strip() or None
+            ),
+        )
+        return self._actualizar_snapshot_accion(accion)
+
+    def _actualizar_snapshot_accion(
+        self,
+        accion: AccionSaliente,
+    ) -> AccionSaliente:
+        record = self._obtener_action_ledger().get_action(accion.id_accion)
+        if record is None:
+            return accion
+        if (
+            accion.estado_ejecucion == record.action_state.value
+            and accion.id_transaccion_origen == record.transaction_id
+        ):
+            return accion
+        return accion.model_copy(
+            update={
+                "estado_ejecucion": record.action_state.value,
+                "id_transaccion_origen": record.transaction_id,
+            }
+        )
+
+    @staticmethod
+    def _accion_desde_record(record: ActionRecord) -> AccionSaliente:
+        return AccionSaliente(
+            id_accion=record.action_id,
+            nombre=record.action_name,
+            parametros=dict(record.parameters),
+            razonamiento="",
+            pensamiento_privado="",
+            requiere_confirmacion=record.requires_confirmation,
+            estado_ejecucion=record.action_state.value,
+            id_transaccion_origen=record.transaction_id,
         )
 
     def _completar_transaccion_ledger(
@@ -2901,10 +3139,30 @@ class Orchestrator:
         accion_saliente: AccionSaliente,
         action_response: ActionResponse | None = None,
     ) -> tuple[str, dict | None]:
+        ledger = self._obtener_action_ledger()
+        action_record = ledger.get_action(accion_saliente.id_accion)
         if accion_saliente.nombre == "none":
+            if action_record is not None and action_record.action_state == ActionState.CREATED:
+                self._exigir_transicion(
+                    ledger.transition_action(
+                        accion_saliente.id_accion,
+                        ActionTransitionEvent.SKIP,
+                        receipt_id=f"skip:{accion_saliente.id_accion}",
+                    ),
+                    "skip",
+                )
             return "sin_accion", None
 
         if accion_saliente.requiere_confirmacion:
+            if action_record is not None and action_record.action_state == ActionState.CREATED:
+                self._exigir_transicion(
+                    ledger.transition_action(
+                        accion_saliente.id_accion,
+                        ActionTransitionEvent.REQUIRE_AUTHORIZATION,
+                        receipt_id=f"require-authorization:{accion_saliente.id_accion}",
+                    ),
+                    "require_authorization",
+                )
             return (
                 "pendiente_confirmacion",
                 self._adjuntar_esfuerzo_a_detalles(
@@ -2917,8 +3175,35 @@ class Orchestrator:
                 ),
             )
 
+        if action_record is not None and action_record.action_state == ActionState.CREATED:
+            self._exigir_transicion(
+                ledger.transition_action(
+                    accion_saliente.id_accion,
+                    ActionTransitionEvent.AUTO_AUTHORIZE,
+                    receipt_id=f"auto-authorize:{accion_saliente.id_accion}",
+                ),
+                "auto_authorize",
+            )
+
         if self._debe_ejecutar_localmente(evento):
-            resultado_ejecucion = ActionExecutor.ejecutar(accion_saliente)
+            permit = None
+            current = ledger.get_action_state(accion_saliente.id_accion)
+            if current == ActionState.AUTHORIZED:
+                self._exigir_transicion(
+                    ledger.transition_action(
+                        accion_saliente.id_accion,
+                        ActionTransitionEvent.START_EXECUTION,
+                        receipt_id=f"local-start:{accion_saliente.id_accion}",
+                    ),
+                    "start_execution",
+                )
+                permit = ledger.issue_execution_permit(accion_saliente.id_accion)
+                if permit is None:
+                    raise ActionLedgerError("Ledger no emitio permit para accion local")
+            resultado_ejecucion = ActionExecutor.ejecutar(
+                accion_saliente,
+                permit=permit,
+            )
             return (
                 "ok" if resultado_ejecucion.exito is True else "error",
                 self._adjuntar_esfuerzo_a_detalles(
@@ -2929,6 +3214,17 @@ class Orchestrator:
                     },
                     action_response,
                 ),
+            )
+
+        current = ledger.get_action_state(accion_saliente.id_accion)
+        if current == ActionState.AUTHORIZED:
+            self._exigir_transicion(
+                ledger.transition_action(
+                    accion_saliente.id_accion,
+                    ActionTransitionEvent.DISPATCH,
+                    receipt_id=f"dispatch:{accion_saliente.id_accion}",
+                ),
+                "dispatch",
             )
 
         return (
@@ -2942,6 +3238,16 @@ class Orchestrator:
                 action_response,
             ),
         )
+
+    @staticmethod
+    def _exigir_transicion(receipt, nombre: str) -> None:
+        if receipt.classification not in {
+            TransitionClassification.APPLIED,
+            TransitionClassification.ALREADY_APPLIED,
+        }:
+            raise ActionLedgerError(
+                f"Transicion {nombre} rechazada: {receipt.classification.value}"
+            )
 
     @staticmethod
     def _adjuntar_esfuerzo_a_detalles(
