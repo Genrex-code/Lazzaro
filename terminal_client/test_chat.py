@@ -23,6 +23,7 @@ from ai_engine.identity_state import IdentityState
 from ai_engine.persona_engine import PersonaEngine
 from api.routes import router
 from api.schemas import AccionSaliente, EventoEntrante
+from core.action_ledger import TurnAbortedError, TurnProcessingError
 from core.orchestrator import Orchestrator
 from core.state_engine import StateEngine
 from core.tool_policy import ToolPolicy
@@ -773,8 +774,8 @@ def test_orchestrator_reconduce_motor_y_blinda_la_salida() -> None:
     sanitizada = orchestrator._sanitizar_action_response(hablar_invalido)
     reblindada = orchestrator._blindar_salida_terminal(evento, sanitizada)
     assert_true(
-        reblindada.accion == "hablar",
-        "El firewall posterior a sanitizacion tambien debe terminar en hablar.",
+        reblindada.accion == "none" and reblindada.valido is False,
+        "El firewall terminal no debe convertir INVALID en una accion valida.",
     )
 
 
@@ -1239,17 +1240,21 @@ def test_guardado_manual_despierta_y_same_id_no_repite_persistencia() -> None:
     )
     guardar = _evento_terminal("guarda lo que hemos hablado", "save-wake")
 
-    primera = orchestrator.procesar_evento(guardar)
+    try:
+        orchestrator.procesar_evento(guardar)
+    except TurnProcessingError:
+        pass
+    else:
+        raise AssertionError("El write manual requerido fallido no debe producir success.")
     energia_tras_primera = estado.energia
     reloj.avanzar(30.0)
-    segunda = orchestrator.procesar_evento(guardar)
+    try:
+        orchestrator.procesar_evento(guardar)
+    except TurnAbortedError:
+        pass
+    else:
+        raise AssertionError("El mismo ID debe devolver el clean abort durable.")
 
-    assert_true(primera is not None and "No pude guardar" in primera.parametros["texto_a_comunicar"], "Debe informar el fallo real.")
-    assert_true(
-        segunda is not None
-        and "No pude guardar" in segunda.parametros["texto_a_comunicar"],
-        "El retry durable debe reconstruir el mismo fallo sin repetir efectos.",
-    )
     assert_true(estado.descansos_finalizados == 1, "El guardado debe despertar exactamente una vez.")
     assert_true(estado.descansando is False, "El retry manual no debe rearmar el descanso.")
     assert_true(estado.energia == energia_tras_primera, "El retry manual no debe mutar otra vez la energia.")
@@ -1415,18 +1420,18 @@ def test_terminal_same_id_no_repite_guardado_fallido_ni_inventa_exito() -> None:
     )
     evento = _evento_terminal("guarda lo que tengas en ram en tu mente")
 
-    primera = orchestrator.procesar_evento(evento)
-    segunda = orchestrator.procesar_evento(evento)
-
-    assert_true(
-        primera is not None and "No pude guardar" in primera.parametros["texto_a_comunicar"],
-        "Un fallo real nunca debe producir confirmación positiva.",
-    )
-    assert_true(
-        segunda is not None
-        and "No pude guardar" in segunda.parametros["texto_a_comunicar"],
-        "El mismo ID debe devolver el receipt durable original sin inventar exito.",
-    )
+    try:
+        orchestrator.procesar_evento(evento)
+    except TurnProcessingError:
+        pass
+    else:
+        raise AssertionError("Un write requerido fallido no debe producir respuesta success.")
+    try:
+        orchestrator.procesar_evento(evento)
+    except TurnAbortedError:
+        pass
+    else:
+        raise AssertionError("El mismo ID debe devolver el clean abort durable.")
     assert_true(
         orchestrator.memory.guardados_manuales == [
             evento.id_transaccion,
@@ -1434,20 +1439,20 @@ def test_terminal_same_id_no_repite_guardado_fallido_ni_inventa_exito() -> None:
         "La respuesta de error debe bloquear el replay de la misma transaccion.",
     )
     assert_true(
-        evento.id_transaccion in orchestrator._transacciones_procesadas,
-        "El receipt durable puede poblar el cache RAM despues de resolver la autoridad.",
+        evento.id_transaccion not in orchestrator._transacciones_procesadas,
+        "Un fallo requerido nunca debe poblar el cache de success.",
     )
     assert_true(
         len(orchestrator.memory.experiencias) == 1,
         "El retry manual no debe volver a persistir el evento genérico.",
     )
     assert_true(
-        len(orchestrator.memory.acciones) == 1,
-        "El retry manual no debe duplicar la memoria operativa.",
+        len(orchestrator.memory.acciones) == 0,
+        "Un guardado fallido no debe crear memoria operativa de decision.",
     )
     assert_true(
-        len(orchestrator.identity_state.eventos) == 1,
-        "El retry manual no debe mutar dos veces el estado de identidad.",
+        len(orchestrator.identity_state.eventos) == 0,
+        "Un guardado fallido no debe emitir señal de identidad.",
     )
     assert_true(orchestrator.memory.turnos == [], "Los intentos de control no deben entrar en RAM.")
 
@@ -1648,11 +1653,11 @@ def main() -> None:
     test_ayuda_estado_y_salir_no_despiertan_descanso_terminal()
     test_retries_cacheados_no_rearman_ni_despiertan_descanso_terminal()
     test_mensajes_concurrentes_consumen_descanso_terminal_una_sola_vez()
-    test_guardado_manual_despierta_y_su_retry_no_recupera_dos_veces()
+    test_guardado_manual_despierta_y_same_id_no_repite_persistencia()
     test_guardado_manual_con_palabras_de_sueno_no_arma_descanso()
     test_terminal_no_usa_descanso_inmediato_y_unity_lo_conserva()
     test_terminal_guarda_ram_como_conversacion_y_no_registra_el_control()
-    test_terminal_reintenta_un_guardado_fallido_sin_exito_falso()
+    test_terminal_same_id_no_repite_guardado_fallido_ni_inventa_exito()
     test_terminal_informa_ram_vacia_y_guardado_ya_existente()
     test_retries_simultaneos_comparten_una_sola_transaccion()
     test_persona_recibe_la_restriccion_de_canal_terminal()

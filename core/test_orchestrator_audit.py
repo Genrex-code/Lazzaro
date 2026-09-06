@@ -25,6 +25,7 @@ from ai_engine.schemas import ActionResponse
 from api.schemas import AccionSaliente, EventoEntrante
 from core.audit_trace import AuditTrace
 from core.audit_writer import AuditTraceJSONLWriter
+from core.action_ledger import TurnProcessingError
 from core.orchestrator import Orchestrator
 from memory.memory_manager import MemoryContextResult, MemoryManager
 from memory.memory_types import (
@@ -537,11 +538,14 @@ def test_behavior_core_failure_has_no_triage_stage() -> None:
     orchestrator.behavior = FailingBehavior()
     triage_calls = _count_triage_calls(orchestrator)
 
-    result = orchestrator.procesar_evento(
-        _full_flow_event("terminal", "obs-004-behavior-failure")
-    )
-
-    assert_true(result is None, "Debe conservar el resultado funcional del fallo previo.")
+    try:
+        orchestrator.procesar_evento(
+            _full_flow_event("terminal", "obs-004-behavior-failure")
+        )
+    except TurnProcessingError:
+        pass
+    else:
+        raise AssertionError("BehaviorCore central failure no debe parecer un no-op valido.")
     assert_true(triage_calls["calls"] == 0, "BehaviorCore falló antes de alcanzar Triage.")
     assert_true(
         [trace.stage for trace in writer.traces] == ["event_start", "error", "event_end"],
@@ -842,15 +846,23 @@ def test_decision_layer_tracks_the_executed_primary_branch() -> None:
     reasoning.audit_writer = writer
     legacy_reasoning = LegacyReasoning()
     reasoning.reasoning = legacy_reasoning
-    reasoning_result = reasoning.procesar_evento(
-        _full_flow_event("unity", "obs-006-reasoning")
-    )
-    assert_true(reasoning_result is not None and reasoning_result.nombre == "none", "La sanitización debe producir none.")
+    try:
+        reasoning.procesar_evento(
+            _full_flow_event("unity", "obs-006-reasoning")
+        )
+    except TurnProcessingError:
+        pass
+    else:
+        raise AssertionError("La sanitizacion invalida debe abortar, no producir un no-op valido.")
     assert_true(legacy_reasoning.calls == 1, "Reasoning debe ejecutarse una sola vez.")
     assert_true(
-        _trace_for_stage(writer, "decision").decision
-        == {"layer": "reasoning", "action": "none", "valid": False},
-        "Decision debe observar Reasoning después de sanitizar su salida.",
+        not [trace for trace in writer.traces if trace.stage in {"decision", "execution"}],
+        "Una decision invalida no debe fabricar decision/execution exitosos.",
+    )
+    assert_true(
+        _trace_for_stage(writer, "error").error
+        == {"type": "InvalidDecision", "component": "decision"},
+        "Audit debe conservar la clasificacion central sin payload sensible.",
     )
 
     writer = RecordingWriter()
@@ -1193,11 +1205,14 @@ def test_reasoning_invalid_llm_response_is_attributed_to_provider() -> None:
     )
     orchestrator.reasoning = ReasoningEngine(FallbackAIClient([provider]))
 
-    result = orchestrator.procesar_evento(
-        _full_flow_event("unity", "obs-007-reasoning-invalid")
-    )
-
-    assert_true(result is not None and result.nombre == "none", "Debe conservar el rechazo funcional de Reasoning.")
+    try:
+        orchestrator.procesar_evento(
+            _full_flow_event("unity", "obs-007-reasoning-invalid")
+        )
+    except TurnProcessingError:
+        pass
+    else:
+        raise AssertionError("Reasoning invalido debe ser fallo tipado, no no-op exitoso.")
     assert_true(provider.calls == 1, "La respuesta inválida no debe volver a consultar al proveedor.")
     error = _trace_for_stage(writer, "error")
     assert_true(
@@ -1208,8 +1223,10 @@ def test_reasoning_invalid_llm_response_is_attributed_to_provider() -> None:
         error.llm["provider"] == "gemini" and error.llm["model_id"] == "gemini-invalid-json",
         "El error de contrato debe conservar el proveedor que produjo la salida inválida.",
     )
-    decision = _trace_for_stage(writer, "decision")
-    assert_true(decision.llm["fallback_used"] is True, "El rechazo determinista debe marcar fallback.")
+    assert_true(
+        not [trace for trace in writer.traces if trace.stage in {"decision", "execution"}],
+        "El rechazo invalido no debe fabricar decision ni execution exitosas.",
+    )
     serialized = "\n".join(trace.to_json() for trace in writer.traces)
     assert_true(
         "SECRET_INVALID_REASONING_OUTPUT" not in serialized,

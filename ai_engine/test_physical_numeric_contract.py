@@ -18,6 +18,7 @@ from ai_engine.motor_schemas import (
 )
 from ai_engine.schemas import ActionResponse
 from api.schemas import AccionSaliente, EventoEntrante
+from core.action_ledger import TurnProcessingError
 from core.orchestrator import Orchestrator
 from core.tool_policy import ToolPolicy
 from terminal_client.test_chat import _orquestador_aislado
@@ -261,7 +262,10 @@ def _run_audited_direct_motor(parameters: dict[str, Any], transaction_id: str):
         id_transaccion=transaction_id,
         detalles={"mensaje": "ve a la posición", "solicita_decision": True},
     )
-    outgoing = orchestrator.procesar_evento(event)
+    try:
+        outgoing = orchestrator.procesar_evento(event)
+    except TurnProcessingError as exc:
+        outgoing = exc
     return outgoing, writer.traces, calls
 
 
@@ -295,21 +299,17 @@ def test_orchestrator_blocks_direct_or_fallback_nonfinite_before_dispatch() -> N
         "root-002-invalid",
     )
     stages = [trace.stage for trace in traces]
-    decision = next(trace for trace in traces if trace.stage == "decision")
-    execution = next(trace for trace in traces if trace.stage == "execution")
 
     assert_true(calls["motor"] == 1, "El producer debe ejecutarse una sola vez.")
-    assert_true(outgoing is not None and outgoing.nombre == "none", "La barrera final debe convertir a no-op inválido.")
-    assert_true(outgoing.parametros == {}, "La salida no debe contener null ni defaults sustitutos.")
-    assert_true(decision.decision["valid"] is False and decision.decision["action"] == "none", "Audit debe observar la invalidación.")
-    assert_true(execution.execution["status"] == "skipped", "No debe existir dispatch físico para nonfinite.")
+    assert_true(isinstance(outgoing, TurnProcessingError), "La barrera final debe clasificar INVALID, no devolver success.")
+    assert_true(not [trace for trace in traces if trace.stage in {"decision", "execution"}], "No debe fabricar decision ni dispatch para nonfinite.")
     assert_true(
-        stages == ["event_start", "triage", "memory", "error", "decision", "execution", "event_end"],
-        "AuditTrace v1 debe conservar el error funcional de decisión y sus stages.",
+        stages == ["event_start", "triage", "memory", "error", "event_end"],
+        "AuditTrace v1 debe cerrar el fallo sin stages de exito.",
     )
     assert_true(
         next(trace for trace in traces if trace.stage == "error").error
-        == {"type": "DecisionError", "component": "decision"},
+        == {"type": "InvalidDecision", "component": "decision"},
         "La invalidación debe observarse sin ampliar el schema de AuditTrace.",
     )
     assert_true(len({trace.trace_id for trace in traces}) == 1, "El trace_id debe conservarse.")

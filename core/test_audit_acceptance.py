@@ -126,10 +126,11 @@ def test_transaction_is_reconstructed_from_jsonl_only() -> None:
         identity_original = orchestrator._registrar_estado_identidad
 
         def finish_state(*args, **kwargs):
-            identity_original(*args, **kwargs)
+            applied = identity_original(*args, **kwargs)
             # Mutación funcional tardía: post no puede reutilizar respuesta_core.
             core.state_engine.establecer_estado_biologico(energia=61, estres=12, foco=77)
             core.task_context.intentos_totales = 1
+            return applied
 
         orchestrator._registrar_estado_identidad = finish_state
         transaction_id = "sidequest-acceptance-001"

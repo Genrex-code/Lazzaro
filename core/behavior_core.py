@@ -98,7 +98,37 @@ class BehaviorCore:
         """
         with self._owner_lock:
             with self.state_engine.atomic():
-                return self._procesar_evento_locked(tipo_evento, detalles)
+                checkpoint = self._crear_checkpoint_operacional_locked()
+                try:
+                    return self._procesar_evento_locked(tipo_evento, detalles)
+                except Exception:
+                    self._restaurar_checkpoint_operacional_locked(checkpoint)
+                    raise
+
+    def _crear_checkpoint_operacional_locked(self) -> dict[str, Any]:
+        """Snapshot local pequeño; no serializa prompts, modelos ni memoria externa."""
+        return {
+            "state_engine": self.state_engine.crear_checkpoint_operacional(),
+            "personality": copy.deepcopy(self.personality.__dict__),
+            "task_context": copy.deepcopy(self.task_context),
+            "policy": self.policy,
+            "offsets_politica": copy.deepcopy(self._offsets_politica),
+            "constelacion": copy.deepcopy(self._constelacion),
+            "ultima_percepcion": copy.deepcopy(self._ultima_percepcion),
+            "ultima_percepcion_resumida": self._ultima_percepcion_resumida,
+        }
+
+    def _restaurar_checkpoint_operacional_locked(self, checkpoint: dict[str, Any]) -> None:
+        """Rollback exacto del estado poseído por BehaviorCore."""
+        self.state_engine.restaurar_checkpoint_operacional(checkpoint["state_engine"])
+        self.personality.__dict__.clear()
+        self.personality.__dict__.update(copy.deepcopy(checkpoint["personality"]))
+        self.task_context = copy.deepcopy(checkpoint["task_context"])
+        self.policy = checkpoint["policy"]
+        self._offsets_politica = copy.deepcopy(checkpoint["offsets_politica"])
+        self._constelacion = copy.deepcopy(checkpoint["constelacion"])
+        self._ultima_percepcion = copy.deepcopy(checkpoint["ultima_percepcion"])
+        self._ultima_percepcion_resumida = checkpoint["ultima_percepcion_resumida"]
 
     def _procesar_evento_locked(self, tipo_evento: str, detalles: dict | None = None) -> dict:
         """Implementa el turno mientras BehaviorCore y StateEngine son exclusivos."""

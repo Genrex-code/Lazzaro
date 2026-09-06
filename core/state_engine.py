@@ -67,6 +67,48 @@ class StateEngine:
         with self._state_lock:
             yield
 
+    def crear_checkpoint_operacional(self) -> dict:
+        """Captura exclusivamente el estado mutable local para rollback intra-proceso."""
+        with self._state_lock:
+            return {
+                "energia": self.energia,
+                "estres": self.estres,
+                "foco": self.foco,
+                "carga_cognitiva": self.carga_cognitiva,
+                "confianza": self.confianza,
+                "curiosidad": self.curiosidad,
+                "motivacion": self.motivacion,
+                "agresividad": self.agresividad,
+                "tolerancia_riesgo": self.tolerancia_riesgo,
+                "ultimo_tick": self._ultimo_tick,
+                "dolor_fisico_reciente": self.dolor_fisico_reciente,
+                "dolor_fisico_expira": self._dolor_fisico_expira,
+                "descansando": self._descansando,
+                "descanso_inicio": self._descanso_inicio,
+                "descanso_energia_inicio": self._descanso_energia_inicio,
+                "modificadores": dict(self.modificadores),
+            }
+
+    def restaurar_checkpoint_operacional(self, checkpoint: dict) -> None:
+        """Restaura un checkpoint creado por este owner bajo su mismo lock."""
+        with self._state_lock:
+            self.energia = checkpoint["energia"]
+            self.estres = checkpoint["estres"]
+            self.foco = checkpoint["foco"]
+            self.carga_cognitiva = checkpoint["carga_cognitiva"]
+            self.confianza = checkpoint["confianza"]
+            self.curiosidad = checkpoint["curiosidad"]
+            self.motivacion = checkpoint["motivacion"]
+            self.agresividad = checkpoint["agresividad"]
+            self.tolerancia_riesgo = checkpoint["tolerancia_riesgo"]
+            self._ultimo_tick = checkpoint["ultimo_tick"]
+            self.dolor_fisico_reciente = checkpoint["dolor_fisico_reciente"]
+            self._dolor_fisico_expira = checkpoint["dolor_fisico_expira"]
+            self._descansando = checkpoint["descansando"]
+            self._descanso_inicio = checkpoint["descanso_inicio"]
+            self._descanso_energia_inicio = checkpoint["descanso_energia_inicio"]
+            self.modificadores = dict(checkpoint["modificadores"])
+
     def actualizar_modificadores(self, nuevos_mods: dict):
         """Recibe un diccionario con los modificadores calculados desde personality.py."""
         with self._state_lock:

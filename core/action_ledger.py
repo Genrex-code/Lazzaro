@@ -19,7 +19,7 @@ import threading
 from typing import Any
 
 
-LEDGER_SCHEMA_VERSION = 2
+LEDGER_SCHEMA_VERSION = 3
 MAX_JSON_BYTES = 64 * 1024
 _SENSITIVE_KEY_PARTS = (
     "api_key",
@@ -42,6 +42,27 @@ class ActionLedgerError(RuntimeError):
 
 class TransactionIncompleteError(ActionLedgerError):
     """La transaccion ya fue reclamada y no tiene completion durable."""
+
+
+class TurnAbortedError(ActionLedgerError):
+    """El turno termino en fallo limpio y no debe ejecutarse otra vez."""
+
+    def __init__(self, failure_class: str = "TurnAborted"):
+        self.failure_class = str(failure_class or "TurnAborted")
+        super().__init__("El turno fallo de forma controlada; replay bloqueado")
+
+
+class TurnReconciliationRequiredError(TransactionIncompleteError):
+    """El turno tiene efectos parciales o ambiguos que requieren reconciliacion."""
+
+
+class TurnProcessingError(ActionLedgerError):
+    """Fallo central tipado sin exponer texto interno a la API."""
+
+    def __init__(self, component: str, failure_class: str):
+        self.component = str(component or "orchestrator")
+        self.failure_class = str(failure_class or "TurnProcessingError")
+        super().__init__(f"Fallo central del turno en {self.component}")
 
 
 class TransactionConflictError(ActionLedgerError):
@@ -120,6 +141,25 @@ class OutcomeConsumptionStatus(str, Enum):
     UNKNOWN = "unknown"
 
 
+class TurnUoWStatus(str, Enum):
+    LEGACY_UNKNOWN = "legacy_unknown"
+    OPEN = "open"
+    COMMITTED = "committed"
+    ABORTED_CLEAN = "aborted_clean"
+    PARTIAL = "partial"
+    RECONCILIATION_REQUIRED = "reconciliation_required"
+
+
+class TurnEffectStatus(str, Enum):
+    PLANNED = "planned"
+    STARTED = "started"
+    APPLIED = "applied"
+    FAILED = "failed"
+    AMBIGUOUS = "ambiguous"
+    ROLLED_BACK = "rolled_back"
+    SKIPPED = "skipped"
+
+
 @dataclass(frozen=True)
 class TransactionRecord:
     transaction_id: str
@@ -186,6 +226,29 @@ class OutcomeAttemptRecord:
     classification: OutcomeRecordStatus
     payload_fingerprint: str
     received_at: str
+
+
+@dataclass(frozen=True)
+class TurnUoWRecord:
+    transaction_id: str
+    status: TurnUoWStatus
+    phase: str
+    failure_class: str | None
+    reconciliation_required: bool
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
+class TurnEffectRecord:
+    transaction_id: str
+    effect_key: str
+    effect_kind: str
+    phase: str
+    status: TurnEffectStatus
+    required: bool
+    started_at: str | None
+    finished_at: str | None
 
 
 @dataclass(frozen=True)
@@ -393,9 +456,18 @@ class ActionLedger:
             ).fetchone()
             if meta is not None and meta["value"] == "1":
                 self._migrate_v1_to_v2()
+                meta = self._connection.execute(
+                    "SELECT value FROM ledger_meta WHERE key = 'schema_version'"
+                ).fetchone()
+            if meta is not None and meta["value"] == "2":
+                self._migrate_v2_to_v3()
+                meta = self._connection.execute(
+                    "SELECT value FROM ledger_meta WHERE key = 'schema_version'"
+                ).fetchone()
             elif meta is not None and meta["value"] != str(LEDGER_SCHEMA_VERSION):
                 raise ActionLedgerError("Version de action ledger incompatible")
             self._create_v2_tables()
+            self._create_v3_tables()
             self._connection.execute(
                 "INSERT OR IGNORE INTO ledger_meta(key, value) VALUES('schema_version', ?)",
                 (str(LEDGER_SCHEMA_VERSION),),
@@ -434,7 +506,7 @@ class ActionLedger:
             )
             self._connection.execute(
                 "UPDATE ledger_meta SET value = ? WHERE key = 'schema_version'",
-                (str(LEDGER_SCHEMA_VERSION),),
+                ("2",),
             )
             self._commit()
         except (OSError, sqlite3.Error):
@@ -467,6 +539,65 @@ class ActionLedger:
             CREATE INDEX IF NOT EXISTS idx_action_transitions_action_id
                 ON action_transitions(action_id, transition_id);
             """
+        )
+
+    def _migrate_v2_to_v3(self) -> None:
+        """Agrega el journal UoW sin inferir estado de turnos historicos."""
+        try:
+            self._begin()
+            self._create_v3_tables()
+            self._connection.execute(
+                "UPDATE ledger_meta SET value = ? WHERE key = 'schema_version'",
+                (str(LEDGER_SCHEMA_VERSION),),
+            )
+            self._commit()
+        except (OSError, sqlite3.Error):
+            self._rollback()
+            raise
+
+    def _create_v3_tables(self) -> None:
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS turn_uows (
+                transaction_id TEXT PRIMARY KEY,
+                status TEXT NOT NULL CHECK(status IN (
+                    'open', 'committed', 'aborted_clean', 'partial',
+                    'reconciliation_required'
+                )),
+                phase TEXT NOT NULL,
+                failure_class TEXT,
+                reconciliation_required INTEGER NOT NULL
+                    CHECK(reconciliation_required IN (0, 1)),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(transaction_id) REFERENCES transactions(transaction_id)
+            )
+            """
+        )
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS turn_effects (
+                transaction_id TEXT NOT NULL,
+                effect_key TEXT NOT NULL,
+                effect_kind TEXT NOT NULL CHECK(effect_kind IN (
+                    'event', 'decision', 'execution', 'outcome', 'bookkeeping'
+                )),
+                phase TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN (
+                    'planned', 'started', 'applied', 'failed', 'ambiguous',
+                    'rolled_back', 'skipped'
+                )),
+                required INTEGER NOT NULL CHECK(required IN (0, 1)),
+                started_at TEXT,
+                finished_at TEXT,
+                PRIMARY KEY(transaction_id, effect_key),
+                FOREIGN KEY(transaction_id) REFERENCES turn_uows(transaction_id)
+            )
+            """
+        )
+        self._connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_turn_effects_status "
+            "ON turn_effects(transaction_id, status)"
         )
 
     def _begin(self) -> None:
@@ -524,6 +655,62 @@ class ActionLedger:
             status = TransactionClaimStatus.INCOMPLETE
         return TransactionClaimResult(status=status, transaction=record)
 
+    def claim_turn_transaction(
+        self,
+        transaction_id: str,
+        *,
+        origin: str,
+        event_type: str,
+        phase: str = "claimed",
+    ) -> TransactionClaimResult:
+        """Reclama identidad y crea la UoW nueva dentro del mismo COMMIT."""
+        transaction_id = _clean_id(transaction_id, "transaction_id")
+        origin = _clean_id(origin, "origin")
+        event_type = _clean_id(event_type, "event_type")
+        phase = _clean_id(phase, "phase")
+        created_at = _utc_now()
+        with self._lock:
+            try:
+                self._begin()
+                cursor = self._connection.execute(
+                    """
+                    INSERT OR IGNORE INTO transactions(
+                        transaction_id, origin, event_type, status, created_at
+                    ) VALUES(?, ?, ?, 'incomplete', ?)
+                    """,
+                    (transaction_id, origin, event_type, created_at),
+                )
+                if cursor.rowcount == 1:
+                    self._connection.execute(
+                        """
+                        INSERT INTO turn_uows(
+                            transaction_id, status, phase, failure_class,
+                            reconciliation_required, created_at, updated_at
+                        ) VALUES(?, 'open', ?, NULL, 0, ?, ?)
+                        """,
+                        (transaction_id, phase, created_at, created_at),
+                    )
+                row = self._connection.execute(
+                    "SELECT * FROM transactions WHERE transaction_id = ?",
+                    (transaction_id,),
+                ).fetchone()
+                self._commit()
+            except (OSError, sqlite3.Error) as exc:
+                self._rollback()
+                raise ActionLedgerError("No se pudo reclamar el turno atomico") from exc
+        if row is None:
+            raise ActionLedgerError("El ledger no devolvio el turno reclamado")
+        record = self._transaction_from_row(row)
+        if cursor.rowcount == 1:
+            status = TransactionClaimStatus.CREATED
+        elif record.origin != origin or record.event_type != event_type:
+            status = TransactionClaimStatus.CONFLICT
+        elif record.status == "completed":
+            status = TransactionClaimStatus.COMPLETED
+        else:
+            status = TransactionClaimStatus.INCOMPLETE
+        return TransactionClaimResult(status=status, transaction=record)
+
     def get_transaction(self, transaction_id: str) -> TransactionRecord | None:
         transaction_id = _clean_id(transaction_id, "transaction_id")
         with self._lock:
@@ -532,6 +719,246 @@ class ActionLedger:
                 (transaction_id,),
             ).fetchone()
         return self._transaction_from_row(row) if row is not None else None
+
+    def begin_turn_uow(self, transaction_id: str, *, phase: str = "claimed") -> TurnUoWRecord:
+        """Crea el UoW de un claim nuevo sin inferir filas para turnos historicos."""
+        transaction_id = _clean_id(transaction_id, "transaction_id")
+        phase = _clean_id(phase, "phase")
+        now = _utc_now()
+        with self._lock:
+            try:
+                self._begin()
+                transaction = self._connection.execute(
+                    "SELECT status FROM transactions WHERE transaction_id = ?",
+                    (transaction_id,),
+                ).fetchone()
+                if transaction is None or transaction["status"] != "incomplete":
+                    self._rollback()
+                    raise ActionLedgerError("El UoW requiere una transaccion incomplete")
+                self._connection.execute(
+                    """
+                    INSERT OR IGNORE INTO turn_uows(
+                        transaction_id, status, phase, failure_class,
+                        reconciliation_required, created_at, updated_at
+                    ) VALUES(?, 'open', ?, NULL, 0, ?, ?)
+                    """,
+                    (transaction_id, phase, now, now),
+                )
+                row = self._connection.execute(
+                    "SELECT * FROM turn_uows WHERE transaction_id = ?",
+                    (transaction_id,),
+                ).fetchone()
+                self._commit()
+            except ActionLedgerError:
+                raise
+            except (OSError, sqlite3.Error) as exc:
+                self._rollback()
+                raise ActionLedgerError("No se pudo iniciar el UoW del turno") from exc
+        if row is None:
+            raise ActionLedgerError("El ledger no devolvio el UoW iniciado")
+        return self._turn_uow_from_row(row)
+
+    def get_turn_uow(self, transaction_id: str) -> TurnUoWRecord | None:
+        transaction_id = _clean_id(transaction_id, "transaction_id")
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM turn_uows WHERE transaction_id = ?",
+                (transaction_id,),
+            ).fetchone()
+        return self._turn_uow_from_row(row) if row is not None else None
+
+    def get_turn_uow_status(self, transaction_id: str) -> TurnUoWStatus:
+        """Distingue datos historicos sin fabricar una fila UoW retroactiva."""
+        transaction_id = _clean_id(transaction_id, "transaction_id")
+        with self._lock:
+            transaction = self._connection.execute(
+                "SELECT 1 FROM transactions WHERE transaction_id = ?",
+                (transaction_id,),
+            ).fetchone()
+            row = self._connection.execute(
+                "SELECT status FROM turn_uows WHERE transaction_id = ?",
+                (transaction_id,),
+            ).fetchone()
+        if row is not None:
+            return TurnUoWStatus(row["status"])
+        if transaction is not None:
+            return TurnUoWStatus.LEGACY_UNKNOWN
+        raise ActionLedgerError("Transaccion desconocida")
+
+    def start_turn_effect(
+        self,
+        transaction_id: str,
+        effect_key: str,
+        *,
+        effect_kind: str,
+        phase: str,
+        required: bool,
+    ) -> TurnEffectRecord:
+        """Persiste STARTED antes de ejecutar un efecto no atomico con SQLite."""
+        transaction_id = _clean_id(transaction_id, "transaction_id")
+        effect_key = _clean_id(effect_key, "effect_key")
+        effect_kind = _clean_id(effect_kind, "effect_kind").lower()
+        phase = _clean_id(phase, "phase")
+        if effect_kind not in {"event", "decision", "execution", "outcome", "bookkeeping"}:
+            raise ValueError("effect_kind no reconocido")
+        if type(required) is not bool:
+            raise TypeError("required debe ser bool estricto")
+        now = _utc_now()
+        with self._lock:
+            try:
+                self._begin()
+                uow = self._connection.execute(
+                    "SELECT status FROM turn_uows WHERE transaction_id = ?",
+                    (transaction_id,),
+                ).fetchone()
+                if uow is None or uow["status"] != TurnUoWStatus.OPEN.value:
+                    self._rollback()
+                    raise ActionLedgerError("No se puede iniciar un efecto fuera de UoW OPEN")
+                self._connection.execute(
+                    """
+                    INSERT OR IGNORE INTO turn_effects(
+                        transaction_id, effect_key, effect_kind, phase, status,
+                        required, started_at, finished_at
+                    ) VALUES(?, ?, ?, ?, 'started', ?, ?, NULL)
+                    """,
+                    (transaction_id, effect_key, effect_kind, phase, int(required), now),
+                )
+                row = self._connection.execute(
+                    "SELECT * FROM turn_effects WHERE transaction_id = ? AND effect_key = ?",
+                    (transaction_id, effect_key),
+                ).fetchone()
+                self._connection.execute(
+                    "UPDATE turn_uows SET phase = ?, updated_at = ? WHERE transaction_id = ?",
+                    (phase, now, transaction_id),
+                )
+                self._commit()
+            except ActionLedgerError:
+                raise
+            except (OSError, sqlite3.Error) as exc:
+                self._rollback()
+                raise ActionLedgerError("No se pudo iniciar el efecto del turno") from exc
+        if row is None:
+            raise ActionLedgerError("El ledger no devolvio el efecto iniciado")
+        return self._turn_effect_from_row(row)
+
+    def finish_turn_effect(
+        self,
+        transaction_id: str,
+        effect_key: str,
+        status: TurnEffectStatus,
+    ) -> TurnEffectRecord:
+        """Cierra un efecto; APPLIED nunca se presume antes del retorno del owner."""
+        transaction_id = _clean_id(transaction_id, "transaction_id")
+        effect_key = _clean_id(effect_key, "effect_key")
+        status = TurnEffectStatus(status)
+        if status in {TurnEffectStatus.PLANNED, TurnEffectStatus.STARTED}:
+            raise ValueError("finish_turn_effect exige un estado terminal")
+        now = _utc_now()
+        with self._lock:
+            try:
+                self._begin()
+                cursor = self._connection.execute(
+                    """
+                    UPDATE turn_effects
+                    SET status = ?, finished_at = ?
+                    WHERE transaction_id = ? AND effect_key = ? AND status = 'started'
+                    """,
+                    (status.value, now, transaction_id, effect_key),
+                )
+                row = self._connection.execute(
+                    "SELECT * FROM turn_effects WHERE transaction_id = ? AND effect_key = ?",
+                    (transaction_id, effect_key),
+                ).fetchone()
+                if cursor.rowcount == 1:
+                    self._connection.execute(
+                        "UPDATE turn_uows SET updated_at = ? "
+                        "WHERE transaction_id = ? AND status = 'open'",
+                        (now, transaction_id),
+                    )
+                self._commit()
+            except (OSError, sqlite3.Error) as exc:
+                self._rollback()
+                raise ActionLedgerError("No se pudo cerrar el efecto del turno") from exc
+        if row is None:
+            raise ActionLedgerError("Efecto UoW desconocido")
+        if cursor.rowcount == 0 and row["status"] != status.value:
+            raise ActionLedgerError("Efecto UoW ya posee otro estado terminal")
+        if cursor.rowcount not in {0, 1}:
+            raise ActionLedgerError("Actualizacion de efecto UoW no determinista")
+        return self._turn_effect_from_row(row)
+
+    def get_turn_effects(self, transaction_id: str) -> list[TurnEffectRecord]:
+        transaction_id = _clean_id(transaction_id, "transaction_id")
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT * FROM turn_effects WHERE transaction_id = ? ORDER BY started_at, effect_key",
+                (transaction_id,),
+            ).fetchall()
+        return [self._turn_effect_from_row(row) for row in rows]
+
+    def fail_turn_uow(
+        self,
+        transaction_id: str,
+        *,
+        status: TurnUoWStatus,
+        failure_class: str,
+    ) -> TurnUoWRecord:
+        """Finaliza un intento fallido sin completar la identidad ROOT-003."""
+        transaction_id = _clean_id(transaction_id, "transaction_id")
+        status = TurnUoWStatus(status)
+        if status not in {
+            TurnUoWStatus.ABORTED_CLEAN,
+            TurnUoWStatus.PARTIAL,
+            TurnUoWStatus.RECONCILIATION_REQUIRED,
+        }:
+            raise ValueError("Estado final de fallo UoW invalido")
+        failure_class = _clean_id(failure_class, "failure_class")[:160]
+        now = _utc_now()
+        reconciliation = status in {
+            TurnUoWStatus.PARTIAL,
+            TurnUoWStatus.RECONCILIATION_REQUIRED,
+        }
+        with self._lock:
+            try:
+                self._begin()
+                if status == TurnUoWStatus.RECONCILIATION_REQUIRED:
+                    self._connection.execute(
+                        """
+                        UPDATE turn_effects SET status = 'ambiguous', finished_at = ?
+                        WHERE transaction_id = ? AND status = 'started'
+                        """,
+                        (now, transaction_id),
+                    )
+                cursor = self._connection.execute(
+                    """
+                    UPDATE turn_uows
+                    SET status = ?, phase = 'failed', failure_class = ?,
+                        reconciliation_required = ?, updated_at = ?
+                    WHERE transaction_id = ? AND status = 'open'
+                    """,
+                    (status.value, failure_class, int(reconciliation), now, transaction_id),
+                )
+                row = self._connection.execute(
+                    "SELECT * FROM turn_uows WHERE transaction_id = ?",
+                    (transaction_id,),
+                ).fetchone()
+                self._commit()
+            except (OSError, sqlite3.Error) as exc:
+                self._rollback()
+                raise ActionLedgerError("No se pudo finalizar el UoW fallido") from exc
+        if row is None:
+            raise ActionLedgerError("UoW desconocido")
+        if cursor.rowcount not in {0, 1}:
+            raise ActionLedgerError("Actualizacion UoW no determinista")
+        return self._turn_uow_from_row(row)
+
+    def mark_abandoned_turn_uow(self, transaction_id: str) -> TurnUoWRecord:
+        """Convierte un OPEN recuperado tras el claim en estado no reintentable."""
+        return self.fail_turn_uow(
+            transaction_id,
+            status=TurnUoWStatus.RECONCILIATION_REQUIRED,
+            failure_class="AbandonedOpenTurn",
+        )
 
     def record_action(
         self,
@@ -1103,6 +1530,79 @@ class ActionLedger:
             ).fetchone()
         return self._outcome_attempt_from_row(row) if row is not None else None
 
+    def commit_turn_uow(
+        self,
+        transaction_id: str,
+        response_action: dict[str, Any] | None,
+    ) -> TransactionCompletionStatus:
+        """Confirma UoW y completion ROOT-003 dentro de un solo COMMIT SQLite."""
+        transaction_id = _clean_id(transaction_id, "transaction_id")
+        response_json = _canonical_json({"schema_version": 1, "action": response_action})
+        action_id = None
+        if isinstance(response_action, dict):
+            action_id = str(response_action.get("id_accion") or "").strip() or None
+        completed_at = _utc_now()
+        with self._lock:
+            try:
+                self._begin()
+                transaction = self._connection.execute(
+                    "SELECT status, response_json FROM transactions WHERE transaction_id = ?",
+                    (transaction_id,),
+                ).fetchone()
+                uow = self._connection.execute(
+                    "SELECT status FROM turn_uows WHERE transaction_id = ?",
+                    (transaction_id,),
+                ).fetchone()
+                if transaction is None or uow is None:
+                    self._commit()
+                    return TransactionCompletionStatus.UNKNOWN
+                if transaction["status"] == "completed":
+                    status = (
+                        TransactionCompletionStatus.ALREADY_COMPLETED
+                        if transaction["response_json"] == response_json
+                        and uow["status"] == TurnUoWStatus.COMMITTED.value
+                        else TransactionCompletionStatus.CONFLICT
+                    )
+                    self._commit()
+                    return status
+                if uow["status"] != TurnUoWStatus.OPEN.value:
+                    self._commit()
+                    return TransactionCompletionStatus.CONFLICT
+                unresolved = self._connection.execute(
+                    """
+                    SELECT effect_key FROM turn_effects
+                    WHERE transaction_id = ? AND required = 1
+                      AND status NOT IN ('applied', 'skipped')
+                    LIMIT 1
+                    """,
+                    (transaction_id,),
+                ).fetchone()
+                if unresolved is not None:
+                    self._commit()
+                    return TransactionCompletionStatus.CONFLICT
+                self._connection.execute(
+                    """
+                    UPDATE transactions
+                    SET status = 'completed', action_id = ?, response_json = ?, completed_at = ?
+                    WHERE transaction_id = ? AND status = 'incomplete'
+                    """,
+                    (action_id, response_json, completed_at, transaction_id),
+                )
+                self._connection.execute(
+                    """
+                    UPDATE turn_uows
+                    SET status = 'committed', phase = 'committed', failure_class = NULL,
+                        reconciliation_required = 0, updated_at = ?
+                    WHERE transaction_id = ? AND status = 'open'
+                    """,
+                    (completed_at, transaction_id),
+                )
+                self._commit()
+                return TransactionCompletionStatus.COMPLETED
+            except (OSError, sqlite3.Error) as exc:
+                self._rollback()
+                raise ActionLedgerError("No se pudo confirmar el UoW del turno") from exc
+
     def complete_transaction(
         self,
         transaction_id: str,
@@ -1229,6 +1729,31 @@ class ActionLedger:
             response_action=response_action,
             created_at=row["created_at"],
             completed_at=row["completed_at"],
+        )
+
+    @staticmethod
+    def _turn_uow_from_row(row: sqlite3.Row) -> TurnUoWRecord:
+        return TurnUoWRecord(
+            transaction_id=row["transaction_id"],
+            status=TurnUoWStatus(row["status"]),
+            phase=row["phase"],
+            failure_class=row["failure_class"],
+            reconciliation_required=bool(row["reconciliation_required"]),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    @staticmethod
+    def _turn_effect_from_row(row: sqlite3.Row) -> TurnEffectRecord:
+        return TurnEffectRecord(
+            transaction_id=row["transaction_id"],
+            effect_key=row["effect_key"],
+            effect_kind=row["effect_kind"],
+            phase=row["phase"],
+            status=TurnEffectStatus(row["status"]),
+            required=bool(row["required"]),
+            started_at=row["started_at"],
+            finished_at=row["finished_at"],
         )
 
     @staticmethod

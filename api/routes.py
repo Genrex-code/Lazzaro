@@ -18,6 +18,9 @@ from core.action_ledger import (
     ActionLedgerError,
     TransactionConflictError,
     TransactionIncompleteError,
+    TurnAbortedError,
+    TurnProcessingError,
+    TurnReconciliationRequiredError,
 )
 
 logger = get_logger(__name__)
@@ -55,7 +58,7 @@ async def procesar_evento(
         accion = await run_in_threadpool(orchestrator.procesar_evento, evento)
 
         # Si no hay acción, devolvemos estado ok sin acción
-        if accion is None:
+        if accion is None or accion.nombre == "none":
             return RespuestaAPI(
                 status="ok",
                 mensaje="Evento procesado, pero el agente no requiere acción inmediata.",
@@ -78,6 +81,30 @@ async def procesar_evento(
             accion=accion,
         )
 
+    except TurnReconciliationRequiredError:
+        pendiente = RespuestaAPI(
+            status="pendiente",
+            mensaje="El turno tiene efectos parciales o ambiguos y requiere reconciliacion.",
+            id_transaccion=evento.id_transaccion,
+            accion=None,
+        )
+        return JSONResponse(status_code=409, content=pendiente.model_dump(mode="json"))
+    except TurnAbortedError:
+        fallido = RespuestaAPI(
+            status="error",
+            mensaje="El turno fallo de forma controlada y no se volvera a ejecutar.",
+            id_transaccion=evento.id_transaccion,
+            accion=None,
+        )
+        return JSONResponse(status_code=500, content=fallido.model_dump(mode="json"))
+    except TurnProcessingError:
+        fallido = RespuestaAPI(
+            status="error",
+            mensaje="El procesamiento central del turno fallo.",
+            id_transaccion=evento.id_transaccion,
+            accion=None,
+        )
+        return JSONResponse(status_code=500, content=fallido.model_dump(mode="json"))
     except TransactionIncompleteError:
         pendiente = RespuestaAPI(
             status="pendiente",

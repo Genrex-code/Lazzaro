@@ -42,6 +42,11 @@ from core.action_ledger import (
     TransactionCompletionStatus,
     TransactionConflictError,
     TransactionIncompleteError,
+    TurnAbortedError,
+    TurnEffectStatus,
+    TurnProcessingError,
+    TurnReconciliationRequiredError,
+    TurnUoWStatus,
 )
 from core.audit_trace import AuditTrace, safe_preview
 from core.audit_writer import AuditTraceJSONLWriter
@@ -158,15 +163,40 @@ class Orchestrator:
                     if state["users"] <= 0 and locks.get(transaction_id) is state:
                         locks.pop(transaction_id, None)
         except Exception as exc:
+            failed_uow_status: TurnUoWStatus | None = None
+            try:
+                failed_uow_status = self._finalizar_uow_por_fallo(transaction_id, exc)
+            except Exception:
+                logger.error(
+                    "No se pudo cerrar el UoW fallido. transaction_id=%s",
+                    transaction_id,
+                    exc_info=True,
+                )
             llm_events = self._consumir_llm_audit()
             self._registrar_errores_llm_audit(evento, trace_id, llm_events)
-            self._registrar_error_audit(
-                evento,
-                trace_id,
-                error_type=type(exc).__name__,
-                component="orchestrator",
-                llm=self._resumir_llm_audit(llm_events),
-            )
+            if not bool(getattr(exc, "audit_recorded", False)):
+                self._registrar_error_audit(
+                    evento,
+                    trace_id,
+                    error_type=str(
+                        getattr(exc, "failure_class", None) or type(exc).__name__
+                    ),
+                    component=str(
+                        getattr(exc, "component", None) or "orchestrator"
+                    ),
+                    llm=self._resumir_llm_audit(llm_events),
+                )
+            if failed_uow_status in {
+                TurnUoWStatus.PARTIAL,
+                TurnUoWStatus.RECONCILIATION_REQUIRED,
+            }:
+                raise TurnReconciliationRequiredError(
+                    "El turno requiere reconciliacion antes de cualquier replay"
+                ) from exc
+            if isinstance(exc, ActionLedgerError):
+                raise
+            if failed_uow_status is not None:
+                raise TurnProcessingError("orchestrator", type(exc).__name__) from exc
             raise
         finally:
             self._consumir_llm_audit()
@@ -601,16 +631,43 @@ class Orchestrator:
         Si el evento ya fue procesado, devuelve la accion almacenada.
         """
         ledger = self._obtener_action_ledger()
-        claim = ledger.claim_transaction(
-            str(evento.id_transaccion),
-            origin=str(evento.origen),
-            event_type=str(evento.tipo_evento),
+        claim_turn = getattr(ledger, "claim_turn_transaction", None)
+        atomic_turn_claim = callable(claim_turn)
+        claim = (
+            claim_turn(
+                str(evento.id_transaccion),
+                origin=str(evento.origen),
+                event_type=str(evento.tipo_evento),
+            )
+            if atomic_turn_claim
+            else ledger.claim_transaction(
+                str(evento.id_transaccion),
+                origin=str(evento.origen),
+                event_type=str(evento.tipo_evento),
+            )
         )
         if claim.status == TransactionClaimStatus.CONFLICT:
             raise TransactionConflictError(
                 f"id_transaccion reutilizado con otro contrato: {evento.id_transaccion}"
             )
         if claim.status == TransactionClaimStatus.INCOMPLETE:
+            get_uow = getattr(ledger, "get_turn_uow", None)
+            uow = get_uow(str(evento.id_transaccion)) if callable(get_uow) else None
+            if uow is not None:
+                if uow.status == TurnUoWStatus.ABORTED_CLEAN:
+                    raise TurnAbortedError(uow.failure_class or "TurnAborted")
+                if uow.status in {
+                    TurnUoWStatus.PARTIAL,
+                    TurnUoWStatus.RECONCILIATION_REQUIRED,
+                }:
+                    raise TurnReconciliationRequiredError(
+                        f"Turno requiere reconciliacion: {evento.id_transaccion}"
+                    )
+                if uow.status == TurnUoWStatus.OPEN:
+                    ledger.mark_abandoned_turn_uow(str(evento.id_transaccion))
+                    raise TurnReconciliationRequiredError(
+                        f"UoW OPEN abandonado; replay bloqueado: {evento.id_transaccion}"
+                    )
             raise TransactionIncompleteError(
                 f"Transaccion durable incompleta; replay bloqueado: {evento.id_transaccion}"
             )
@@ -638,13 +695,37 @@ class Orchestrator:
             )
             return restaurada
 
+        begin_uow = getattr(ledger, "begin_turn_uow", None)
+        if not atomic_turn_claim and callable(begin_uow):
+            begin_uow(str(evento.id_transaccion))
+
         cacheada = self._obtener_transaccion_cacheada(evento.id_transaccion)
         if cacheada is not None:
-            self._persistir_identidad_accion(
-                evento,
-                cacheada,
-                tarea=None,
-                decision_valid=None,
+            self._iniciar_efecto_uow(
+                evento.id_transaccion,
+                "decision:action_identity",
+                effect_kind="decision",
+                phase="decision",
+                required=True,
+            )
+            try:
+                self._persistir_identidad_accion(
+                    evento,
+                    cacheada,
+                    tarea=None,
+                    decision_valid=None,
+                )
+            except Exception:
+                self._cerrar_efecto_uow(
+                    evento.id_transaccion,
+                    "decision:action_identity",
+                    TurnEffectStatus.FAILED,
+                )
+                raise
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                "decision:action_identity",
+                TurnEffectStatus.APPLIED,
             )
             self._completar_transaccion_ledger(evento.id_transaccion, cacheada)
             logger.info(
@@ -653,19 +734,55 @@ class Orchestrator:
             return cacheada
 
         if evento.tipo_evento == "confirmacion_accion":
+            self._iniciar_efecto_uow(
+                evento.id_transaccion,
+                "execution:lifecycle_confirmation",
+                effect_kind="execution",
+                phase="execution",
+                required=True,
+            )
             respuesta_confirmacion = self._procesar_confirmacion_accion(evento)
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                "execution:lifecycle_confirmation",
+                TurnEffectStatus.APPLIED,
+            )
             self._completar_transaccion_ledger(evento.id_transaccion, None)
             return respuesta_confirmacion
         if evento.tipo_evento == "inicio_ejecucion_accion":
+            self._iniciar_efecto_uow(
+                evento.id_transaccion,
+                "execution:lifecycle_start",
+                effect_kind="execution",
+                phase="execution",
+                required=True,
+            )
             self._procesar_inicio_ejecucion_accion(evento)
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                "execution:lifecycle_start",
+                TurnEffectStatus.APPLIED,
+            )
             self._completar_transaccion_ledger(evento.id_transaccion, None)
             return None
 
         outcome_action: ActionRecord | None = None
         outcome_action_id: str | None = None
         if evento.tipo_evento == "resultado_accion":
+            self._iniciar_efecto_uow(
+                evento.id_transaccion,
+                "outcome:record",
+                effect_kind="outcome",
+                phase="outcome",
+                required=True,
+            )
             outcome_receipt = self._registrar_outcome_entrante(evento)
             if outcome_receipt.status != OutcomeRecordStatus.ACCEPTED:
+                self._cerrar_efecto_uow(
+                    evento.id_transaccion,
+                    "outcome:record",
+                    TurnEffectStatus.SKIPPED,
+                )
                 self._completar_transaccion_ledger(evento.id_transaccion, None)
                 logger.warning(
                     "Outcome ignorado sin mutaciones. transaction_id=%s status=%s",
@@ -673,6 +790,11 @@ class Orchestrator:
                     outcome_receipt.status.value,
                 )
                 return None
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                "outcome:record",
+                TurnEffectStatus.APPLIED,
+            )
             outcome_action = outcome_receipt.action
             if outcome_action is None:
                 raise ActionLedgerError("Outcome aceptado sin identidad de accion")
@@ -683,15 +805,48 @@ class Orchestrator:
         if retry_guardado is not None:
             return retry_guardado
 
-        self._consumir_descanso_terminal_si_corresponde(evento)
+        self._iniciar_efecto_uow(
+            evento.id_transaccion,
+            "event:terminal_rest_wake",
+            effect_kind="event",
+            phase="event",
+            required=False,
+        )
+        rest_wake = self._consumir_descanso_terminal_si_corresponde(evento)
+        self._cerrar_efecto_uow(
+            evento.id_transaccion,
+            "event:terminal_rest_wake",
+            TurnEffectStatus.APPLIED
+            if rest_wake is True
+            else TurnEffectStatus.FAILED
+            if rest_wake is False
+            else TurnEffectStatus.SKIPPED,
+        )
 
         behavior_started_ns = time.perf_counter_ns()
+        behavior_effect_key = (
+            "outcome:behavior_task"
+            if outcome_action is not None
+            else "event:behavior"
+        )
+        self._iniciar_efecto_uow(
+            evento.id_transaccion,
+            behavior_effect_key,
+            effect_kind="outcome" if outcome_action is not None else "event",
+            phase="outcome" if outcome_action is not None else "event",
+            required=True,
+        )
         try:
             respuesta_core = self.behavior.procesar_evento(
                 tipo_evento=evento.tipo_evento,
                 detalles=evento.detalles if evento.detalles else {},
             )
         except Exception as e:
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                behavior_effect_key,
+                TurnEffectStatus.ROLLED_BACK,
+            )
             logger.error("Error en BehaviorCore al procesar evento: %s", e, exc_info=True)
             self._registrar_error_audit(
                 evento,
@@ -700,7 +855,14 @@ class Orchestrator:
                 component="behavior_core",
                 durations_ms={"behavior_core": self._elapsed_ms(behavior_started_ns)},
             )
-            return None
+            failure = TurnProcessingError("behavior_core", type(e).__name__)
+            failure.audit_recorded = True
+            raise failure from e
+        self._cerrar_efecto_uow(
+            evento.id_transaccion,
+            behavior_effect_key,
+            TurnEffectStatus.APPLIED,
+        )
 
         estado_actual = respuesta_core.get("estado", {})
         narrativa = respuesta_core.get("narrativa", "")
@@ -754,6 +916,13 @@ class Orchestrator:
                 memory_observation=memory_snapshot,
             )
 
+        self._iniciar_efecto_uow(
+            evento.id_transaccion,
+            "memory:event_episode",
+            effect_kind="event",
+            phase="memory",
+            required=False,
+        )
         created_memory_id = self._guardar_evento_en_memoria(
             evento=evento,
             tipo_memoria=tipo_memoria,
@@ -764,6 +933,17 @@ class Orchestrator:
         )
         if created_memory_id:
             memory_snapshot["created_ids"] = [str(created_memory_id)]
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                "memory:event_episode",
+                TurnEffectStatus.APPLIED,
+            )
+        else:
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                "memory:event_episode",
+                TurnEffectStatus.FAILED,
+            )
         memory_snapshot["working_memory_count"] = (
             self._obtener_cantidad_memoria_trabajo()
         )
@@ -774,7 +954,6 @@ class Orchestrator:
             memory_snapshot,
             durations_ms={"memory": memory_duration_ms},
         )
-        self._registrar_alias_aprendido_si_corresponde(evento)
 
         decision_started_ns = time.perf_counter_ns()
         herramientas: list[str] = []
@@ -791,57 +970,78 @@ class Orchestrator:
 
         decision_layer = "none"
         decision_observation: dict[str, object] = {}
-        if es_interrupcion_critica:
-            action_response = self._resolver_interrupcion_critica(evento)
-        elif not self._es_canal_terminal(evento) and self._usuario_pide_cancelar_tarea(evento):
-            action_response = self._resolver_cancelacion_tarea_usuario(evento)
-        elif solicita_guardado_conversacional:
-            action_response = self._resolver_guardado_conversacional(evento)
-        elif self._triage_debe_cortar_flujo(triage_decision):
-            razon_triage = str(
-                triage_decision.get("reason")
-                or "Evento filtrado por Triage Router."
-            )
-            action_response = self._accion_pasiva(razon_triage)
-        elif self._es_resultado_hablar(evento):
-            action_response = self._accion_pasiva()
-        elif not solicita_decision:
-            action_response = self._accion_pasiva()
-        elif self._triage_es_motor(triage_decision):
-            decision_layer = "motor"
-            action_response = self._resolver_ruta_motor(
-                evento=evento,
-                triage_decision=triage_decision,
-                contexto_llm=contexto_llm,
-                memoria_texto=memoria_texto_completa,
-                herramientas=herramientas,
-                herramientas_detalle=herramientas_detalle,
-                politica=politica,
-                tarea=tarea,
-                estado_actual=estado_actual,
-                audit_observation=decision_observation,
-            )
-        elif self._triage_es_persona(triage_decision):
-            decision_layer = "persona"
-            action_response = self._resolver_ruta_persona(
-                evento=evento,
-                contexto_llm=contexto_llm,
-                memoria_texto=memoria_texto_completa,
-                politica=politica,
-                audit_observation=decision_observation,
-            )
-        elif self._triage_es_oracle(triage_decision):
-            decision_layer = "oracle"
-            action_response = self._resolver_ruta_oracle(
-                evento=evento,
-                contexto_llm=contexto_llm,
-                memoria_texto=memoria_texto_completa,
-                politica=politica,
-                audit_observation=decision_observation,
-            )
-        else:
-            decision_layer = "reasoning"
-            try:
+        self._iniciar_efecto_uow(
+            evento.id_transaccion,
+            "decision:layer",
+            effect_kind="bookkeeping",
+            phase="decision",
+            required=True,
+        )
+        try:
+            if es_interrupcion_critica:
+                action_response = self._resolver_interrupcion_critica(evento)
+            elif not self._es_canal_terminal(evento) and self._usuario_pide_cancelar_tarea(evento):
+                action_response = self._resolver_cancelacion_tarea_usuario(evento)
+            elif solicita_guardado_conversacional:
+                self._iniciar_efecto_uow(
+                    evento.id_transaccion,
+                    "decision:manual_memory_save",
+                    effect_kind="decision",
+                    phase="decision",
+                    required=True,
+                )
+                action_response = self._resolver_guardado_conversacional(evento)
+                self._cerrar_efecto_uow(
+                    evento.id_transaccion,
+                    "decision:manual_memory_save",
+                    TurnEffectStatus.FAILED
+                    if self._es_error_guardado_conversacional(action_response)
+                    else TurnEffectStatus.APPLIED,
+                )
+            elif self._triage_debe_cortar_flujo(triage_decision):
+                razon_triage = str(
+                    triage_decision.get("reason")
+                    or "Evento filtrado por Triage Router."
+                )
+                action_response = self._accion_pasiva(razon_triage)
+            elif self._es_resultado_hablar(evento):
+                action_response = self._accion_pasiva()
+            elif not solicita_decision:
+                action_response = self._accion_pasiva()
+            elif self._triage_es_motor(triage_decision):
+                decision_layer = "motor"
+                action_response = self._resolver_ruta_motor(
+                    evento=evento,
+                    triage_decision=triage_decision,
+                    contexto_llm=contexto_llm,
+                    memoria_texto=memoria_texto_completa,
+                    herramientas=herramientas,
+                    herramientas_detalle=herramientas_detalle,
+                    politica=politica,
+                    tarea=tarea,
+                    estado_actual=estado_actual,
+                    audit_observation=decision_observation,
+                )
+            elif self._triage_es_persona(triage_decision):
+                decision_layer = "persona"
+                action_response = self._resolver_ruta_persona(
+                    evento=evento,
+                    contexto_llm=contexto_llm,
+                    memoria_texto=memoria_texto_completa,
+                    politica=politica,
+                    audit_observation=decision_observation,
+                )
+            elif self._triage_es_oracle(triage_decision):
+                decision_layer = "oracle"
+                action_response = self._resolver_ruta_oracle(
+                    evento=evento,
+                    contexto_llm=contexto_llm,
+                    memoria_texto=memoria_texto_completa,
+                    politica=politica,
+                    audit_observation=decision_observation,
+                )
+            else:
+                decision_layer = "reasoning"
                 action_response = self.reasoning.process(
                     contexto_llm=contexto_llm,
                     memoria_texto=memoria_texto_completa,
@@ -851,35 +1051,71 @@ class Orchestrator:
                     tarea=tarea,
                     audit_observation=decision_observation,
                 )
-            except Exception as e:
-                logger.error("Error en ReasoningEngine: %s", e, exc_info=True)
-                decision_observation["fallback_used"] = True
-                decision_observation.setdefault("decision_error_type", type(e).__name__)
-                decision_observation.setdefault("decision_error_component", "reasoning")
-                decision_observation.setdefault(
-                    "decision_error_observed_ns",
-                    time.perf_counter_ns(),
-                )
-                action_response = ActionResponse(
-                    pensamiento="Error al razonar.",
-                    accion="none",
-                    parametros={},
-                    razon="",
-                    valido=False,
-                    error=str(e),
-                )
+        except Exception as e:
+            decision_observation["fallback_used"] = True
+            decision_observation.setdefault("decision_error_type", type(e).__name__)
+            decision_observation.setdefault("decision_error_component", decision_layer or "decision")
+            decision_observation.setdefault("decision_error_observed_ns", time.perf_counter_ns())
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                "decision:layer",
+                TurnEffectStatus.FAILED,
+            )
+            logger.error("Fallo central en capa %s: %s", decision_layer, e, exc_info=True)
+            raise TurnProcessingError(decision_layer or "decision", type(e).__name__) from e
 
-        action_response = self._blindar_salida_terminal(evento, action_response)
         action_response = self._sanitizar_action_response(action_response)
+        if self._es_error_guardado_conversacional(action_response):
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                "decision:layer",
+                TurnEffectStatus.FAILED,
+            )
+            raise TurnProcessingError("memory", "ManualConversationSaveFailed")
+        if not action_response.valido:
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                "decision:layer",
+                TurnEffectStatus.FAILED,
+            )
+            raise TurnProcessingError(
+                str(decision_observation.get("decision_error_component") or "decision"),
+                str(decision_observation.get("decision_error_type") or "InvalidDecision"),
+            )
         action_response = self._blindar_salida_terminal(evento, action_response)
         action_response = self._adjuntar_esfuerzo_subjetivo(action_response)
+        self._cerrar_efecto_uow(
+            evento.id_transaccion,
+            "decision:layer",
+            TurnEffectStatus.APPLIED,
+        )
         accion_saliente = self._a_accion_saliente(action_response, politica)
         if outcome_action is None:
-            self._persistir_identidad_accion(
-                evento,
-                accion_saliente,
-                tarea=tarea,
-                decision_valid=action_response.valido,
+            self._iniciar_efecto_uow(
+                evento.id_transaccion,
+                "decision:action_identity",
+                effect_kind="decision",
+                phase="decision",
+                required=True,
+            )
+            try:
+                self._persistir_identidad_accion(
+                    evento,
+                    accion_saliente,
+                    tarea=tarea,
+                    decision_valid=action_response.valido,
+                )
+            except Exception:
+                self._cerrar_efecto_uow(
+                    evento.id_transaccion,
+                    "decision:action_identity",
+                    TurnEffectStatus.FAILED,
+                )
+                raise
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                "decision:action_identity",
+                TurnEffectStatus.APPLIED,
             )
         decision_duration_ms = self._elapsed_ms(decision_started_ns)
         llm_events = self._consumir_llm_audit()
@@ -970,14 +1206,58 @@ class Orchestrator:
             llm=llm_summary,
             durations_ms=decision_durations,
         )
-        self._registrar_alias_candidato_pendiente(action_response, accion_saliente)
+        self._iniciar_efecto_uow(
+            evento.id_transaccion,
+            "decision:alias_candidate",
+            effect_kind="decision",
+            phase="decision",
+            required=False,
+        )
+        try:
+            alias_candidate_created = self._registrar_alias_candidato_pendiente(
+                action_response, accion_saliente
+            )
+        except Exception:
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                "decision:alias_candidate",
+                TurnEffectStatus.AMBIGUOUS,
+            )
+        else:
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                "decision:alias_candidate",
+                TurnEffectStatus.APPLIED
+                if alias_candidate_created
+                else TurnEffectStatus.SKIPPED,
+            )
 
         execution_started_ns = time.perf_counter_ns()
+        execution_effect_key = (
+            "execution:local_tool"
+            if self._debe_ejecutar_localmente(evento)
+            else "execution:dispatch"
+        )
+        execution_effect_started = accion_saliente.nombre != "none"
+        if execution_effect_started:
+            self._iniciar_efecto_uow(
+                evento.id_transaccion,
+                execution_effect_key,
+                effect_kind="execution",
+                phase="execution",
+                required=True,
+            )
         resultado_memoria, detalles_resultado = self._gestionar_ejecucion(
             evento,
             accion_saliente,
             action_response=action_response,
         )
+        if execution_effect_started:
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                execution_effect_key,
+                TurnEffectStatus.APPLIED,
+            )
         accion_saliente = self._actualizar_snapshot_accion(accion_saliente)
         sandbox_outcome_action_id: str | None = None
         if (
@@ -1000,10 +1280,30 @@ class Orchestrator:
                 )
             if sandbox_receipt.action is None:
                 raise ActionLedgerError("Outcome sandbox aceptado sin action")
-            self._aplicar_outcome_local_a_behavior(
-                sandbox_receipt.action,
-                resultado_memoria == "ok",
-                detalles_resultado or {},
+            self._iniciar_efecto_uow(
+                evento.id_transaccion,
+                "outcome:sandbox_behavior_task",
+                effect_kind="outcome",
+                phase="outcome",
+                required=True,
+            )
+            try:
+                self._aplicar_outcome_local_a_behavior(
+                    sandbox_receipt.action,
+                    resultado_memoria == "ok",
+                    detalles_resultado or {},
+                )
+            except Exception:
+                self._cerrar_efecto_uow(
+                    evento.id_transaccion,
+                    "outcome:sandbox_behavior_task",
+                    TurnEffectStatus.ROLLED_BACK,
+                )
+                raise
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                "outcome:sandbox_behavior_task",
+                TurnEffectStatus.APPLIED,
             )
             accion_saliente = self._actualizar_snapshot_accion(accion_saliente)
         execution_duration_ms = self._elapsed_ms(execution_started_ns)
@@ -1025,8 +1325,24 @@ class Orchestrator:
                 component="execution",
                 durations_ms={"execution": execution_duration_ms},
             )
-        if resultado_memoria == "ok":
-            self._aprobar_alias_pendiente_por_id(accion_saliente.id_accion)
+        if resultado_memoria == "ok" and outcome_action is None:
+            self._iniciar_efecto_uow(
+                evento.id_transaccion,
+                "outcome:alias",
+                effect_kind="outcome",
+                phase="outcome",
+                required=False,
+            )
+            alias_applied = self._aprobar_alias_pendiente_por_id(accion_saliente.id_accion)
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                "outcome:alias",
+                TurnEffectStatus.APPLIED
+                if alias_applied is True
+                else TurnEffectStatus.FAILED
+                if alias_applied is False
+                else TurnEffectStatus.SKIPPED,
+            )
         working_action = outcome_action.action_name if outcome_action is not None else accion_saliente.nombre
         working_result = (
             "ok" if evento.detalles.get("exito") is True else "error"
@@ -1035,16 +1351,65 @@ class Orchestrator:
         working_details["id_accion"] = (
             outcome_action.action_id if outcome_action is not None else accion_saliente.id_accion
         )
-        self.memory.agregar_accion(
-            accion=working_action,
-            resultado=working_result,
-            detalles=working_details,
+        working_effect_key = (
+            "outcome:working_memory"
+            if outcome_action is not None
+            else "decision:working_memory"
         )
-        self._registrar_turno_conversacional_si_aplica(
-            evento=evento,
-            triage_decision=triage_decision,
-            action_response=action_response,
-            accion_saliente=accion_saliente,
+        should_write_working = not (
+            working_action == "none" and working_result == "sin_accion"
+        )
+        if should_write_working:
+            self._iniciar_efecto_uow(
+                evento.id_transaccion,
+                working_effect_key,
+                effect_kind="outcome" if outcome_action is not None else "decision",
+                phase="outcome" if outcome_action is not None else "decision",
+                required=True,
+            )
+            try:
+                self.memory.agregar_accion(
+                    accion=working_action,
+                    resultado=working_result,
+                    detalles=working_details,
+                )
+            except Exception:
+                self._cerrar_efecto_uow(
+                    evento.id_transaccion,
+                    working_effect_key,
+                    TurnEffectStatus.AMBIGUOUS,
+                )
+                raise
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                working_effect_key,
+                TurnEffectStatus.APPLIED,
+            )
+        self._iniciar_efecto_uow(
+            evento.id_transaccion,
+            "decision:conversation",
+            effect_kind="decision",
+            phase="decision",
+            required=True,
+        )
+        try:
+            conversation_written = self._registrar_turno_conversacional_si_aplica(
+                evento=evento,
+                triage_decision=triage_decision,
+                action_response=action_response,
+                accion_saliente=accion_saliente,
+            )
+        except Exception:
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                "decision:conversation",
+                TurnEffectStatus.AMBIGUOUS,
+            )
+            raise
+        self._cerrar_efecto_uow(
+            evento.id_transaccion,
+            "decision:conversation",
+            TurnEffectStatus.APPLIED if conversation_written else TurnEffectStatus.SKIPPED,
         )
 
         should_cache = self._debe_cachear_transaccion(action_response)
@@ -1053,32 +1418,135 @@ class Orchestrator:
                 evento.id_transaccion,
                 politica,
             )
-        self._agregar_notificacion_si_corresponde(action_response)
+        self._iniciar_efecto_uow(
+            evento.id_transaccion,
+            "decision:notification",
+            effect_kind="decision",
+            phase="decision",
+            required=False,
+        )
+        try:
+            notification_written = self._agregar_notificacion_si_corresponde(action_response)
+        except Exception:
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                "decision:notification",
+                TurnEffectStatus.AMBIGUOUS,
+            )
+        else:
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                "decision:notification",
+                TurnEffectStatus.APPLIED
+                if notification_written
+                else TurnEffectStatus.SKIPPED,
+            )
         execution_success: bool | None = None
         if outcome_action is not None:
             execution_success = evento.detalles.get("exito")
         elif sandbox_outcome_action_id is not None:
             execution_success = resultado_memoria == "ok"
-        self._registrar_estado_identidad(
+        identity_effect_key = (
+            "outcome:identity" if execution_success is not None else "decision:identity"
+        )
+        self._iniciar_efecto_uow(
+            evento.id_transaccion,
+            identity_effect_key,
+            effect_kind="outcome" if execution_success is not None else "decision",
+            phase="outcome" if execution_success is not None else "decision",
+            required=True,
+        )
+        identity_applied = self._registrar_estado_identidad(
             evento,
             triage_decision,
             action_response,
             execution_success=execution_success,
         )
-        self._armar_descanso_terminal_si_corresponde(evento, triage_decision)
+        if not identity_applied:
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                identity_effect_key,
+                TurnEffectStatus.FAILED,
+            )
+            raise TurnProcessingError("identity", "IdentityEffectFailed")
+        self._cerrar_efecto_uow(
+            evento.id_transaccion,
+            identity_effect_key,
+            TurnEffectStatus.APPLIED,
+        )
+        self._iniciar_efecto_uow(
+            evento.id_transaccion,
+            "decision:terminal_rest_arm",
+            effect_kind="decision",
+            phase="decision",
+            required=False,
+        )
+        rest_armed = self._armar_descanso_terminal_si_corresponde(evento, triage_decision)
+        self._cerrar_efecto_uow(
+            evento.id_transaccion,
+            "decision:terminal_rest_arm",
+            TurnEffectStatus.APPLIED
+            if rest_armed is True
+            else TurnEffectStatus.FAILED
+            if rest_armed is False
+            else TurnEffectStatus.SKIPPED,
+        )
+
+        if outcome_action is not None:
+            self._iniciar_efecto_uow(
+                evento.id_transaccion,
+                "outcome:alias",
+                effect_kind="outcome",
+                phase="outcome",
+                required=False,
+            )
+            alias_applied = self._registrar_alias_aprendido_si_corresponde(evento)
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                "outcome:alias",
+                TurnEffectStatus.APPLIED
+                if alias_applied is True
+                else TurnEffectStatus.FAILED
+                if alias_applied is False
+                else TurnEffectStatus.SKIPPED,
+            )
 
         if outcome_action_id is not None:
+            self._iniciar_efecto_uow(
+                evento.id_transaccion,
+                "outcome:mark_consumed",
+                effect_kind="bookkeeping",
+                phase="outcome",
+                required=True,
+            )
             consumed = ledger.mark_outcome_consumed(outcome_action_id)
             if consumed != OutcomeConsumptionStatus.CONSUMED:
                 raise ActionLedgerError(
                     f"No se pudo consumir outcome {outcome_action_id}: {consumed.value}"
                 )
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                "outcome:mark_consumed",
+                TurnEffectStatus.APPLIED,
+            )
         if sandbox_outcome_action_id is not None:
+            self._iniciar_efecto_uow(
+                evento.id_transaccion,
+                "outcome:sandbox_mark_consumed",
+                effect_kind="bookkeeping",
+                phase="outcome",
+                required=True,
+            )
             consumed = ledger.mark_outcome_consumed(sandbox_outcome_action_id)
             if consumed != OutcomeConsumptionStatus.CONSUMED:
                 raise ActionLedgerError(
                     f"No se pudo consumir outcome sandbox {sandbox_outcome_action_id}: {consumed.value}"
                 )
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                "outcome:sandbox_mark_consumed",
+                TurnEffectStatus.APPLIED,
+            )
 
         respuesta_durable = None if outcome_action is not None else accion_saliente
         self._completar_transaccion_ledger(evento.id_transaccion, respuesta_durable)
@@ -1217,23 +1685,23 @@ class Orchestrator:
         triage_decision: dict,
         action_response: ActionResponse,
         accion_saliente: AccionSaliente,
-    ) -> None:
+    ) -> bool:
         """Guarda en RAM el par usuario/respuesta cuando la salida final fue hablar."""
         if evento.tipo_evento != "comando_usuario":
-            return
+            return False
         if accion_saliente.nombre != "hablar":
-            return
+            return False
         if bool((action_response.metadata or {}).get("manual_memory_save_control")):
-            return
+            return False
 
         registrar = getattr(self.memory, "registrar_turno_conversacional", None)
         if not callable(registrar):
-            return
+            return False
 
         mensaje_usuario = self._extraer_mensaje_usuario(evento)
         respuesta_lazzaro = self._extraer_texto_hablar(action_response.parametros)
         if not mensaje_usuario and not respuesta_lazzaro:
-            return
+            return False
 
         try:
             registrar(
@@ -1248,8 +1716,10 @@ class Orchestrator:
                     "accion": accion_saliente.nombre,
                 },
             )
+            return True
         except Exception as e:
             logger.error("Error registrando turno conversacional: %s", e, exc_info=True)
+            raise
 
     @staticmethod
     def _extraer_mensaje_usuario(evento: EventoEntrante) -> str:
@@ -1300,16 +1770,16 @@ class Orchestrator:
         self,
         action_response: ActionResponse,
         accion_saliente: AccionSaliente,
-    ) -> None:
+    ) -> bool:
         metadata = action_response.metadata if isinstance(action_response.metadata, dict) else {}
         resolution = metadata.get("motor_resolution") if isinstance(metadata.get("motor_resolution"), dict) else None
         alias_learning = metadata.get("alias_learning") if isinstance(metadata.get("alias_learning"), dict) else {}
         if not isinstance(resolution, dict) or resolution.get("status") != "ready":
-            return
+            return False
 
         user_query = str(alias_learning.get("user_query") or "").strip()
         if not user_query:
-            return
+            return False
 
         target_name = str(
             action_response.parametros.get("nombre_objeto")
@@ -1331,19 +1801,20 @@ class Orchestrator:
             pending_store[accion_saliente.id_accion] = pending
             while len(pending_store) > self.MAX_TRANSACCIONES_CACHE:
                 pending_store.popitem(last=False)
+        return True
 
-    def _registrar_alias_aprendido_si_corresponde(self, evento: EventoEntrante) -> None:
+    def _registrar_alias_aprendido_si_corresponde(self, evento: EventoEntrante) -> bool | None:
         if evento.tipo_evento != "resultado_accion":
-            return
+            return None
         if evento.detalles.get("exito") is not True:
-            return
+            return None
 
         pending = self._buscar_alias_pendiente_para_resultado(evento.detalles)
         if pending is None:
-            return
-        self._persistir_alias_pendiente(pending)
+            return None
+        return self._persistir_alias_pendiente(pending)
 
-    def _aprobar_alias_pendiente_por_id(self, id_accion: str) -> None:
+    def _aprobar_alias_pendiente_por_id(self, id_accion: str) -> bool | None:
         with self._obtener_lock_recurso("_alias_candidates_lock"):
             pending_store = getattr(self, "_alias_candidates_pendientes", None)
             pending = (
@@ -1352,7 +1823,8 @@ class Orchestrator:
                 else None
             )
         if pending is not None:
-            self._persistir_alias_pendiente(pending)
+            return self._persistir_alias_pendiente(pending)
+        return None
 
     def _buscar_alias_pendiente_para_resultado(self, detalles: dict) -> dict | None:
         with self._obtener_lock_recurso("_alias_candidates_lock"):
@@ -1365,7 +1837,7 @@ class Orchestrator:
                 return None
             return pending_store.pop(id_accion, None)
 
-    def _persistir_alias_pendiente(self, pending: dict) -> None:
+    def _persistir_alias_pendiente(self, pending: dict) -> bool:
         candidate = build_learned_alias_candidate(
             user_query=str(pending.get("user_query") or ""),
             resolution=pending.get("motor_resolution") if isinstance(pending.get("motor_resolution"), dict) else {},
@@ -1373,15 +1845,16 @@ class Orchestrator:
             action=str(pending.get("action") or ""),
         )
         if candidate is None:
-            return
+            return False
 
         guardar_alias = getattr(self.memory, "guardar_alias_aprendido", None)
         if not callable(guardar_alias):
-            return
+            return False
         try:
-            guardar_alias(candidate)
+            return bool(guardar_alias(candidate))
         except Exception as e:
             logger.error("Error guardando alias aprendido: %s", e, exc_info=True)
+            return False
 
     @staticmethod
     def _accion_pasiva(razon: str | None = None) -> ActionResponse:
@@ -1476,6 +1949,8 @@ class Orchestrator:
         action_response: ActionResponse,
     ) -> ActionResponse:
         """Aplica una ultima barrera para que terminal solo pueda devolver ``hablar``."""
+        if not action_response.valido:
+            return action_response
         if not cls._es_canal_terminal(evento) or action_response.accion == "hablar":
             return action_response
 
@@ -1588,14 +2063,7 @@ class Orchestrator:
                     "decision_error_observed_ns",
                     time.perf_counter_ns(),
                 )
-            return ActionResponse(
-                pensamiento="Fallback social por error interno.",
-                accion="hablar",
-                parametros={"texto_a_comunicar": "Me perdi un momento, pero sigo aqui."},
-                razon="Error interno en Capa Social.",
-                valido=True,
-                error=str(e),
-            )
+            raise
 
     @staticmethod
     def _observar_fallback_persona(
@@ -1844,14 +2312,7 @@ class Orchestrator:
                         "decision_error_observed_ns",
                         time.perf_counter_ns(),
                     )
-                oracle_result = OracleResult(
-                    pregunta_original=mensaje_usuario,
-                    contenido_tecnico="No pude completar esa consulta compleja en este momento.",
-                    resumen_para_persona="Explica que la consulta compleja fallo de forma natural.",
-                    fuente="error",
-                    cache_hit=False,
-                    error=f"Error interno en Capa Oraculo: {e}",
-                )
+                raise
 
         if oracle_result.error:
             errores.append(oracle_result.error)
@@ -1945,17 +2406,7 @@ class Orchestrator:
                     "decision_error_observed_ns",
                     time.perf_counter_ns(),
                 )
-            error = str(e)
-            if oracle_result.error:
-                error = f"{oracle_result.error} {error}".strip()
-            return ActionResponse(
-                pensamiento="Fallback social por error al verbalizar Oraculo.",
-                accion="hablar",
-                parametros={"texto_a_comunicar": "No pude completar esa consulta compleja en este momento."},
-                razon="Error verbalizando conocimiento de Oraculo en Capa Social.",
-                valido=True,
-                error=error,
-            )
+            raise
 
     def _resolver_ruta_motor(
         self,
@@ -2316,20 +2767,23 @@ class Orchestrator:
     def _es_comando_terminal(cls, evento: EventoEntrante) -> bool:
         return cls._es_canal_terminal(evento) and evento.tipo_evento == "comando_usuario"
 
-    def _consumir_descanso_terminal_si_corresponde(self, evento: EventoEntrante) -> None:
+    def _consumir_descanso_terminal_si_corresponde(
+        self,
+        evento: EventoEntrante,
+    ) -> bool | None:
         """Despierta una sola vez antes de procesar el siguiente comando nuevo del terminal."""
         if not self._es_comando_terminal(evento):
-            return
+            return None
 
         lock = self._obtener_lock_descanso_terminal()
         with lock:
             pendiente = getattr(self, "_descanso_terminal_pendiente", None)
             if not isinstance(pendiente, dict):
-                return
+                return None
 
             transaction_id = str(evento.id_transaccion)
             if transaction_id == str(pendiente.get("transaction_id", "")):
-                return
+                return None
 
             state_engine = self._obtener_state_engine_biologico()
             finalizar = getattr(state_engine, "finalizar_descanso", None)
@@ -2338,7 +2792,7 @@ class Orchestrator:
                     "event=terminal_rest_wake transaction_id=%s status=error error_type=missing_state_engine",
                     transaction_id,
                 )
-                return
+                return False
 
             try:
                 resultado = finalizar()
@@ -2349,7 +2803,7 @@ class Orchestrator:
                     type(exc).__name__,
                     exc_info=True,
                 )
-                return
+                return False
 
             self._descanso_terminal_pendiente = None
             logger.info(
@@ -2359,17 +2813,18 @@ class Orchestrator:
                 float(resultado.get("segundos", 0.0)),
                 float(resultado.get("energia_recuperada", 0.0)),
             )
+            return True
 
     def _armar_descanso_terminal_si_corresponde(
         self,
         evento: EventoEntrante,
         triage_decision: dict,
-    ) -> None:
+    ) -> bool | None:
         """Arma recuperacion diferida cuando el Random Forest detecta ``CORE_SYSTEM``."""
         if not self._es_comando_terminal(evento):
-            return
+            return None
         if str(triage_decision.get("intent", "")).strip().upper() != "CORE_SYSTEM":
-            return
+            return None
 
         transaction_id = str(evento.id_transaccion)
         lock = self._obtener_lock_descanso_terminal()
@@ -2379,7 +2834,7 @@ class Orchestrator:
                     "event=terminal_rest_arm transaction_id=%s status=already_armed",
                     transaction_id,
                 )
-                return
+                return None
 
             state_engine = self._obtener_state_engine_biologico()
             iniciar = getattr(state_engine, "iniciar_descanso", None)
@@ -2388,7 +2843,7 @@ class Orchestrator:
                     "event=terminal_rest_arm transaction_id=%s status=error error_type=missing_state_engine",
                     transaction_id,
                 )
-                return
+                return False
 
             try:
                 iniciado = bool(iniciar())
@@ -2399,20 +2854,21 @@ class Orchestrator:
                     type(exc).__name__,
                     exc_info=True,
                 )
-                return
+                return False
 
             if not iniciado and not bool(getattr(state_engine, "descansando", False)):
                 logger.warning(
                     "event=terminal_rest_arm transaction_id=%s status=not_started",
                     transaction_id,
                 )
-                return
+                return False
 
             self._descanso_terminal_pendiente = {"transaction_id": transaction_id}
             logger.info(
                 "event=terminal_rest_arm transaction_id=%s status=armed",
                 transaction_id,
             )
+            return True
 
     def _registrar_estado_identidad(
         self,
@@ -2421,7 +2877,7 @@ class Orchestrator:
         action_response: ActionResponse,
         *,
         execution_success: bool | None = None,
-    ) -> None:
+    ) -> bool:
         """Actualiza energia, estres y enfoque despues de procesar el evento."""
         try:
             route = str(triage_decision.get("route", "")).strip().lower()
@@ -2445,8 +2901,10 @@ class Orchestrator:
                 es_descanso=es_descanso,
                 intensidad=self._intensidad_identidad(evento, route),
             )
+            return True
         except Exception as e:
             logger.error("Error actualizando IdentityState: %s", e, exc_info=True)
+            return False
 
     @classmethod
     def _evento_es_descanso(
@@ -2517,6 +2975,70 @@ class Orchestrator:
             ledger = ActionLedger(":memory:")
             self.action_ledger = ledger
         return ledger
+
+    def _iniciar_efecto_uow(
+        self,
+        transaction_id: str,
+        effect_key: str,
+        *,
+        effect_kind: str,
+        phase: str,
+        required: bool,
+    ) -> None:
+        start_effect = getattr(self._obtener_action_ledger(), "start_turn_effect", None)
+        if not callable(start_effect):
+            return
+        start_effect(
+            str(transaction_id),
+            effect_key,
+            effect_kind=effect_kind,
+            phase=phase,
+            required=required,
+        )
+
+    def _cerrar_efecto_uow(
+        self,
+        transaction_id: str,
+        effect_key: str,
+        status: TurnEffectStatus,
+    ) -> None:
+        finish_effect = getattr(self._obtener_action_ledger(), "finish_turn_effect", None)
+        if callable(finish_effect):
+            finish_effect(str(transaction_id), effect_key, status)
+
+    def _finalizar_uow_por_fallo(
+        self,
+        transaction_id: str,
+        exc: Exception,
+    ) -> TurnUoWStatus | None:
+        """Clasifica el intento sin reejecutar ni compensar efectos externos."""
+        ledger = self._obtener_action_ledger()
+        get_uow = getattr(ledger, "get_turn_uow", None)
+        get_effects = getattr(ledger, "get_turn_effects", None)
+        fail_uow = getattr(ledger, "fail_turn_uow", None)
+        if not all(callable(method) for method in (get_uow, get_effects, fail_uow)):
+            return None
+        uow = get_uow(str(transaction_id))
+        if uow is None or uow.status != TurnUoWStatus.OPEN:
+            return None
+        effects = get_effects(str(transaction_id))
+        if any(effect.status == TurnEffectStatus.STARTED for effect in effects):
+            status = TurnUoWStatus.RECONCILIATION_REQUIRED
+        elif any(
+            effect.status == TurnEffectStatus.APPLIED
+            and effect.effect_kind in {"decision", "execution", "outcome"}
+            for effect in effects
+        ):
+            status = TurnUoWStatus.PARTIAL
+        else:
+            status = TurnUoWStatus.ABORTED_CLEAN
+        failure_class = getattr(exc, "failure_class", None) or type(exc).__name__
+        failed = fail_uow(
+            str(transaction_id),
+            status=status,
+            failure_class=str(failure_class),
+        )
+        return failed.status
 
     def _registrar_outcome_entrante(self, evento: EventoEntrante):
         detalles = evento.detalles if isinstance(evento.detalles, dict) else {}
@@ -2871,9 +3393,15 @@ class Orchestrator:
         transaction_id: str,
         accion: AccionSaliente | None,
     ) -> None:
-        status = self._obtener_action_ledger().complete_transaction(
-            str(transaction_id),
-            self._serializar_accion_durable(accion),
+        ledger = self._obtener_action_ledger()
+        response = self._serializar_accion_durable(accion)
+        get_uow = getattr(ledger, "get_turn_uow", None)
+        commit_uow = getattr(ledger, "commit_turn_uow", None)
+        has_uow = callable(get_uow) and get_uow(str(transaction_id)) is not None
+        status = (
+            commit_uow(str(transaction_id), response)
+            if has_uow and callable(commit_uow)
+            else ledger.complete_transaction(str(transaction_id), response)
         )
         if status not in {
             TransactionCompletionStatus.COMPLETED,
@@ -3130,7 +3658,7 @@ class Orchestrator:
         }
         return vectores.get(direccion_escape, (0.0, -1.0))
 
-    def _agregar_notificacion_si_corresponde(self, action_response: ActionResponse):
+    def _agregar_notificacion_si_corresponde(self, action_response: ActionResponse) -> bool:
         """Si el agente quiere comunicar algo espontaneo, lo encola."""
         nuevas: list[NotificacionSaliente] = []
         if action_response.accion == "none" and action_response.pensamiento:
@@ -3153,6 +3681,8 @@ class Orchestrator:
         if nuevas:
             with self._obtener_lock_recurso("_notificaciones_lock"):
                 self._notificaciones.extend(nuevas)
+            return True
+        return False
 
     def _herramientas_para_evento(self, evento: EventoEntrante, triage_decision: dict) -> list[str]:
         herramientas = self.tool_registry.listar_nombres() if self.tool_registry else []
