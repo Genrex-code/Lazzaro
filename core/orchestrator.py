@@ -2660,7 +2660,7 @@ class Orchestrator:
         if self._debe_ejecutar_localmente(evento):
             resultado_ejecucion = ActionExecutor.ejecutar(accion_saliente)
             return (
-                "ok" if resultado_ejecucion.exito else "error",
+                "ok" if resultado_ejecucion.exito is True else "error",
                 self._adjuntar_esfuerzo_a_detalles(
                     {
                         "mensaje": resultado_ejecucion.mensaje,

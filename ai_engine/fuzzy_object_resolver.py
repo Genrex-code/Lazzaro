@@ -473,7 +473,7 @@ class FuzzyObjectResolver:
     ) -> float:
         bonus = 0.0
         for hint in hints:
-            if not isinstance(hint, dict) or hint.get("confirmed") is False:
+            if not isinstance(hint, dict) or hint.get("confirmed") is not True:
                 continue
             affect = normalize_text(hint.get("affect")).replace(" ", "_")
             weight = _normalize_ratio(_safe_float(hint.get("weight", 0.0)))

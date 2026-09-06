@@ -43,22 +43,46 @@ class ActionExecutor:
             return ToolResult(exito=False, mensaje=mensaje, error=str(e))
 
         # 3. Verificar confirmación requerida
-        if tool_info.get("requires_confirmation") and not accion.requiere_confirmacion:
+        requires_confirmation = tool_info.get("requires_confirmation", False)
+        if type(requires_confirmation) is not bool:
+            mensaje = f"Contrato de confirmacion invalido para {accion.nombre}."
+            logger.error(mensaje)
+            return ToolResult(exito=False, mensaje=mensaje, error=mensaje)
+        if requires_confirmation and accion.requiere_confirmacion is not True:
             mensaje = f"La herramienta {accion.nombre} requiere confirmación explícita."
             logger.warning(mensaje)
             return ToolResult(exito=False, mensaje=mensaje, error="Confirmación denegada automáticamente.")
 
         # 4. Ejecutar la función
         try:
-            resultado = tool_info["func"](params_validados)
-            # La función puede devolver un string o un ToolResult; normalizamos
+            handler = tool_info["func"]
+            resultado = handler(params_validados)
+            # Los handlers productivos usan ToolResult o un mensaje legacy no vacio.
             if isinstance(resultado, ToolResult):
                 logger.info("Herramienta %s ejecutada: %s", accion.nombre, resultado.mensaje)
                 return resultado
-            else:
-                mensaje = str(resultado)
+            return_annotation = getattr(handler, "__annotations__", {}).get("return")
+            if (
+                return_annotation in (str, "str")
+                and type(resultado) is str
+                and resultado.strip()
+                and resultado.strip().casefold() not in {"true", "false"}
+            ):
+                mensaje = resultado
                 logger.info("Herramienta %s ejecutada: %s", accion.nombre, mensaje)
                 return ToolResult(exito=True, mensaje=mensaje)
+
+            tipo_resultado = "str_vacio" if type(resultado) is str else type(resultado).__name__
+            mensaje = (
+                f"Resultado invalido de {accion.nombre}: "
+                f"contrato de retorno {tipo_resultado} no soportado."
+            )
+            logger.error(mensaje)
+            return ToolResult(
+                exito=False,
+                mensaje=mensaje,
+                error="Contrato de retorno invalido.",
+            )
         except Exception as e:
             mensaje = f"Error al ejecutar {accion.nombre}: {e}"
             logger.error(mensaje, exc_info=True)

@@ -62,6 +62,8 @@ class BehaviorCore:
 
     def finalizar_tarea(self, exito: bool):
         """Finaliza la tarea actual y genera un evento de cierre."""
+        if type(exito) is not bool:
+            raise TypeError("BehaviorCore.finalizar_tarea exige un bool estricto")
         if self.task_context is None:
             return
 
@@ -108,8 +110,8 @@ class BehaviorCore:
         self.state_engine.aplicar_evento(evento_emocional, intensidad, contexto=detalles)
         self.personality.update_from_event(evento_emocional, intensidad)
 
-        if self.task_context is not None and accion is not None and exito is not None:
-            self.task_context.registrar_intento(str(accion), bool(exito))
+        if self.task_context is not None and accion is not None and type(exito) is bool:
+            self.task_context.registrar_intento(str(accion), exito)
             self.task_context.actualizar_umbral_abandono(self.personality.paciencia)
             if self.task_context.detectar_loop():
                 self.procesar_evento("loop_detectado", {"intensidad": 1.0})
@@ -117,6 +119,11 @@ class BehaviorCore:
                 self.procesar_evento("fracaso", {"intensidad": 0.5})
             if self.task_context.detectar_compulsion():
                 self.procesar_evento("sobrecarga", {"intensidad": 0.3})
+        elif accion is not None and exito is not None and type(exito) is not bool:
+            logger.warning(
+                "Resultado de accion ignorado por exito no booleano: %s",
+                type(exito).__name__,
+            )
 
         self._actualizar_modificadores_globales()
         percepcion_contexto = percepcion or self._ultima_percepcion

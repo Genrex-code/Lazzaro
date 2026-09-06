@@ -49,6 +49,9 @@ class TaskContext:
         Registra una acción realizada para el objetivo actual.
         Actualiza contadores, frustración local y el microhistorial.
         """
+        if type(exito) is not bool:
+            raise TypeError("TaskContext.registrar_intento exige un bool estricto")
+
         ahora = time.time()
         self.intentos_totales += 1
         if not exito:

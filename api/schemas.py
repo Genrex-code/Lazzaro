@@ -7,7 +7,7 @@ asi como la devolucion de acciones estructuradas que el agente decide ejecutar.
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
 
 
 class EventoEntrante(BaseModel):
@@ -66,6 +66,16 @@ class EventoEntrante(BaseModel):
             raise ValueError("id_transaccion no puede estar vacio")
         return value.strip()
 
+    @model_validator(mode="after")
+    def resultado_accion_exige_exito_booleano(self) -> "EventoEntrante":
+        if (
+            self.tipo_evento == "resultado_accion"
+            and "exito" in self.detalles
+            and type(self.detalles["exito"]) is not bool
+        ):
+            raise ValueError("resultado_accion.detalles.exito debe ser un bool estricto")
+        return self
+
 
 class ParametroHerramienta(BaseModel):
     """
@@ -105,7 +115,7 @@ class AccionSaliente(BaseModel):
         "",
         description="Monologo interno del agente para depuracion.",
     )
-    requiere_confirmacion: bool = Field(
+    requiere_confirmacion: StrictBool = Field(
         False,
         description="Si es True, el frontend deberia pedir confirmacion antes de ejecutar.",
     )

@@ -271,8 +271,8 @@ class MemoryManager:
                     continue
                 object_id = str(meta.get("object_id") or "").strip()
                 human_concept = str(meta.get("human_concept") or "").strip()
-                approved = meta.get("approved", True)
-                if not object_id or not human_concept or approved is False:
+                approved = meta.get("approved")
+                if not object_id or not human_concept or approved is not True:
                     continue
                 if allowed and object_id not in allowed:
                     continue
@@ -299,9 +299,13 @@ class MemoryManager:
         affect: str,
         weight: float,
         source: str = "event",
-        confirmed: bool = True,
+        confirmed: bool,
     ) -> Optional[str]:
         """Guarda asociacion afectiva espacial como metadata, nunca como comando."""
+        if type(confirmed) is not bool:
+            logger.warning("Memoria afectiva espacial con confirmed no booleano.")
+            return None
+
         normalized_object_id = str(object_id or "").strip()
         normalized_object_class = _normalize_memory_token(object_class)
         normalized_affect = _normalize_memory_token(affect)
@@ -345,7 +349,7 @@ class MemoryManager:
             "affect": normalized_affect,
             "weight": clamped_weight,
             "source": normalized_source,
-            "confirmed": bool(confirmed),
+            "confirmed": confirmed,
         }
         recuerdo_id = self.guardar_regla(
             regla=regla,
@@ -384,9 +388,9 @@ class MemoryManager:
                 object_class = _normalize_memory_token(meta.get("object_class"))
                 affect = _normalize_memory_token(meta.get("affect"))
                 source = _normalize_memory_token(meta.get("source")) or "event"
-                confirmed = bool(meta.get("confirmed", True))
+                confirmed = meta.get("confirmed")
                 weight = _clamp_float(meta.get("weight", 0.0), 0.0, 1.0)
-                if not affect or not confirmed or weight <= 0.0:
+                if not affect or confirmed is not True or weight <= 0.0:
                     continue
 
                 key = ""

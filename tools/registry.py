@@ -36,6 +36,8 @@ class ToolRegistry:
         requires_confirmation: bool = False,
     ):
         """Decorador para registrar una nueva herramienta."""
+        if type(requires_confirmation) is not bool:
+            raise TypeError("requires_confirmation debe ser un bool estricto")
 
         def decorator(func: Callable):
             if name in cls._tools:

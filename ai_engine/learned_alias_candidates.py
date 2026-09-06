@@ -54,6 +54,10 @@ class LearnedAliasCandidate:
     legacy_nombre_objeto: str | None = None
     approved: bool = False
 
+    def __post_init__(self) -> None:
+        if type(self.approved) is not bool:
+            raise TypeError("LearnedAliasCandidate.approved debe ser un bool estricto")
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "object_id": self.object_id,
@@ -86,7 +90,7 @@ class LearnedAliasCandidate:
             action=str(value.get("action") or "").strip() or None,
             target_display_name=str(value.get("target_display_name") or "").strip() or None,
             legacy_nombre_objeto=str(value.get("legacy_nombre_objeto") or "").strip() or None,
-            approved=bool(value.get("approved", False)),
+            approved=value.get("approved") is True,
         )
 
 
@@ -98,7 +102,7 @@ def build_learned_alias_candidate(
     action: str | None = None,
     source: str = "fuzzy_match",
 ) -> LearnedAliasCandidate | None:
-    if not action_success:
+    if action_success is not True:
         return None
 
     resolution_dict = resolution.to_dict() if isinstance(resolution, MotorResolution) else resolution
