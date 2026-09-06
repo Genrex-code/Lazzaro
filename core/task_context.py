@@ -4,11 +4,73 @@ Administra el contexto de la tarea actual: objetivo, intentos, frustración loca
 y un microhistorial para detectar patrones no deseados (loops, estancamiento, compulsiones).
 """
 
+from dataclasses import dataclass
+from enum import Enum
 import time
 import uuid
 from core.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+class TaskIntent(str, Enum):
+    """Autoridad estructurada para transiciones del lifecycle de una tarea."""
+
+    NONE = "none"
+    START = "start"
+    CONTINUE = "continue"
+    REPLACE = "replace"
+    CANCEL = "cancel"
+    COMPLETE = "complete"
+    ABANDON = "abandon"
+
+
+class TaskTransitionStatus(str, Enum):
+    NO_TASK = "no_task"
+    UNCHANGED = "unchanged"
+    CREATED = "created"
+    CONTINUED = "continued"
+    REPLACED = "replaced"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    ABANDONED = "abandoned"
+    INVALID_TRANSITION = "invalid_transition"
+
+
+@dataclass(frozen=True)
+class TaskTransitionReceipt:
+    """Resultado acotado de una transición RAM; no es una entidad durable."""
+
+    status: TaskTransitionStatus
+    intent: TaskIntent
+    task_instance_id: str | None = None
+    objetivo_id: str | None = None
+    previous_task_instance_id: str | None = None
+    previous_objetivo_id: str | None = None
+    reason: str = ""
+
+    def to_dict(self) -> dict[str, str | None]:
+        return {
+            "status": self.status.value,
+            "intent": self.intent.value,
+            "task_instance_id": self.task_instance_id,
+            "objetivo_id": self.objetivo_id,
+            "previous_task_instance_id": self.previous_task_instance_id,
+            "previous_objetivo_id": self.previous_objetivo_id,
+            "reason": self.reason,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "TaskTransitionReceipt":
+        return cls(
+            status=TaskTransitionStatus(str(data.get("status") or "invalid_transition")),
+            intent=TaskIntent(str(data.get("intent") or "none")),
+            task_instance_id=data.get("task_instance_id"),
+            objetivo_id=data.get("objetivo_id"),
+            previous_task_instance_id=data.get("previous_task_instance_id"),
+            previous_objetivo_id=data.get("previous_objetivo_id"),
+            reason=str(data.get("reason") or ""),
+        )
 
 
 class TaskContext:
@@ -25,13 +87,18 @@ class TaskContext:
         "girar_avatar",
     }
 
-    def __init__(self, objetivo_id: str = "", max_historial: int = 20):
+    DEFAULT_ABANDONMENT_THRESHOLD = 80.0
+
+    def __init__(self, objetivo_id: str, max_historial: int = 20):
+        objetivo_normalizado = str(objetivo_id or "").strip()
+        if not objetivo_normalizado:
+            raise ValueError("TaskContext requiere un objetivo explicito no vacio")
         self.task_instance_id = str(uuid.uuid4())
-        self.objetivo_id = objetivo_id
+        self.objetivo_id = objetivo_normalizado
         self.intentos_totales = 0
         self.intentos_fallidos = 0
         self.frustracion_local = 0.0          # 0 - 100
-        self.umbral_abandono = 80.0           # Valor por defecto (sin influencia de paciencia)
+        self.umbral_abandono = self.DEFAULT_ABANDONMENT_THRESHOLD
 
         # Microhistorial: almacena las últimas N acciones
         self.max_historial = max_historial
@@ -39,13 +106,17 @@ class TaskContext:
 
     def reset(self, nuevo_objetivo: str = ""):
         """Reinicia el contexto para una nueva tarea."""
+        objetivo_normalizado = str(nuevo_objetivo or "").strip()
+        if not objetivo_normalizado:
+            raise ValueError("TaskContext.reset requiere un objetivo explicito no vacio")
         self.task_instance_id = str(uuid.uuid4())
-        self.objetivo_id = nuevo_objetivo
+        self.objetivo_id = objetivo_normalizado
         self.intentos_totales = 0
         self.intentos_fallidos = 0
         self.frustracion_local = 0.0
+        self.umbral_abandono = self.DEFAULT_ABANDONMENT_THRESHOLD
         self.historial.clear()
-        logger.debug(f"TaskContext reseteado. Nuevo objetivo: '{nuevo_objetivo}'")
+        logger.debug(f"TaskContext reseteado. Nuevo objetivo: '{objetivo_normalizado}'")
 
     def registrar_intento(self, accion: str, exito: bool):
         """
@@ -94,6 +165,10 @@ class TaskContext:
         # Limitar entre 40 y 100
         self.umbral_abandono = max(40.0, min(100.0, self.umbral_abandono))
         logger.debug(f"Umbral de abandono actualizado a {self.umbral_abandono:.1f} (paciencia={paciencia:.2f})")
+
+    def debe_abandonar(self) -> bool:
+        """Evalúa la condición canónica sin mutar lifecycle ni contadores."""
+        return self.frustracion_local >= self.umbral_abandono
 
     # --- Métodos de detección de patrones ---
 
@@ -164,6 +239,9 @@ class TaskContext:
 
     def obtener_resumen(self) -> dict:
         """Devuelve un diccionario con los datos relevantes para el resto del sistema."""
+        loop_detectado = self.detectar_loop()
+        estancamiento_detectado = self.detectar_estancamiento()
+        compulsion_detectada = self.detectar_compulsion()
         return {
             "task_instance_id": self.task_instance_id,
             "objetivo_id": self.objetivo_id,
@@ -172,9 +250,9 @@ class TaskContext:
             "intentos_fallidos": self.intentos_fallidos,
             "frustracion_local": round(self.frustracion_local, 2),
             "umbral_abandono": round(self.umbral_abandono, 2),
-            "loop_detectado": self.detectar_loop(),
-            "estancamiento_detectado": self.detectar_estancamiento(),
-            "estancamiento": self.detectar_estancamiento(),
-            "compulsion_detectada": self.detectar_compulsion(),
-            "compulsion": self.detectar_compulsion(),
+            "loop_detectado": loop_detectado,
+            "estancamiento_detectado": estancamiento_detectado,
+            "estancamiento": estancamiento_detectado,
+            "compulsion_detectada": compulsion_detectada,
+            "compulsion": compulsion_detectada,
         }

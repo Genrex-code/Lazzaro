@@ -5,12 +5,15 @@ from tools.registry import ToolRegistry
 import tools.simulated.movimiento_sim  # noqa: F401
 
 
-def _evento_cancelacion(mensaje: str) -> EventoEntrante:
+def _evento_cancelacion(mensaje: str, *, structured: bool = True) -> EventoEntrante:
+    detalles = {"mensaje": mensaje}
+    if structured:
+        detalles["task_intent"] = "cancel"
     return EventoEntrante(
         origen="unity",
         tipo_evento="comando_usuario",
         id_transaccion=f"test-cancel-{abs(hash(mensaje))}",
-        detalles={"mensaje": mensaje},
+        detalles=detalles,
     )
 
 
@@ -21,7 +24,7 @@ def test_detecta_cancelacion_explicita_de_tarea():
 
 
 def test_no_confunde_para_que_con_cancelacion():
-    evento = _evento_cancelacion("habla para que podamos seguir probando")
+    evento = _evento_cancelacion("detente", structured=False)
 
     assert Orchestrator._usuario_pide_cancelar_tarea(evento) is False
 

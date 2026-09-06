@@ -5,7 +5,6 @@ Fachada principal que integra StateEngine, PersonalityTraits, TaskContext y Psyc
 
 import copy
 from datetime import datetime, timezone
-import re
 import threading
 from typing import Any
 
@@ -13,7 +12,12 @@ from core.logger import get_logger
 from core.personality import PersonalityTraits
 from core.psychology import PsychologyEngine
 from core.state_engine import StateEngine
-from core.task_context import TaskContext
+from core.task_context import (
+    TaskContext,
+    TaskIntent,
+    TaskTransitionReceipt,
+    TaskTransitionStatus,
+)
 from telescopio.constelacion_cognitiva import ConstelacionCognitiva
 
 logger = get_logger(__name__)
@@ -54,42 +58,68 @@ class BehaviorCore:
         self._ultima_percepcion_resumida = ""
         self._actualizar_modificadores_globales()
 
-    def iniciar_tarea(self, objetivo_id: str):
-        """Crea o resetea el TaskContext para un nuevo objetivo."""
+    def iniciar_tarea(self, objetivo_id: str) -> TaskTransitionReceipt:
+        """Entrada explícita legacy: crea o reemplaza, nunca infiere desde prosa."""
         with self._owner_lock:
-            if self.task_context is None:
-                self.task_context = TaskContext(objetivo_id)
-                logger.info("Nueva tarea iniciada: '%s'", objetivo_id)
-            else:
-                self.task_context.reset(objetivo_id)
-                logger.info("Tarea reiniciada con nuevo objetivo: '%s'", objetivo_id)
+            intent = TaskIntent.START if self.task_context is None else TaskIntent.REPLACE
+            return self._aplicar_transicion_tarea_locked(intent, objetivo_id=objetivo_id)
 
-    def finalizar_tarea(self, exito: bool):
-        """Finaliza la tarea actual y genera un evento de cierre."""
+    def finalizar_tarea(self, exito: bool) -> TaskTransitionReceipt:
+        """Compatibilidad explícita: éxito completa; no-éxito abandona la task."""
         if type(exito) is not bool:
             raise TypeError("BehaviorCore.finalizar_tarea exige un bool estricto")
         with self._owner_lock:
-            if self.task_context is None:
-                return
-
             if exito:
-                self.procesar_evento("tarea_completada", {"intensidad": 1.0})
-            else:
-                self.procesar_evento("fracaso", {"intensidad": 1.0})
-            self.task_context = None
-            logger.info("Tarea finalizada y contexto liberado.")
+                current_id = self.task_context.task_instance_id if self.task_context else None
+                result = self.procesar_evento(
+                    "tarea_completada",
+                    {
+                        "intensidad": 1.0,
+                        "task_intent": TaskIntent.COMPLETE.value,
+                        "task_instance_id": current_id,
+                    },
+                )
+                return TaskTransitionReceipt.from_dict(result["task_transition"])
+            return self._abandonar_tarea_locked("Finalizacion explicita sin exito.")
 
-    def cancelar_tarea(self, motivo: str = "") -> dict | None:
-        """Libera el contexto de tarea sin disparar razonamiento adicional."""
+    def cancelar_tarea(self, motivo: str = "") -> TaskTransitionReceipt:
+        """Cancela explícitamente la instancia activa y conserva su identidad."""
         with self._owner_lock:
-            if self.task_context is None:
-                logger.info("Cancelacion solicitada, pero no habia tarea activa.")
-                return None
+            return self._aplicar_transicion_tarea_locked(
+                TaskIntent.CANCEL,
+                reason=motivo or "Solicitud explicita.",
+            )
 
-            resumen = self.task_context.obtener_resumen()
-            self.task_context = None
-            logger.info("Tarea cancelada por solicitud externa. Motivo: %s", motivo or "sin motivo")
-            return copy.deepcopy(resumen)
+    def aplicar_transicion_tarea(
+        self,
+        intent: TaskIntent | str,
+        *,
+        objetivo_id: str | None = None,
+        expected_task_instance_id: str | None = None,
+        reason: str = "",
+    ) -> TaskTransitionReceipt:
+        """Aplica una transición estructurada bajo el owner de BehaviorCore."""
+        with self._owner_lock:
+            try:
+                parsed_intent = intent if isinstance(intent, TaskIntent) else TaskIntent(str(intent).lower())
+            except ValueError:
+                return self._task_receipt_actual(
+                    TaskTransitionStatus.INVALID_TRANSITION,
+                    TaskIntent.NONE,
+                    reason="Task intent fuera de contrato.",
+                )
+            if parsed_intent is TaskIntent.ABANDON:
+                return self._task_receipt_actual(
+                    TaskTransitionStatus.INVALID_TRANSITION,
+                    parsed_intent,
+                    reason="ABANDON sólo puede producirlo la policy interna.",
+                )
+            return self._aplicar_transicion_tarea_locked(
+                parsed_intent,
+                objetivo_id=objetivo_id,
+                expected_task_instance_id=expected_task_instance_id,
+                reason=reason,
+            )
 
     def procesar_evento(self, tipo_evento: str, detalles: dict | None = None) -> dict:
         """
@@ -140,7 +170,11 @@ class BehaviorCore:
         exito = detalles.get("exito")
         evento_emocional = self._resolver_evento_emocional(tipo_evento, detalles)
 
-        self._sincronizar_tarea_desde_detalles(tipo_evento, detalles)
+        task_transition = self._sincronizar_tarea_desde_detalles(tipo_evento, detalles)
+        lifecycle_event_applies = not (
+            tipo_evento == "tarea_completada"
+            and task_transition.status is not TaskTransitionStatus.COMPLETED
+        )
         percepcion = self._extraer_percepcion(detalles)
         percepcion_resumida = self._resumir_percepcion(percepcion)
         if percepcion:
@@ -149,8 +183,9 @@ class BehaviorCore:
 
         logger.info("Procesando evento: '%s' intensidad=%s", tipo_evento, intensidad)
 
-        self.state_engine.aplicar_evento(evento_emocional, intensidad, contexto=detalles)
-        self.personality.update_from_event(evento_emocional, intensidad)
+        if lifecycle_event_applies:
+            self.state_engine.aplicar_evento(evento_emocional, intensidad, contexto=detalles)
+            self.personality.update_from_event(evento_emocional, intensidad)
 
         task_outcome_allowed = self._resultado_pertenece_a_tarea_actual(
             tipo_evento,
@@ -170,6 +205,11 @@ class BehaviorCore:
             logger.warning(
                 "Resultado de accion ignorado por exito no booleano: %s",
                 type(exito).__name__,
+            )
+
+        if self.task_context is not None and self.task_context.debe_abandonar():
+            task_transition = self._abandonar_tarea_locked(
+                "Frustracion local alcanzo el umbral contractual."
             )
 
         self._actualizar_modificadores_globales()
@@ -201,6 +241,8 @@ class BehaviorCore:
             "percepcion_resumida": percepcion_resumida_contexto,
             "constelacion_cognitiva": self._constelacion.a_dict(),
             "constelacion_resumen": constelacion_resumen,
+            "task_transition": task_transition.to_dict(),
+            "task_action_instance_id": self._task_action_instance_id(task_transition),
         }
         return copy.deepcopy(respuesta)
 
@@ -402,38 +444,224 @@ class BehaviorCore:
             and self.task_context.task_instance_id == expected
         )
 
-    def _sincronizar_tarea_desde_detalles(self, tipo_evento: str, detalles: dict[str, Any]) -> None:
-        objetivo = self._extraer_objetivo_desde_detalles(tipo_evento, detalles)
-        if objetivo:
-            objetivo_actual = self.task_context.objetivo_id if self.task_context else None
-            if objetivo_actual != objetivo:
-                self.iniciar_tarea(objetivo)
-
-        if self.task_context is not None and detalles.get("objetivo_completado") is True:
-            self.finalizar_tarea(exito=True)
-
-    def _extraer_objetivo_desde_detalles(self, tipo_evento: str, detalles: dict[str, Any]) -> str | None:
-        if tipo_evento not in {"comando_usuario", "inicio_simulacion"}:
-            return None
-
-        mensaje = str(detalles.get("mensaje", "")).strip()
-        if not mensaje:
-            return None
-
-        match = re.search(
-            r"objetivo(?:\s+actual|\s+prioritario)?\s*:\s*(.+)",
-            mensaje,
-            re.IGNORECASE,
+    def _sincronizar_tarea_desde_detalles(
+        self,
+        tipo_evento: str,
+        detalles: dict[str, Any],
+    ) -> TaskTransitionReceipt:
+        """Consume sólo autoridad estructurada; nunca interpreta el mensaje libre."""
+        parsed_intent = self._task_intent_desde_detalles(tipo_evento, detalles)
+        if parsed_intent is None:
+            return self._task_receipt_actual(
+                TaskTransitionStatus.INVALID_TRANSITION,
+                TaskIntent.NONE,
+                reason="Task intent fuera de contrato.",
+            )
+        if parsed_intent is TaskIntent.ABANDON:
+            return self._task_receipt_actual(
+                TaskTransitionStatus.INVALID_TRANSITION,
+                parsed_intent,
+                reason="ABANDON sólo puede producirlo la policy interna.",
+            )
+        return self._aplicar_transicion_tarea_locked(
+            parsed_intent,
+            objetivo_id=self._extraer_objetivo_estructurado(detalles),
+            expected_task_instance_id=self._extraer_task_instance_id(detalles),
+            reason="Transicion solicitada por EventoEntrante.",
         )
-        if match:
-            objetivo = match.group(1).strip()
-            objetivo = re.split(r"\bREGLAS?\b", objetivo, maxsplit=1, flags=re.IGNORECASE)[0].strip()
-            return objetivo.rstrip(".")
 
-        if tipo_evento == "comando_usuario":
-            return mensaje
+    @staticmethod
+    def _task_intent_desde_detalles(
+        tipo_evento: str,
+        detalles: dict[str, Any],
+    ) -> TaskIntent | None:
+        if tipo_evento == "tarea_completada" or detalles.get("objetivo_completado") is True:
+            return TaskIntent.COMPLETE
+        raw_intent = detalles.get("task_intent")
+        if raw_intent is None or not str(raw_intent).strip():
+            return TaskIntent.NONE
+        try:
+            return TaskIntent(str(raw_intent).strip().lower())
+        except ValueError:
+            return None
 
+    @staticmethod
+    def _extraer_objetivo_estructurado(detalles: dict[str, Any]) -> str | None:
+        for key in ("task_objective", "objetivo_id", "objetivo"):
+            value = detalles.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
         return None
+
+    @staticmethod
+    def _extraer_task_instance_id(detalles: dict[str, Any]) -> str | None:
+        value = detalles.get("task_instance_id")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return None
+
+    @staticmethod
+    def _task_action_instance_id(receipt: TaskTransitionReceipt) -> str | None:
+        if receipt.status in {
+            TaskTransitionStatus.CREATED,
+            TaskTransitionStatus.CONTINUED,
+            TaskTransitionStatus.REPLACED,
+        }:
+            return receipt.task_instance_id
+        return None
+
+    def _task_receipt_actual(
+        self,
+        status: TaskTransitionStatus,
+        intent: TaskIntent,
+        *,
+        reason: str = "",
+    ) -> TaskTransitionReceipt:
+        current = self.task_context
+        return TaskTransitionReceipt(
+            status=status,
+            intent=intent,
+            task_instance_id=current.task_instance_id if current else None,
+            objetivo_id=current.objetivo_id if current else None,
+            reason=reason,
+        )
+
+    def _aplicar_transicion_tarea_locked(
+        self,
+        intent: TaskIntent,
+        *,
+        objetivo_id: str | None = None,
+        expected_task_instance_id: str | None = None,
+        reason: str = "",
+    ) -> TaskTransitionReceipt:
+        current = self.task_context
+        objective = str(objetivo_id or "").strip()
+        expected_id = str(expected_task_instance_id or "").strip()
+
+        if intent is TaskIntent.NONE:
+            status = TaskTransitionStatus.UNCHANGED if current else TaskTransitionStatus.NO_TASK
+            return self._task_receipt_actual(status, intent, reason="Sin transición solicitada.")
+
+        if intent is TaskIntent.START:
+            if current is not None or not objective:
+                return self._task_receipt_actual(
+                    TaskTransitionStatus.INVALID_TRANSITION,
+                    intent,
+                    reason="START exige ausencia de task y objetivo no vacío.",
+                )
+            self.task_context = TaskContext(objective)
+            logger.info("Nueva tarea iniciada: '%s'", objective)
+            return self._task_receipt_actual(TaskTransitionStatus.CREATED, intent, reason=reason)
+
+        if intent is TaskIntent.CONTINUE:
+            if current is None:
+                return self._task_receipt_actual(
+                    TaskTransitionStatus.INVALID_TRANSITION,
+                    intent,
+                    reason="CONTINUE exige una task activa.",
+                )
+            if expected_id and current.task_instance_id != expected_id:
+                return self._task_receipt_actual(
+                    TaskTransitionStatus.INVALID_TRANSITION,
+                    intent,
+                    reason="CONTINUE no coincide con task_instance_id.",
+                )
+            if objective and current.objetivo_id != objective:
+                return self._task_receipt_actual(
+                    TaskTransitionStatus.INVALID_TRANSITION,
+                    intent,
+                    reason="CONTINUE no puede cambiar el objetivo.",
+                )
+            return self._task_receipt_actual(TaskTransitionStatus.CONTINUED, intent, reason=reason)
+
+        if intent is TaskIntent.REPLACE:
+            if current is None or not objective:
+                return self._task_receipt_actual(
+                    TaskTransitionStatus.INVALID_TRANSITION,
+                    intent,
+                    reason="REPLACE exige task activa y objetivo nuevo.",
+                )
+            if expected_id and current.task_instance_id != expected_id:
+                return self._task_receipt_actual(
+                    TaskTransitionStatus.INVALID_TRANSITION,
+                    intent,
+                    reason="REPLACE no coincide con task_instance_id.",
+                )
+            if current.objetivo_id == objective:
+                return self._task_receipt_actual(
+                    TaskTransitionStatus.INVALID_TRANSITION,
+                    intent,
+                    reason="REPLACE exige un objetivo conceptualmente distinto.",
+                )
+            previous_id = current.task_instance_id
+            previous_objective = current.objetivo_id
+            current.reset(objective)
+            logger.info("Tarea reemplazada con nuevo objetivo: '%s'", objective)
+            return TaskTransitionReceipt(
+                status=TaskTransitionStatus.REPLACED,
+                intent=intent,
+                task_instance_id=current.task_instance_id,
+                objetivo_id=current.objetivo_id,
+                previous_task_instance_id=previous_id,
+                previous_objetivo_id=previous_objective,
+                reason=reason,
+            )
+
+        if intent in {TaskIntent.CANCEL, TaskIntent.COMPLETE}:
+            if current is None:
+                return TaskTransitionReceipt(
+                    status=TaskTransitionStatus.NO_TASK,
+                    intent=intent,
+                    reason="No había task activa.",
+                )
+            if expected_id and current.task_instance_id != expected_id:
+                return self._task_receipt_actual(
+                    TaskTransitionStatus.INVALID_TRANSITION,
+                    intent,
+                    reason="La transición terminal no coincide con task_instance_id.",
+                )
+            terminal_id = current.task_instance_id
+            terminal_objective = current.objetivo_id
+            self.task_context = None
+            status = (
+                TaskTransitionStatus.CANCELLED
+                if intent is TaskIntent.CANCEL
+                else TaskTransitionStatus.COMPLETED
+            )
+            logger.info("Tarea %s y contexto liberado.", status.value)
+            return TaskTransitionReceipt(
+                status=status,
+                intent=intent,
+                task_instance_id=terminal_id,
+                objetivo_id=terminal_objective,
+                reason=reason,
+            )
+
+        return self._task_receipt_actual(
+            TaskTransitionStatus.INVALID_TRANSITION,
+            intent,
+            reason="Transición no autorizada.",
+        )
+
+    def _abandonar_tarea_locked(self, reason: str) -> TaskTransitionReceipt:
+        current = self.task_context
+        if current is None:
+            return TaskTransitionReceipt(
+                status=TaskTransitionStatus.NO_TASK,
+                intent=TaskIntent.ABANDON,
+                reason="No había task activa.",
+            )
+        terminal_id = current.task_instance_id
+        terminal_objective = current.objetivo_id
+        self.task_context = None
+        logger.info("Tarea abandonada por policy determinista.")
+        return TaskTransitionReceipt(
+            status=TaskTransitionStatus.ABANDONED,
+            intent=TaskIntent.ABANDON,
+            task_instance_id=terminal_id,
+            objetivo_id=terminal_objective,
+            reason=reason,
+        )
 
     @staticmethod
     def _extraer_percepcion(detalles: dict[str, Any]) -> dict[str, Any]:

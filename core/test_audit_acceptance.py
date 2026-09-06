@@ -137,7 +137,12 @@ def test_transaction_is_reconstructed_from_jsonl_only() -> None:
         message = "Ve al cubo y recuerda lo que hablamos."
         result = orchestrator.procesar_evento(EventoEntrante(
             origen="terminal", tipo_evento="comando_usuario", id_transaccion=transaction_id,
-            detalles={"mensaje": message, "solicita_decision": True},
+            detalles={
+                "mensaje": message,
+                "solicita_decision": True,
+                "task_intent": "replace",
+                "task_objective": message,
+            },
         ))
         assert_true(result is not None and result.nombre == "hablar", "El turno debe conservar la salida funcional.")
         assert_true(calls == {"search": 1, "summary": 1, "save": 1, "execution": 1, "snapshot": 2}, "La auditoría no debe repetir trabajo funcional.")

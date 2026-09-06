@@ -6,11 +6,9 @@ Coordina el flujo completo: evento -> estado interno -> memoria -> IA -> accion.
 from collections import OrderedDict, deque
 from copy import deepcopy
 from datetime import datetime
-import re
 import threading
 import time
 from typing import List, Optional
-import unicodedata
 import uuid
 
 from ai_engine.identity_state import IdentityState
@@ -312,8 +310,8 @@ class Orchestrator:
             # Copiar ahora evita que una mutacion posterior reescriba el pasado.
             captured = deepcopy({key: snapshot[key] for key in ("state", "task")})
             if "objetivo_id" in captured["task"]:
-                # TaskContext usa el mensaje como objetivo; no volcar un manual
-                # o prompt largo por una vía distinta de input.message_preview.
+                # El objetivo estructurado también permanece acotado: no volcar
+                # manuales, prompts ni secretos mediante el snapshot de task.
                 captured["task"]["objetivo_id"] = safe_preview(
                     captured["task"]["objetivo_id"]
                 )
@@ -712,7 +710,7 @@ class Orchestrator:
                 self._persistir_identidad_accion(
                     evento,
                     cacheada,
-                    tarea=None,
+                    task_instance_id=None,
                     decision_valid=None,
                 )
             except Exception:
@@ -868,6 +866,10 @@ class Orchestrator:
         narrativa = respuesta_core.get("narrativa", "")
         contexto_llm = respuesta_core.get("contexto_llm", {})
         tarea = respuesta_core.get("tarea")
+        task_transition = respuesta_core.get("task_transition")
+        task_action_instance_id = str(
+            respuesta_core.get("task_action_instance_id") or ""
+        ).strip() or None
         politica = respuesta_core.get("policy_activa", "exploradora")
         es_interrupcion_critica = bool(respuesta_core.get("es_interrupcion_critica"))
         tipo_memoria = str(respuesta_core.get("tipo_memoria", evento.tipo_evento))
@@ -980,8 +982,11 @@ class Orchestrator:
         try:
             if es_interrupcion_critica:
                 action_response = self._resolver_interrupcion_critica(evento)
-            elif not self._es_canal_terminal(evento) and self._usuario_pide_cancelar_tarea(evento):
-                action_response = self._resolver_cancelacion_tarea_usuario(evento)
+            elif self._usuario_pide_cancelar_tarea(evento):
+                action_response = self._resolver_cancelacion_tarea_usuario(
+                    evento,
+                    task_transition=task_transition,
+                )
             elif solicita_guardado_conversacional:
                 self._iniciar_efecto_uow(
                     evento.id_transaccion,
@@ -1102,7 +1107,7 @@ class Orchestrator:
                 self._persistir_identidad_accion(
                     evento,
                     accion_saliente,
-                    tarea=tarea,
+                    task_instance_id=task_action_instance_id,
                     decision_valid=action_response.valido,
                 )
             except Exception:
@@ -1729,32 +1734,11 @@ class Orchestrator:
                 return str(valor).strip()
         return ""
 
-    @classmethod
-    def _usuario_pide_cancelar_tarea(cls, evento: EventoEntrante) -> bool:
+    @staticmethod
+    def _usuario_pide_cancelar_tarea(evento: EventoEntrante) -> bool:
         if evento.tipo_evento != "comando_usuario":
             return False
-
-        mensaje = cls._normalizar_texto_comando(cls._extraer_mensaje_usuario(evento))
-        if not mensaje:
-            return False
-
-        patrones_cancelacion = (
-            r"\b(cancela|cancelar|cancele|canceles)\b.*\b(tarea|tareas|subtarea|subtareas|cola|pendiente|pendientes|movimiento|accion|acciones|secuencia|orden|ordenes|todo)\b",
-            r"\b(detente|deten|alto|parate)\b(\s|$)",
-            r"\b(para)\b.*\b(ya|tarea|tareas|movimiento|accion|acciones|secuencia|todo)\b",
-            r"\b(deja\s+de|no\s+sigas|interrumpe|interrumpir|abandona|descarta)\b.*\b(tarea|tareas|moverte|caminar|movimiento|accion|acciones|secuencia|cola)\b",
-            r"\b(limpia|borra|vacia)\b.*\b(cola|tareas|pendientes)\b",
-            r"\b(cancela|cancelar|detente|alto)\b\s*$",
-        )
-        return any(re.search(patron, mensaje) for patron in patrones_cancelacion)
-
-    @staticmethod
-    def _normalizar_texto_comando(texto: str) -> str:
-        normalizado = unicodedata.normalize("NFD", texto or "")
-        normalizado = "".join(caracter for caracter in normalizado if unicodedata.category(caracter) != "Mn")
-        normalizado = normalizado.lower()
-        normalizado = re.sub(r"\s+", " ", normalizado)
-        return normalizado.strip()
+        return str(evento.detalles.get("task_intent") or "").strip().lower() == "cancel"
 
     @staticmethod
     def _extraer_texto_hablar(parametros: dict) -> str:
@@ -3284,12 +3268,10 @@ class Orchestrator:
         evento: EventoEntrante,
         accion: AccionSaliente,
         *,
-        tarea: dict | None,
+        task_instance_id: str | None,
         decision_valid: bool | None = None,
     ) -> None:
-        task_instance_id = None
-        if isinstance(tarea, dict):
-            task_instance_id = str(tarea.get("task_instance_id") or "").strip() or None
+        task_instance_id = str(task_instance_id or "").strip() or None
         receipt = self._obtener_action_ledger().record_action(
             action_id=accion.id_accion,
             transaction_id=str(evento.id_transaccion),
@@ -3427,19 +3409,55 @@ class Orchestrator:
             "resumen": self.behavior.obtener_constelacion_resumen(),
         }
 
-    def _resolver_cancelacion_tarea_usuario(self, evento: EventoEntrante) -> ActionResponse:
-        """Detiene la tarea activa sin consultar al LLM cuando el usuario lo pide."""
-        mensaje_usuario = self._extraer_mensaje_usuario(evento)
-        cancelar_tarea = getattr(self.behavior, "cancelar_tarea", None)
-        tarea_cancelada = None
-        if callable(cancelar_tarea):
-            try:
-                tarea_cancelada = cancelar_tarea("Solicitud explicita del usuario.")
-            except Exception as e:
-                logger.error("Error cancelando tarea activa en BehaviorCore: %s", e, exc_info=True)
+    def _resolver_cancelacion_tarea_usuario(
+        self,
+        evento: EventoEntrante,
+        *,
+        task_transition: dict | None = None,
+    ) -> ActionResponse:
+        """Materializa una cancelación ya autorizada por señal estructurada."""
+        transition = dict(task_transition) if isinstance(task_transition, dict) else {}
+        if not transition:
+            cancelar_tarea = getattr(self.behavior, "cancelar_tarea", None)
+            if not callable(cancelar_tarea):
+                raise RuntimeError("BehaviorCore no expone cancelación estructurada")
+            receipt = cancelar_tarea("Solicitud explicita del usuario.")
+            transition = (
+                receipt.to_dict()
+                if callable(getattr(receipt, "to_dict", None))
+                else {}
+            )
+
+        if transition.get("status") != "cancelled":
+            return ActionResponse(
+                pensamiento="",
+                accion="none",
+                parametros={},
+                razon="La cancelacion no tenia una tarea activa compatible.",
+                valido=True,
+                metadata={
+                    "task_cancelled_by_user": False,
+                    "task_transition": transition,
+                },
+            )
+
+        if self._es_canal_terminal(evento):
+            return ActionResponse(
+                pensamiento="",
+                accion="hablar",
+                parametros={
+                    "texto_a_comunicar": "De acuerdo, cancelé la tarea activa."
+                },
+                razon="Cancelacion estructurada aplicada a la tarea original.",
+                valido=True,
+                metadata={
+                    "task_cancelled_by_user": True,
+                    "task_transition": transition,
+                },
+            )
 
         return ActionResponse(
-            pensamiento="El usuario pidio cancelar la tarea actual. Debo detener cuerpo, cola y contexto activo.",
+            pensamiento="El usuario pidio cancelar la tarea actual. Debo detener cuerpo y cola.",
             accion="cancelar_tarea",
             parametros={
                 "motivo": "Solicitud explicita del usuario.",
@@ -3447,12 +3465,11 @@ class Orchestrator:
                 "cancelar_cola": True,
                 "texto_confirmacion": "De acuerdo, cancelo la tarea actual.",
             },
-            razon="Cancelacion solicitada por el usuario; se evita llamar al LLM y se prioriza detener actividad.",
+            razon="Cancelacion estructurada aplicada antes de detener actividad externa.",
             valido=True,
             metadata={
                 "task_cancelled_by_user": True,
-                "mensaje_usuario": mensaje_usuario,
-                "tarea_cancelada": tarea_cancelada,
+                "task_transition": transition,
             },
         )
 

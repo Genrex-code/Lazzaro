@@ -1593,7 +1593,7 @@ def test_unity_conserva_su_flujo_motor_y_cancelacion() -> None:
         origen="unity",
         tipo_evento="comando_usuario",
         id_transaccion="unity-regression",
-        detalles={"mensaje": "detente"},
+        detalles={"mensaje": "detente", "task_intent": "cancel"},
     )
     decision = {
         "intent": "MOTOR_SIMPLE",
@@ -1617,7 +1617,7 @@ def test_unity_conserva_su_flujo_motor_y_cancelacion() -> None:
     )
     assert_true(
         Orchestrator._usuario_pide_cancelar_tarea(evento) is True,
-        "Unity debe conservar su atajo de cancelacion.",
+        "Unity debe conservar la cancelacion cuando llega tipada.",
     )
     herramientas = ToolPolicy().seleccionar(
         ["hablar", "navegar_a_objeto", "escribir_teclado"],
