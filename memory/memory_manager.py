@@ -119,12 +119,34 @@ class MemoryManager:
         self._hechos_conversacionales_guardados: set[str] = set()
         self._alias_aprendidos_guardados: set[str] = set()
         self._memorias_afectivas_guardadas: set[str] = set()
+        self._ram_state_lock = threading.Lock()
         self._guardado_conversacional_lock = threading.RLock()
         self._fotografias_conversacionales_pendientes: OrderedDict[
             str,
             tuple[PublicConversationTurn, ...],
         ] = OrderedDict()
         logger.info("MemoryManager inicializado correctamente.")
+
+    def _obtener_ram_state_lock(self):
+        """Obtiene el lock de RAM; el fallback soporta fakes legacy sin __init__."""
+        lock = getattr(self, "_ram_state_lock", None)
+        if lock is None:
+            lock = threading.Lock()
+            self._ram_state_lock = lock
+        return lock
+
+    def _ram_set_contains(self, nombre: str, key: str) -> bool:
+        with self._obtener_ram_state_lock():
+            valores = getattr(self, nombre, None)
+            return isinstance(valores, set) and key in valores
+
+    def _ram_set_add(self, nombre: str, key: str) -> None:
+        with self._obtener_ram_state_lock():
+            valores = getattr(self, nombre, None)
+            if not isinstance(valores, set):
+                valores = set()
+                setattr(self, nombre, valores)
+            valores.add(key)
 
     def guardar_experiencia(
         self,
@@ -213,11 +235,11 @@ class MemoryManager:
             return None
 
         key = alias_key(candidate.object_id, candidate.human_concept)
-        if key in self._alias_aprendidos_guardados:
+        if self._ram_set_contains("_alias_aprendidos_guardados", key):
             logger.debug("Alias aprendido duplicado en cache: %s", key)
             return None
         if self._alias_aprendido_ya_persistido(candidate):
-            self._alias_aprendidos_guardados.add(key)
+            self._ram_set_add("_alias_aprendidos_guardados", key)
             logger.debug("Alias aprendido ya existia en memoria semantica: %s", key)
             return None
 
@@ -245,7 +267,7 @@ class MemoryManager:
             extra=metadata,
         )
         if recuerdo_id:
-            self._alias_aprendidos_guardados.add(key)
+            self._ram_set_add("_alias_aprendidos_guardados", key)
         return recuerdo_id
 
     def obtener_aliases_aprendidos(
@@ -279,7 +301,10 @@ class MemoryManager:
                 bucket = aliases.setdefault(object_id, [])
                 if human_concept not in bucket:
                     bucket.append(human_concept)
-                    self._alias_aprendidos_guardados.add(alias_key(object_id, human_concept))
+                    self._ram_set_add(
+                        "_alias_aprendidos_guardados",
+                        alias_key(object_id, human_concept),
+                    )
             return aliases
         except Exception as e:
             logger.error("Error al obtener aliases aprendidos: %s", e, exc_info=True)
@@ -325,7 +350,7 @@ class MemoryManager:
             normalized_affect,
             normalized_source,
         )
-        if key in self._memorias_afectivas_guardadas:
+        if self._ram_set_contains("_memorias_afectivas_guardadas", key):
             logger.debug("Memoria afectiva espacial duplicada en cache: %s", key)
             return None
         if self._memoria_afectiva_ya_persistida(
@@ -334,7 +359,7 @@ class MemoryManager:
             affect=normalized_affect,
             source=normalized_source,
         ):
-            self._memorias_afectivas_guardadas.add(key)
+            self._ram_set_add("_memorias_afectivas_guardadas", key)
             logger.debug("Memoria afectiva espacial ya existia: %s", key)
             return None
 
@@ -360,7 +385,7 @@ class MemoryManager:
             extra=metadata,
         )
         if recuerdo_id:
-            self._memorias_afectivas_guardadas.add(key)
+            self._ram_set_add("_memorias_afectivas_guardadas", key)
         return recuerdo_id
 
     def obtener_memorias_afectivas_espaciales(
@@ -416,7 +441,8 @@ class MemoryManager:
                 bucket = hints.setdefault(key, [])
                 if hint not in bucket:
                     bucket.append(hint)
-                    self._memorias_afectivas_guardadas.add(
+                    self._ram_set_add(
+                        "_memorias_afectivas_guardadas",
                         _affective_memory_key(object_id, object_class, affect, source)
                     )
             return hints
@@ -1157,10 +1183,10 @@ class MemoryManager:
                     regla=regla,
                 )
 
-            if huella in self._hechos_conversacionales_guardados:
+            if self._ram_set_contains("_hechos_conversacionales_guardados", huella):
                 continue
             if self._hecho_relacional_ya_persistido(huella):
-                self._hechos_conversacionales_guardados.add(huella)
+                self._ram_set_add("_hechos_conversacionales_guardados", huella)
                 continue
 
             guardada = self.guardar_regla(
@@ -1182,7 +1208,7 @@ class MemoryManager:
                 },
             )
             if guardada:
-                self._hechos_conversacionales_guardados.add(huella)
+                self._ram_set_add("_hechos_conversacionales_guardados", huella)
 
     @classmethod
     def _extraer_hechos_conversacionales(
@@ -1561,12 +1587,13 @@ class MemoryManager:
         if not self._es_memoria_observacional(tipo_evento, extra or {}, narrativa):
             return
 
-        self._observaciones_desde_revision += 1
-        if self._observaciones_desde_revision < self.revision_consolidacion_cada:
-            return
+        with self._obtener_ram_state_lock():
+            observaciones = int(getattr(self, "_observaciones_desde_revision", 0)) + 1
+            debe_consolidar = observaciones >= self.revision_consolidacion_cada
+            self._observaciones_desde_revision = 0 if debe_consolidar else observaciones
 
-        self._observaciones_desde_revision = 0
-        self.consolidar_memorias_si_hace_falta()
+        if debe_consolidar:
+            self.consolidar_memorias_si_hace_falta()
 
     def consolidar_memorias_si_hace_falta(self) -> None:
         """

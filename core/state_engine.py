@@ -4,9 +4,10 @@ Contiene las variables emocionales/cognitivas crudas, el decaimiento temporal
 y la aplicacion de eventos deterministas.
 """
 
+from contextlib import contextmanager
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 
 from core.logger import get_logger
 
@@ -59,6 +60,12 @@ class StateEngine:
             "tasa_tolerancia_riesgo": 1.0,
             "amortiguador_estres": 1.0,
         }
+
+    @contextmanager
+    def atomic(self) -> Iterator[None]:
+        """Permite al owner componer varias operaciones de estado sin interleaving."""
+        with self._state_lock:
+            yield
 
     def actualizar_modificadores(self, nuevos_mods: dict):
         """Recibe un diccionario con los modificadores calculados desde personality.py."""
@@ -393,30 +400,32 @@ class StateEngine:
         Foco real considerando estres, energia y carga cognitiva.
         Se usa para calcular probabilidad de errores.
         """
-        foco = self.foco
-        if self.estres > 60:
-            foco -= (self.estres - 60) * 0.5
-        if self.energia < 40:
-            foco -= (40 - self.energia) * 0.4
-        if self.carga_cognitiva > 50:
-            foco -= (self.carga_cognitiva - 50) * 0.3
-        if 20 < self.curiosidad < 60:
-            foco += 5
-        elif self.curiosidad > 80:
-            foco -= 5
-        return max(0, min(100, foco))
+        with self._state_lock:
+            foco = self.foco
+            if self.estres > 60:
+                foco -= (self.estres - 60) * 0.5
+            if self.energia < 40:
+                foco -= (40 - self.energia) * 0.4
+            if self.carga_cognitiva > 50:
+                foco -= (self.carga_cognitiva - 50) * 0.3
+            if 20 < self.curiosidad < 60:
+                foco += 5
+            elif self.curiosidad > 80:
+                foco -= 5
+            return max(0, min(100, foco))
 
     @property
     def resiliencia_actual(self) -> float:
         """Nivel de resiliencia efectiva en este momento (0-1)."""
-        base = self.modificadores.get("amortiguador_estres", 1.0)
-        if self.estres > 80:
-            base *= 0.8
-        elif self.estres < 20:
-            base *= 1.1
-        if self.motivacion > 50:
-            base *= 1.05
-        return round(base, 2)
+        with self._state_lock:
+            base = self.modificadores.get("amortiguador_estres", 1.0)
+            if self.estres > 80:
+                base *= 0.8
+            elif self.estres < 20:
+                base *= 1.1
+            if self.motivacion > 50:
+                base *= 1.05
+            return round(base, 2)
 
 
 estado_actual = StateEngine()

@@ -80,6 +80,10 @@ class Orchestrator:
         self._guardados_conversacionales_pendientes: OrderedDict[str, str] = OrderedDict()
         self._alias_candidates_pendientes: OrderedDict[str, dict] = OrderedDict()
         self._notificaciones: deque[NotificacionSaliente] = deque(maxlen=50)
+        self._transacciones_cache_lock = threading.Lock()
+        self._guardados_conversacionales_lock = threading.Lock()
+        self._alias_candidates_lock = threading.Lock()
+        self._notificaciones_lock = threading.Lock()
         self._transacciones_lock_guard = threading.Lock()
         self._transacciones_locks: dict[str, dict[str, object]] = {}
         self._descanso_terminal_lock = threading.RLock()
@@ -1140,25 +1144,26 @@ class Orchestrator:
         if not user_query:
             return
 
-        pending_store = getattr(self, "_alias_candidates_pendientes", None)
-        if not isinstance(pending_store, OrderedDict):
-            self._alias_candidates_pendientes = OrderedDict()
-            pending_store = self._alias_candidates_pendientes
-
         target_name = str(
             action_response.parametros.get("nombre_objeto")
             if isinstance(action_response.parametros, dict)
             else ""
         ).strip()
-        pending_store[accion_saliente.id_accion] = {
+        pending = {
             "id_accion": accion_saliente.id_accion,
             "action": action_response.accion,
             "target_name": target_name,
             "user_query": user_query,
             "motor_resolution": resolution,
         }
-        while len(pending_store) > self.MAX_TRANSACCIONES_CACHE:
-            pending_store.popitem(last=False)
+        with self._obtener_lock_recurso("_alias_candidates_lock"):
+            pending_store = getattr(self, "_alias_candidates_pendientes", None)
+            if not isinstance(pending_store, OrderedDict):
+                self._alias_candidates_pendientes = OrderedDict()
+                pending_store = self._alias_candidates_pendientes
+            pending_store[accion_saliente.id_accion] = pending
+            while len(pending_store) > self.MAX_TRANSACCIONES_CACHE:
+                pending_store.popitem(last=False)
 
     def _registrar_alias_aprendido_si_corresponde(self, evento: EventoEntrante) -> None:
         if evento.tipo_evento != "resultado_accion":
@@ -1172,44 +1177,48 @@ class Orchestrator:
         self._persistir_alias_pendiente(pending)
 
     def _aprobar_alias_pendiente_por_id(self, id_accion: str) -> None:
-        pending_store = getattr(self, "_alias_candidates_pendientes", None)
-        if not isinstance(pending_store, OrderedDict):
-            return
-        pending = pending_store.pop(id_accion, None)
+        with self._obtener_lock_recurso("_alias_candidates_lock"):
+            pending_store = getattr(self, "_alias_candidates_pendientes", None)
+            pending = (
+                pending_store.pop(id_accion, None)
+                if isinstance(pending_store, OrderedDict)
+                else None
+            )
         if pending is not None:
             self._persistir_alias_pendiente(pending)
 
     def _buscar_alias_pendiente_para_resultado(self, detalles: dict) -> dict | None:
-        pending_store = getattr(self, "_alias_candidates_pendientes", None)
-        if not isinstance(pending_store, OrderedDict) or not pending_store:
+        with self._obtener_lock_recurso("_alias_candidates_lock"):
+            pending_store = getattr(self, "_alias_candidates_pendientes", None)
+            if not isinstance(pending_store, OrderedDict) or not pending_store:
+                return None
+
+            id_accion = str(
+                detalles.get("id_accion")
+                or detalles.get("accion_id")
+                or detalles.get("action_id")
+                or ""
+            ).strip()
+            if id_accion:
+                pending = pending_store.pop(id_accion, None)
+                if pending is not None:
+                    return pending
+
+            accion = str(detalles.get("accion") or "").strip()
+            target = str(
+                detalles.get("nombre_objeto")
+                or detalles.get("objeto")
+                or detalles.get("target")
+                or detalles.get("object_id")
+                or ""
+            ).strip()
+            for key, pending in reversed(list(pending_store.items())):
+                if accion and pending.get("action") != accion:
+                    continue
+                if target and target not in {pending.get("target_name"), pending.get("motor_resolution", {}).get("target_id")}:
+                    continue
+                return pending_store.pop(key)
             return None
-
-        id_accion = str(
-            detalles.get("id_accion")
-            or detalles.get("accion_id")
-            or detalles.get("action_id")
-            or ""
-        ).strip()
-        if id_accion:
-            pending = pending_store.pop(id_accion, None)
-            if pending is not None:
-                return pending
-
-        accion = str(detalles.get("accion") or "").strip()
-        target = str(
-            detalles.get("nombre_objeto")
-            or detalles.get("objeto")
-            or detalles.get("target")
-            or detalles.get("object_id")
-            or ""
-        ).strip()
-        for key, pending in reversed(list(pending_store.items())):
-            if accion and pending.get("action") != accion:
-                continue
-            if target and target not in {pending.get("target_name"), pending.get("motor_resolution", {}).get("target_id")}:
-                continue
-            return pending_store.pop(key)
-        return None
 
     def _persistir_alias_pendiente(self, pending: dict) -> None:
         candidate = build_learned_alias_candidate(
@@ -1524,10 +1533,13 @@ class Orchestrator:
         El primer intento ya registró el evento y su fallo. Un retry con el
         mismo ID únicamente debe completar la persistencia pendiente.
         """
-        pendientes = getattr(self, "_guardados_conversacionales_pendientes", None)
-        if not isinstance(pendientes, OrderedDict):
-            return None
-        politica = pendientes.get(evento.id_transaccion)
+        with self._obtener_lock_recurso("_guardados_conversacionales_lock"):
+            pendientes = getattr(self, "_guardados_conversacionales_pendientes", None)
+            politica = (
+                pendientes.get(evento.id_transaccion)
+                if isinstance(pendientes, OrderedDict)
+                else None
+            )
         if politica is None:
             return None
 
@@ -2347,9 +2359,10 @@ class Orchestrator:
 
     def obtener_notificaciones(self) -> List[NotificacionSaliente]:
         """Devuelve y limpia las notificaciones pendientes."""
-        notificaciones = list(self._notificaciones)
-        self._notificaciones.clear()
-        return notificaciones
+        with self._obtener_lock_recurso("_notificaciones_lock"):
+            notificaciones = list(self._notificaciones)
+            self._notificaciones.clear()
+            return notificaciones
 
     def close(self) -> None:
         """Cierra recursos auxiliares persistentes del orquestador."""
@@ -2597,8 +2610,9 @@ class Orchestrator:
 
     def _agregar_notificacion_si_corresponde(self, action_response: ActionResponse):
         """Si el agente quiere comunicar algo espontaneo, lo encola."""
+        nuevas: list[NotificacionSaliente] = []
         if action_response.accion == "none" and action_response.pensamiento:
-            self._notificaciones.append(
+            nuevas.append(
                 NotificacionSaliente(
                     tipo="pensamiento",
                     mensaje=action_response.pensamiento,
@@ -2607,13 +2621,16 @@ class Orchestrator:
             )
 
         if action_response.error:
-            self._notificaciones.append(
+            nuevas.append(
                 NotificacionSaliente(
                     tipo="error",
                     mensaje=f"Error de razonamiento: {action_response.error}",
                     timestamp=datetime.utcnow(),
                 )
             )
+        if nuevas:
+            with self._obtener_lock_recurso("_notificaciones_lock"):
+                self._notificaciones.extend(nuevas)
 
     def _herramientas_para_evento(self, evento: EventoEntrante, triage_decision: dict) -> list[str]:
         herramientas = self.tool_registry.listar_nombres() if self.tool_registry else []
@@ -2702,10 +2719,11 @@ class Orchestrator:
         return evento.origen == "sandbox"
 
     def _obtener_transaccion_cacheada(self, id_transaccion: str) -> Optional[AccionSaliente]:
-        accion = self._transacciones_procesadas.get(id_transaccion)
-        if accion is not None:
-            self._transacciones_procesadas.move_to_end(id_transaccion)
-        return accion
+        with self._obtener_lock_recurso("_transacciones_cache_lock"):
+            accion = self._transacciones_procesadas.get(id_transaccion)
+            if accion is not None:
+                self._transacciones_procesadas.move_to_end(id_transaccion)
+            return accion
 
     @staticmethod
     def _debe_cachear_transaccion(action_response: ActionResponse) -> bool:
@@ -2729,25 +2747,36 @@ class Orchestrator:
         id_transaccion: str,
         politica: str,
     ) -> None:
-        pendientes = getattr(self, "_guardados_conversacionales_pendientes", None)
-        if not isinstance(pendientes, OrderedDict):
-            pendientes = OrderedDict()
-            self._guardados_conversacionales_pendientes = pendientes
-        pendientes[id_transaccion] = politica
-        pendientes.move_to_end(id_transaccion)
-        while len(pendientes) > self.MAX_TRANSACCIONES_CACHE:
-            pendientes.popitem(last=False)
+        with self._obtener_lock_recurso("_guardados_conversacionales_lock"):
+            pendientes = getattr(self, "_guardados_conversacionales_pendientes", None)
+            if not isinstance(pendientes, OrderedDict):
+                pendientes = OrderedDict()
+                self._guardados_conversacionales_pendientes = pendientes
+            pendientes[id_transaccion] = politica
+            pendientes.move_to_end(id_transaccion)
+            while len(pendientes) > self.MAX_TRANSACCIONES_CACHE:
+                pendientes.popitem(last=False)
 
     def _olvidar_guardado_conversacional_pendiente(self, id_transaccion: str) -> None:
-        pendientes = getattr(self, "_guardados_conversacionales_pendientes", None)
-        if isinstance(pendientes, OrderedDict):
-            pendientes.pop(id_transaccion, None)
+        with self._obtener_lock_recurso("_guardados_conversacionales_lock"):
+            pendientes = getattr(self, "_guardados_conversacionales_pendientes", None)
+            if isinstance(pendientes, OrderedDict):
+                pendientes.pop(id_transaccion, None)
 
     def _cachear_transaccion(self, id_transaccion: str, accion: AccionSaliente) -> None:
-        self._transacciones_procesadas[id_transaccion] = accion
-        self._transacciones_procesadas.move_to_end(id_transaccion)
-        while len(self._transacciones_procesadas) > self.MAX_TRANSACCIONES_CACHE:
-            self._transacciones_procesadas.popitem(last=False)
+        with self._obtener_lock_recurso("_transacciones_cache_lock"):
+            self._transacciones_procesadas[id_transaccion] = accion
+            self._transacciones_procesadas.move_to_end(id_transaccion)
+            while len(self._transacciones_procesadas) > self.MAX_TRANSACCIONES_CACHE:
+                self._transacciones_procesadas.popitem(last=False)
+
+    def _obtener_lock_recurso(self, nombre: str):
+        """Obtiene un lock local; el fallback conserva fakes legacy creados sin __init__."""
+        lock = getattr(self, nombre, None)
+        if lock is None:
+            lock = threading.Lock()
+            setattr(self, nombre, lock)
+        return lock
 
     @staticmethod
     def _construir_query_memoria(

@@ -5,6 +5,7 @@ Almacena las últimas acciones y eventos inmediatos, sin persistencia.
 
 from collections import deque
 from datetime import datetime
+import threading
 
 from core.logger import get_logger
 from memory.memory_types import WorkingMemoryItem
@@ -25,6 +26,7 @@ class WorkingMemory:
             max_size: Número máximo de elementos en la cola.
         """
         self._buffer = deque(maxlen=max_size)
+        self._lock = threading.Lock()
 
     def agregar(
         self, accion: str, resultado: str = "pendiente", detalles: dict | None = None
@@ -36,22 +38,26 @@ class WorkingMemory:
             timestamp=datetime.utcnow(),
             detalles=detalles,
         )
-        self._buffer.append(item)
+        with self._lock:
+            self._buffer.append(item)
         logger.debug("Working memory: +%s (%s)", accion, resultado)
 
     def obtener_ultimas(self, n: int = 5) -> list[WorkingMemoryItem]:
         """Devuelve los últimos n eventos (los más recientes primero)."""
-        return list(self._buffer)[-n:][::-1]
+        with self._lock:
+            return list(self._buffer)[-n:][::-1]
 
     def obtener_todas(self) -> list[WorkingMemoryItem]:
         """Devuelve todos los eventos actualmente en la memoria de trabajo."""
-        return list(self._buffer)
+        with self._lock:
+            return list(self._buffer)
 
     def ultimo_resultado(self) -> str | None:
         """Resultado de la acción más reciente, o None si no hay."""
-        if not self._buffer:
-            return None
-        return self._buffer[-1].resultado
+        with self._lock:
+            if not self._buffer:
+                return None
+            return self._buffer[-1].resultado
 
     def resumen(self) -> str:
         """Devuelve un texto breve con las últimas acciones para incluir en el prompt."""
@@ -68,7 +74,8 @@ class WorkingMemory:
 
     def limpiar(self):
         """Vacía la memoria de trabajo."""
-        self._buffer.clear()
+        with self._lock:
+            self._buffer.clear()
         logger.debug("Working memory limpiada.")
 
     @staticmethod

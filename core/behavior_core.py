@@ -3,8 +3,10 @@ behavior_core.py - Capa 3 del sistema de comportamiento de Lazzaro.
 Fachada principal que integra StateEngine, PersonalityTraits, TaskContext y PsychologyEngine.
 """
 
+import copy
 from datetime import datetime, timezone
 import re
+import threading
 from typing import Any
 
 from core.logger import get_logger
@@ -37,6 +39,7 @@ class BehaviorCore:
     }
 
     def __init__(self):
+        self._owner_lock = threading.RLock()
         self.state_engine = StateEngine()
         self.personality = PersonalityTraits()
         self.psychology = PsychologyEngine()
@@ -53,43 +56,52 @@ class BehaviorCore:
 
     def iniciar_tarea(self, objetivo_id: str):
         """Crea o resetea el TaskContext para un nuevo objetivo."""
-        if self.task_context is None:
-            self.task_context = TaskContext(objetivo_id)
-            logger.info("Nueva tarea iniciada: '%s'", objetivo_id)
-        else:
-            self.task_context.reset(objetivo_id)
-            logger.info("Tarea reiniciada con nuevo objetivo: '%s'", objetivo_id)
+        with self._owner_lock:
+            if self.task_context is None:
+                self.task_context = TaskContext(objetivo_id)
+                logger.info("Nueva tarea iniciada: '%s'", objetivo_id)
+            else:
+                self.task_context.reset(objetivo_id)
+                logger.info("Tarea reiniciada con nuevo objetivo: '%s'", objetivo_id)
 
     def finalizar_tarea(self, exito: bool):
         """Finaliza la tarea actual y genera un evento de cierre."""
         if type(exito) is not bool:
             raise TypeError("BehaviorCore.finalizar_tarea exige un bool estricto")
-        if self.task_context is None:
-            return
+        with self._owner_lock:
+            if self.task_context is None:
+                return
 
-        if exito:
-            self.procesar_evento("tarea_completada", {"intensidad": 1.0})
-        else:
-            self.procesar_evento("fracaso", {"intensidad": 1.0})
-        self.task_context = None
-        logger.info("Tarea finalizada y contexto liberado.")
+            if exito:
+                self.procesar_evento("tarea_completada", {"intensidad": 1.0})
+            else:
+                self.procesar_evento("fracaso", {"intensidad": 1.0})
+            self.task_context = None
+            logger.info("Tarea finalizada y contexto liberado.")
 
     def cancelar_tarea(self, motivo: str = "") -> dict | None:
         """Libera el contexto de tarea sin disparar razonamiento adicional."""
-        if self.task_context is None:
-            logger.info("Cancelacion solicitada, pero no habia tarea activa.")
-            return None
+        with self._owner_lock:
+            if self.task_context is None:
+                logger.info("Cancelacion solicitada, pero no habia tarea activa.")
+                return None
 
-        resumen = self.task_context.obtener_resumen()
-        self.task_context = None
-        logger.info("Tarea cancelada por solicitud externa. Motivo: %s", motivo or "sin motivo")
-        return resumen
+            resumen = self.task_context.obtener_resumen()
+            self.task_context = None
+            logger.info("Tarea cancelada por solicitud externa. Motivo: %s", motivo or "sin motivo")
+            return copy.deepcopy(resumen)
 
     def procesar_evento(self, tipo_evento: str, detalles: dict | None = None) -> dict:
         """
         Recibe un evento externo y actualiza todo el sistema.
         Retorna un diccionario con el nuevo estado, banderas y contexto LLM.
         """
+        with self._owner_lock:
+            with self.state_engine.atomic():
+                return self._procesar_evento_locked(tipo_evento, detalles)
+
+    def _procesar_evento_locked(self, tipo_evento: str, detalles: dict | None = None) -> dict:
+        """Implementa el turno mientras BehaviorCore y StateEngine son exclusivos."""
         if detalles is None:
             detalles = {}
 
@@ -102,7 +114,7 @@ class BehaviorCore:
         percepcion = self._extraer_percepcion(detalles)
         percepcion_resumida = self._resumir_percepcion(percepcion)
         if percepcion:
-            self._ultima_percepcion = dict(percepcion)
+            self._ultima_percepcion = copy.deepcopy(percepcion)
             self._ultima_percepcion_resumida = percepcion_resumida
 
         logger.info("Procesando evento: '%s' intensidad=%s", tipo_evento, intensidad)
@@ -155,16 +167,18 @@ class BehaviorCore:
             "constelacion_cognitiva": self._constelacion.a_dict(),
             "constelacion_resumen": constelacion_resumen,
         }
-        return respuesta
+        return copy.deepcopy(respuesta)
 
     def cambiar_policy(self, nombre: str):
         """Cambia la politica activa si es valida."""
-        if nombre in self.policies_disponibles:
-            self.policy = nombre
-            logger.info("Politica cambiada a '%s'", nombre)
-            self._actualizar_modificadores_globales()
-        else:
-            logger.warning("Politica '%s' no reconocida. Usar: %s", nombre, self.policies_disponibles)
+        with self._owner_lock:
+            with self.state_engine.atomic():
+                if nombre in self.policies_disponibles:
+                    self.policy = nombre
+                    logger.info("Politica cambiada a '%s'", nombre)
+                    self._actualizar_modificadores_globales()
+                else:
+                    logger.warning("Politica '%s' no reconocida. Usar: %s", nombre, self.policies_disponibles)
 
     def _policy_modifiers(self) -> dict:
         mods = {
@@ -238,65 +252,74 @@ class BehaviorCore:
 
     def obtener_contexto_llm(self) -> dict:
         """Wrapper para obtener el contexto listo para el LLM."""
-        contexto = self.psychology.generar_contexto_llm(
-            self.state_engine,
-            self.personality,
-            self.task_context,
-            policy_offsets=self._offsets_politica,
-            percepcion=self._ultima_percepcion or None,
-            percepcion_resumida=self._ultima_percepcion_resumida,
-        )
-        self._actualizar_constelacion(
-            contexto,
-            contexto.get("percepcion", {}),
-            contexto.get("percepcion_resumida", ""),
-        )
-        contexto["constelacion_resumen"] = self._resumir_constelacion_texto()
-        return contexto
+        with self._owner_lock:
+            with self.state_engine.atomic():
+                contexto = self.psychology.generar_contexto_llm(
+                    self.state_engine,
+                    self.personality,
+                    self.task_context,
+                    policy_offsets=self._offsets_politica,
+                    percepcion=self._ultima_percepcion or None,
+                    percepcion_resumida=self._ultima_percepcion_resumida,
+                )
+                self._actualizar_constelacion(
+                    contexto,
+                    contexto.get("percepcion", {}),
+                    contexto.get("percepcion_resumida", ""),
+                )
+                contexto["constelacion_resumen"] = self._resumir_constelacion_texto()
+                return copy.deepcopy(contexto)
 
     def obtener_constelacion(self) -> dict[str, Any]:
         """Devuelve la constelacion cognitiva actual del agente."""
-        if self._constelacion.esta_vacia():
-            self.obtener_contexto_llm()
-        return self._constelacion.a_dict()
+        with self._owner_lock:
+            if self._constelacion.esta_vacia():
+                self.obtener_contexto_llm()
+            return copy.deepcopy(self._constelacion.a_dict())
 
     def obtener_constelacion_resumen(self) -> str:
         """Devuelve un resumen compacto de la constelacion actual."""
-        if self._constelacion.esta_vacia():
-            self.obtener_contexto_llm()
-        return self._resumir_constelacion_texto()
+        with self._owner_lock:
+            if self._constelacion.esta_vacia():
+                self.obtener_contexto_llm()
+            return self._resumir_constelacion_texto()
 
     def obtener_snapshot_audit(self) -> dict:
         """Lee solo estado/tarea, sin narrativa ni reevaluar detectores de tarea."""
-        tarea = self.task_context
-        return {
-            "state": self.state_engine.obtener_estado(),
-            "task": {
-                "objetivo_id": tarea.objetivo_id,
-                "intentos_totales": tarea.intentos_totales,
-                "intentos_fallidos": tarea.intentos_fallidos,
-                "frustracion_local": tarea.frustracion_local,
-                "umbral_abandono": tarea.umbral_abandono,
-            } if tarea is not None else {},
-        }
+        with self._owner_lock:
+            with self.state_engine.atomic():
+                tarea = self.task_context
+                return {
+                    "state": self.state_engine.obtener_estado(),
+                    "task": {
+                        "objetivo_id": tarea.objetivo_id,
+                        "intentos_totales": tarea.intentos_totales,
+                        "intentos_fallidos": tarea.intentos_fallidos,
+                        "frustracion_local": tarea.frustracion_local,
+                        "umbral_abandono": tarea.umbral_abandono,
+                    } if tarea is not None else {},
+                }
 
     def obtener_resumen(self) -> dict:
         """Devuelve un resumen completo del estado del agente."""
-        tarea = self.task_context.obtener_resumen() if self.task_context else None
-        return {
-            "estado": self.state_engine.obtener_estado(),
-            "personalidad": self.personality.obtener_rasgos(),
-            "tarea": tarea,
-            "policy": self.policy,
-            "narrativa": self.psychology.generar_resumen_narrativo(
-                self.state_engine,
-                self.personality,
-                self.task_context,
-                policy_offsets=self._offsets_politica,
-            ),
-            "constelacion_cognitiva": self.obtener_constelacion(),
-            "constelacion_resumen": self.obtener_constelacion_resumen(),
-        }
+        with self._owner_lock:
+            with self.state_engine.atomic():
+                tarea = self.task_context.obtener_resumen() if self.task_context else None
+                resumen = {
+                    "estado": self.state_engine.obtener_estado(),
+                    "personalidad": self.personality.obtener_rasgos(),
+                    "tarea": tarea,
+                    "policy": self.policy,
+                    "narrativa": self.psychology.generar_resumen_narrativo(
+                        self.state_engine,
+                        self.personality,
+                        self.task_context,
+                        policy_offsets=self._offsets_politica,
+                    ),
+                    "constelacion_cognitiva": self.obtener_constelacion(),
+                    "constelacion_resumen": self.obtener_constelacion_resumen(),
+                }
+                return copy.deepcopy(resumen)
 
     @staticmethod
     def _leer_intensidad(detalles: dict[str, Any]) -> float:
