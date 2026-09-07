@@ -5,7 +5,9 @@ asi como la devolucion de acciones estructuradas que el agente decide ejecutar.
 """
 
 from datetime import datetime
+from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
 
@@ -220,6 +222,42 @@ class RespuestaAPI(BaseModel):
             }
         }
     )
+
+
+class PublicErrorCode(str, Enum):
+    """Taxonomia estable y versionada del boundary publico de errores."""
+
+    RECONCILIATION_REQUIRED = "RECONCILIATION_REQUIRED"
+    TURN_ABORTED = "TURN_ABORTED"
+    TURN_PROCESSING_FAILED = "TURN_PROCESSING_FAILED"
+    TRANSACTION_INCOMPLETE = "TRANSACTION_INCOMPLETE"
+    TRANSACTION_CONFLICT = "TRANSACTION_CONFLICT"
+    OPERATIONAL_STORAGE_UNAVAILABLE = "OPERATIONAL_STORAGE_UNAVAILABLE"
+    AGENT_UNAVAILABLE = "AGENT_UNAVAILABLE"
+    STATE_READ_FAILED = "STATE_READ_FAILED"
+    CONSTELLATION_READ_FAILED = "CONSTELLATION_READ_FAILED"
+    VALIDATION_ERROR = "VALIDATION_ERROR"
+    INTERNAL_ERROR = "INTERNAL_ERROR"
+
+
+class PublicErrorDetail(BaseModel):
+    """Unico detalle permitido dentro del error envelope v1."""
+
+    code: PublicErrorCode
+    message: str
+    correlation_id: UUID
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class PublicErrorEnvelope(BaseModel):
+    """Contrato publico dedicado; no reutiliza el DTO de respuestas exitosas."""
+
+    version: Literal[1] = 1
+    status: Literal["error", "pendiente"]
+    error: PublicErrorDetail
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class NotificacionSaliente(BaseModel):

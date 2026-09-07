@@ -624,7 +624,9 @@ public class LazzaroAgent : MonoBehaviour
                 api.EnviarEvento(
                     evento,
                     respuesta => ProcesarRespuestaDelCerebro(evento.id_transaccion, respuesta),
-                    mensajeError => Debug.LogWarning($"No se pudo enviar el evento {evento.tipo_evento}: {mensajeError}")
+                    failure => Debug.LogWarning(
+                        $"No se pudo enviar el evento {evento.tipo_evento}: {failure.ToSafeString()}"
+                    )
                 )
             );
         }

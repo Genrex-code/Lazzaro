@@ -8,12 +8,14 @@ cliente primario y, si no produce texto util, pasa al siguiente proveedor.
 from __future__ import annotations
 
 from collections.abc import Iterable
+import logging
 import threading
 import time
 from typing import Any
 
 from ai_engine.ai_client import BaseAIClient, LLMCallAudit
 from core.logger import get_logger
+from core.safe_error_logging import log_safe_boundary_failure
 
 logger = get_logger(__name__)
 
@@ -69,7 +71,13 @@ class FallbackAIClient(BaseAIClient):
             try:
                 texto = client.generate(prompt, **kwargs)
             except Exception as e:
-                logger.warning("Proveedor LLM %s fallo con excepcion: %s", proveedor, e)
+                log_safe_boundary_failure(
+                    logger,
+                    component="llm_fallback.generate",
+                    code="UPSTREAM_PROVIDER_FAILED",
+                    error=e,
+                    level=logging.WARNING,
+                )
                 raised_error = e
                 texto = ""
 
@@ -141,7 +149,13 @@ class FallbackAIClient(BaseAIClient):
                     logger.info("Health check LLM OK usando %s.", proveedor)
                     return True
             except Exception as e:
-                logger.warning("Health check LLM fallo en %s: %s", proveedor, e)
+                log_safe_boundary_failure(
+                    logger,
+                    component="llm_fallback.health_check",
+                    code="UPSTREAM_PROVIDER_FAILED",
+                    error=e,
+                    level=logging.WARNING,
+                )
         return False
 
     def close(self) -> None:
@@ -151,5 +165,10 @@ class FallbackAIClient(BaseAIClient):
                 try:
                     close()
                 except Exception as e:
-                    proveedor = str(getattr(client, "provider_name", client.__class__.__name__))
-                    logger.warning("No se pudo cerrar proveedor %s: %s", proveedor, e)
+                    log_safe_boundary_failure(
+                        logger,
+                        component="llm_fallback.close",
+                        code="UPSTREAM_PROVIDER_FAILED",
+                        error=e,
+                        level=logging.WARNING,
+                    )

@@ -49,6 +49,7 @@ from core.action_ledger import (
 from core.audit_trace import AuditTrace, safe_preview
 from core.audit_writer import AuditTraceJSONLWriter
 from core.logger import get_logger
+from core.safe_error_logging import log_safe_boundary_failure
 from core.material_attestation import (
     canonical_material_attestation,
     validate_material_attestation,
@@ -164,11 +165,12 @@ class Orchestrator:
             failed_uow_status: TurnUoWStatus | None = None
             try:
                 failed_uow_status = self._finalizar_uow_por_fallo(transaction_id, exc)
-            except Exception:
-                logger.error(
-                    "No se pudo cerrar el UoW fallido. transaction_id=%s",
-                    transaction_id,
-                    exc_info=True,
+            except Exception as uow_error:
+                log_safe_boundary_failure(
+                    logger,
+                    component="orchestrator.uow_failure_close",
+                    code="TURN_PROCESSING_FAILED",
+                    error=uow_error,
                 )
             llm_events = self._consumir_llm_audit()
             self._registrar_errores_llm_audit(evento, trace_id, llm_events)
@@ -845,7 +847,12 @@ class Orchestrator:
                 behavior_effect_key,
                 TurnEffectStatus.ROLLED_BACK,
             )
-            logger.error("Error en BehaviorCore al procesar evento: %s", e, exc_info=True)
+            log_safe_boundary_failure(
+                logger,
+                component="orchestrator.behavior_core",
+                code="TURN_PROCESSING_FAILED",
+                error=e,
+            )
             self._registrar_error_audit(
                 evento,
                 trace_id,
@@ -1066,7 +1073,12 @@ class Orchestrator:
                 "decision:layer",
                 TurnEffectStatus.FAILED,
             )
-            logger.error("Fallo central en capa %s: %s", decision_layer, e, exc_info=True)
+            log_safe_boundary_failure(
+                logger,
+                component="orchestrator.decision",
+                code="TURN_PROCESSING_FAILED",
+                error=e,
+            )
             raise TurnProcessingError(decision_layer or "decision", type(e).__name__) from e
 
         action_response = self._sanitizar_action_response(action_response)

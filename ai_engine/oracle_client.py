@@ -9,6 +9,7 @@ import time
 from typing import List,Dict,Optional,Any
 from ai_engine.ai_client import LLMAuditBuffer, LLMCallAudit
 from core.logger import get_logger
+from core.safe_error_logging import log_safe_boundary_failure
 
 
 logger = get_logger(__name__)
@@ -155,7 +156,13 @@ class OracleClient(LLMAuditBuffer):
                     started_ns=started_ns,
                 )
             )
-            logger.error("Error HTTP %d del oraculo: %s",e.response.status_code,e.response.text[:200])
+            log_safe_boundary_failure(
+                logger,
+                component="oracle.generate",
+                code="UPSTREAM_PROVIDER_FAILED",
+                error=e,
+                http_status=e.response.status_code,
+            )
             return None
         except Exception as e: 
             finished_ns = time.perf_counter_ns()
@@ -171,5 +178,10 @@ class OracleClient(LLMAuditBuffer):
                     started_ns=started_ns,
                 )
             )
-            logger.error("Error inesperado en OracleClient: %s", e)
+            log_safe_boundary_failure(
+                logger,
+                component="oracle.generate",
+                code="UPSTREAM_PROVIDER_FAILED",
+                error=e,
+            )
             return None

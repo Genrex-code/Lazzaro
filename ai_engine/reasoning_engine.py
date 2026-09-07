@@ -13,6 +13,7 @@ from ai_engine.response_parser import ResponseParser
 from ai_engine.schemas import ActionResponse
 from ai_engine.tool_router import ToolRouter
 from core.logger import get_logger
+from core.safe_error_logging import log_safe_boundary_failure
 
 logger = get_logger(__name__)
 
@@ -115,7 +116,12 @@ class ReasoningEngine:
             return action
 
         except Exception as e:
-            logger.error("Error en el pipeline de razonamiento: %s", e, exc_info=True)
+            log_safe_boundary_failure(
+                logger,
+                component="reasoning.pipeline",
+                code="UPSTREAM_PROVIDER_FAILED",
+                error=e,
+            )
             self._observe_failure(
                 audit_observation,
                 error_type=type(e).__name__,

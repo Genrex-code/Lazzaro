@@ -558,7 +558,12 @@ def test_41_unity_lifecycle_contract_is_fail_closed() -> None:
     assert_true('estadoEjecucion != "dispatched"' in agent, "Sólo dispatched ejecuta.")
     assert_true('"inicio_ejecucion_accion"' in agent and '{ "id_accion", contexto.IdAccion }' in agent, "Start conserva action ID.")
     assert_true("requiere confirmacion. Se omite en Unity" not in agent, "Requirement ya no genera false failure.")
-    assert_true('respuesta.status == "ok" || respuesta.status == "pendiente"' in api and "Status de respuesta desconocido" in api, "Status desconocido falla cerrado.")
+    assert_true(
+        'respuesta.status == "ok" || respuesta.status == "pendiente"' in api
+        and '"INVALID_RESPONSE"' in api
+        and "respuesta.mensaje" not in api,
+        "Status desconocido falla cerrado sin convertir texto remoto en UX.",
+    )
     assert_true("public string estado_ejecucion;" in dto and "public string id_transaccion_origen;" in dto, "DTO C# expone lifecycle.")
 
 

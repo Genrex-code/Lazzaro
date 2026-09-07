@@ -5,6 +5,7 @@ gemini_client.py - Cliente robusto para Google Gemini usando google.genai.
 import random
 import re
 import time
+import logging
 from typing import Any, Optional
 
 from google import genai
@@ -12,6 +13,7 @@ from google.genai import types
 
 from ai_engine.ai_client import BaseAIClient, LLMCallAudit
 from core.logger import get_logger
+from core.safe_error_logging import log_safe_boundary_failure
 
 logger = get_logger(__name__)
 
@@ -107,11 +109,17 @@ class GeminiClient(BaseAIClient):
                 )
                 msg = str(e)
                 wait = self._calcular_espera(msg, backoff)
+                log_safe_boundary_failure(
+                    logger,
+                    component="gemini.generate",
+                    code="UPSTREAM_PROVIDER_FAILED",
+                    error=e,
+                    level=logging.WARNING,
+                )
                 logger.warning(
-                    "Error Gemini (intento %d/%d): %.160s. Esperando %.1fs...",
+                    "Reintento Gemini intento=%d/%d espera_segundos=%.1f",
                     intento,
                     max_retries,
-                    msg,
                     wait,
                 )
                 time.sleep(wait)
@@ -131,7 +139,12 @@ class GeminiClient(BaseAIClient):
             )
             return bool(respuesta and "ok" in respuesta.lower())
         except Exception as e:
-            logger.error("Health check Gemini fallido: %s", e)
+            log_safe_boundary_failure(
+                logger,
+                component="gemini.health_check",
+                code="UPSTREAM_PROVIDER_FAILED",
+                error=e,
+            )
             return False
 
     def close(self) -> None:
@@ -143,7 +156,13 @@ class GeminiClient(BaseAIClient):
         try:
             client.close()
         except Exception as e:
-            logger.warning("No se pudo cerrar el cliente Gemini limpiamente: %s", e)
+            log_safe_boundary_failure(
+                logger,
+                component="gemini.close",
+                code="UPSTREAM_PROVIDER_FAILED",
+                error=e,
+                level=logging.WARNING,
+            )
         finally:
             self.client = None
 

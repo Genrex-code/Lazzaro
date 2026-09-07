@@ -13,11 +13,13 @@ from fastapi import FastAPI
 
 from ai_engine.client_factory import build_ai_client, describe_ai_backend
 from ai_engine.reasoning_engine import ReasoningEngine
+from api.errors import install_public_error_handlers
 from api.routes import router
 from config.settings import Settings
 from core.behavior_core import BehaviorCore
 from core.logger import get_logger
 from core.orchestrator import Orchestrator
+from core.safe_error_logging import log_safe_boundary_failure
 from memory.chroma_client import ChromaClient
 from memory.memory_manager import MemoryManager
 from tools.registry import ToolRegistry
@@ -43,10 +45,10 @@ async def lifespan(app: FastAPI):
     ai_client = None
     memory_manager = None
 
-    logger.info("Cargando configuracion...")
-    settings = Settings()
-
     try:
+        logger.info("Cargando configuracion...")
+        settings = Settings()
+
         logger.info("Inicializando BehaviorCore...")
         behavior_core = BehaviorCore()
 
@@ -90,8 +92,13 @@ async def lifespan(app: FastAPI):
         logger.info("Lazzaro inicializado correctamente. Sistemas nominales.")
         logger.info("Chingaderita jalando con madre 👍🍞")
 
-    except Exception as e:
-        logger.error("Error critico durante el arranque: %s", e, exc_info=True)
+    except Exception as error:
+        log_safe_boundary_failure(
+            logger,
+            component="startup",
+            code="AGENT_UNAVAILABLE",
+            error=error,
+        )
         if memory_manager is not None:
             memory_manager.close()
         if ai_client is not None:
@@ -121,6 +128,7 @@ def create_app() -> FastAPI:
     )
     app.state.orchestrator = None
     app.state.ai_client = None
+    install_public_error_handlers(app)
     app.include_router(router)
     return app
 

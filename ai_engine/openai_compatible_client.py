@@ -7,6 +7,7 @@ siempre que expongan un endpoint compatible con /chat/completions.
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any, Optional
 
@@ -14,6 +15,7 @@ import httpx
 
 from ai_engine.ai_client import BaseAIClient, LLMCallAudit
 from core.logger import get_logger
+from core.safe_error_logging import log_safe_boundary_failure
 
 logger = get_logger(__name__)
 
@@ -130,11 +132,13 @@ class OpenAICompatibleClient(BaseAIClient):
                     started_ns=started_ns,
                 )
             )
-            logger.warning(
-                "Error HTTP %s en %s: %s",
-                e.response.status_code,
-                self.provider_name,
-                e.response.text[:240],
+            log_safe_boundary_failure(
+                logger,
+                component="openai_compatible.generate",
+                code="UPSTREAM_PROVIDER_FAILED",
+                error=e,
+                http_status=e.response.status_code,
+                level=logging.WARNING,
             )
             return ""
         except Exception as e:
@@ -151,7 +155,13 @@ class OpenAICompatibleClient(BaseAIClient):
                     started_ns=started_ns,
                 )
             )
-            logger.warning("Error llamando a %s: %s", self.provider_name, e)
+            log_safe_boundary_failure(
+                logger,
+                component="openai_compatible.generate",
+                code="UPSTREAM_PROVIDER_FAILED",
+                error=e,
+                level=logging.WARNING,
+            )
             return ""
 
     def health_check(self) -> bool:
@@ -164,7 +174,13 @@ class OpenAICompatibleClient(BaseAIClient):
             )
             return bool(respuesta and "ok" in respuesta.lower())
         except Exception as e:
-            logger.warning("Health check fallido para %s: %s", self.provider_name, e)
+            log_safe_boundary_failure(
+                logger,
+                component="openai_compatible.health_check",
+                code="UPSTREAM_PROVIDER_FAILED",
+                error=e,
+                level=logging.WARNING,
+            )
             return False
 
     def close(self) -> None:
@@ -174,7 +190,13 @@ class OpenAICompatibleClient(BaseAIClient):
         try:
             client.close()
         except Exception as e:
-            logger.warning("No se pudo cerrar %s limpiamente: %s", self.provider_name, e)
+            log_safe_boundary_failure(
+                logger,
+                component="openai_compatible.close",
+                code="UPSTREAM_PROVIDER_FAILED",
+                error=e,
+                level=logging.WARNING,
+            )
         finally:
             self.client = None
 

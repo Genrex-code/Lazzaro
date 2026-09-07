@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 [Serializable]
@@ -33,4 +34,49 @@ public class RespuestaAPI
     public string id_transaccion;
     public string timestamp_servidor;
     public AccionSaliente accion;
+}
+
+[Serializable]
+public class PublicErrorDetail
+{
+    [JsonProperty("code")]
+    public string code;
+
+    // Se deserializa por compatibilidad de wire, pero nunca es authority de UX.
+    [JsonProperty("message")]
+    public string message;
+
+    [JsonProperty("correlation_id")]
+    public string correlation_id;
+}
+
+[Serializable]
+public class PublicErrorEnvelope
+{
+    [JsonProperty("version")]
+    public int version;
+
+    [JsonProperty("status")]
+    public string status;
+
+    [JsonProperty("error")]
+    public PublicErrorDetail error;
+}
+
+[Serializable]
+public class ApiFailure
+{
+    public string Code;
+    public string Message;
+    public string CorrelationId;
+    public long HttpStatus;
+    public bool TransportFailure;
+
+    public string ToSafeString()
+    {
+        string correlation = string.IsNullOrWhiteSpace(CorrelationId)
+            ? ""
+            : $" correlation_id={CorrelationId}";
+        return $"{Code}: {Message} http_status={HttpStatus}{correlation}";
+    }
 }

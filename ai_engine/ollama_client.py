@@ -4,6 +4,7 @@ ollama_client.py - Cliente BaseAIClient para modelos locales servidos por Ollama
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 from typing import Any, Optional
@@ -13,6 +14,7 @@ import httpx
 from ai_engine.ai_client import BaseAIClient, LLMCallAudit
 from ai_engine.schemas import LLMResponse
 from core.logger import get_logger
+from core.safe_error_logging import log_safe_boundary_failure
 
 logger = get_logger(__name__)
 
@@ -31,9 +33,8 @@ class OllamaClient(BaseAIClient):
         self.client = httpx.Client(base_url=self.base_url, timeout=self.timeout_seconds)
 
         logger.info(
-            "OllamaClient listo (modelo: %s, base_url: %s).",
+            "OllamaClient listo (modelo: %s).",
             self.model_name,
-            self.base_url,
         )
 
     def generate(self, prompt: str, **kwargs) -> str:
@@ -85,7 +86,12 @@ class OllamaClient(BaseAIClient):
                     started_ns=started_ns,
                 )
             )
-            logger.error("Error conectando con Ollama local: %s", e)
+            log_safe_boundary_failure(
+                logger,
+                component="ollama.generate",
+                code="UPSTREAM_PROVIDER_FAILED",
+                error=e,
+            )
             return ""
 
     def health_check(self) -> bool:
@@ -98,7 +104,12 @@ class OllamaClient(BaseAIClient):
             nombres = {str(modelo.get("name", "")).strip() for modelo in modelos}
             return bool(nombres) and self.model_name in nombres
         except Exception as e:
-            logger.error("Health check Ollama fallido: %s", e)
+            log_safe_boundary_failure(
+                logger,
+                component="ollama.health_check",
+                code="UPSTREAM_PROVIDER_FAILED",
+                error=e,
+            )
             return False
 
     def close(self) -> None:
@@ -110,7 +121,13 @@ class OllamaClient(BaseAIClient):
         try:
             client.close()
         except Exception as e:
-            logger.warning("No se pudo cerrar el cliente Ollama limpiamente: %s", e)
+            log_safe_boundary_failure(
+                logger,
+                component="ollama.close",
+                code="UPSTREAM_PROVIDER_FAILED",
+                error=e,
+                level=logging.WARNING,
+            )
         finally:
             self.client = None
 
