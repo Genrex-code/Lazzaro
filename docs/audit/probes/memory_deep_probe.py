@@ -549,19 +549,6 @@ def _consolidation_manager(client: ConsolidationClient) -> MemoryManager:
     return manager
 
 
-class RacyCounter:
-    """Force two += operations to read the same prior value."""
-
-    def __init__(self, value: int, barrier: threading.Barrier):
-        self.value = value
-        self.barrier = barrier
-
-    def __iadd__(self, amount: int):
-        before = self.value
-        self.barrier.wait(timeout=5)
-        return before + amount
-
-
 def probe_consolidation_partial_failure_and_concurrency() -> dict[str, Any]:
     client = ConsolidationClient(_consolidation_rows(), delete_outcomes=[False, True])
     manager = _consolidation_manager(client)
@@ -600,21 +587,31 @@ def probe_consolidation_partial_failure_and_concurrency() -> dict[str, Any]:
 
     counter_manager = object.__new__(MemoryManager)
     counter_manager.revision_consolidacion_cada = 5
-    counter_manager._observaciones_desde_revision = RacyCounter(0, threading.Barrier(2))
+    counter_manager._observaciones_desde_revision = 0
+    counter_manager._ram_state_lock = threading.Lock()
     counter_manager.consolidar_memorias_si_hace_falta = lambda: None
-    counter_threads = [
-        threading.Thread(
-            target=MemoryManager._programar_consolidacion_si_aplica,
-            args=(counter_manager, "observacion_visual", {}, "synthetic"),
+    counter_barrier = threading.Barrier(3)
+
+    def increment_counter() -> None:
+        counter_barrier.wait(timeout=5)
+        MemoryManager._programar_consolidacion_si_aplica(
+            counter_manager,
+            "observacion_visual",
+            {},
+            "synthetic",
         )
+
+    counter_threads = [
+        threading.Thread(target=increment_counter)
         for _ in range(2)
     ]
     for thread in counter_threads:
         thread.start()
+    counter_barrier.wait(timeout=5)
     for thread in counter_threads:
         thread.join(timeout=10)
         require(not thread.is_alive(), "counter interleaving must terminate")
-    require(counter_manager._observaciones_desde_revision == 1, "two increments can collapse into one")
+    require(counter_manager._observaciones_desde_revision == 2, "both protected increments must survive")
 
     saved = manager.saved_rules[0]
     require("lote_consolidacion" in saved["extra"], "consolidated rule keeps a batch hash")
@@ -645,7 +642,7 @@ def probe_ram_memories() -> dict[str, Any]:
     working.agregar("action-3", "error")
     require([item.accion for item in working.obtener_todas()] == ["action-2", "action-3"], "FIFO eviction")
     require(not hasattr(working, "actualizar_resultado"), "no outcome reconciliation API")
-    require(not hasattr(working, "_lock"), "working memory has no explicit lock")
+    require(hasattr(working, "_lock"), "working memory must retain its explicit lock")
 
     manager = object.__new__(MemoryManager)
     manager.working_memory = working
@@ -688,7 +685,7 @@ def probe_ram_memories() -> dict[str, Any]:
         "working_eviction": "oldest_first",
         "working_represents": "dispatch_status_not_later_outcome",
         "working_reconciliation_api": False,
-        "working_explicit_lock": False,
+        "working_explicit_lock": True,
         "working_public_n_honored": False,
         "conversation_capacity": 2,
         "conversation_eviction": "oldest_first",
@@ -842,8 +839,8 @@ def probe_alias_affect_relational_side_effects_and_race() -> dict[str, Any]:
     )
     alias_manager._alias_aprendidos_guardados = set()
     aliases = alias_manager.obtener_aliases_aprendidos()
-    require(aliases == {"synthetic-object": ["synthetic-alias"]}, "string false alias is accepted")
-    require(alias_manager._alias_aprendidos_guardados, "alias read mutates the dedupe cache")
+    require(aliases == {}, "string false alias must be rejected")
+    require(not alias_manager._alias_aprendidos_guardados, "rejected alias cannot mutate dedupe cache")
 
     affect_manager = object.__new__(MemoryManager)
     affect_manager.client = ListingClient(
@@ -858,8 +855,8 @@ def probe_alias_affect_relational_side_effects_and_race() -> dict[str, Any]:
     )
     affect_manager._memorias_afectivas_guardadas = set()
     affect = affect_manager.obtener_memorias_afectivas_espaciales()
-    require("synthetic-object" in affect, "string false affect is accepted")
-    require(affect_manager._memorias_afectivas_guardadas, "affect read mutates the dedupe cache")
+    require(affect == {}, "string false affect must be rejected")
+    require(not affect_manager._memorias_afectivas_guardadas, "rejected affect cannot mutate dedupe cache")
 
     barrier = threading.Barrier(2)
     duplicate_store = OutcomeStore(True, barrier=barrier)
@@ -911,12 +908,12 @@ def probe_alias_affect_relational_side_effects_and_race() -> dict[str, Any]:
     require([item.recuerdo.id for item in selected] == ["new-revoked"], "latest relational correction wins per category")
 
     return {
-        "approved_string_false_accepted": True,
-        "confirmed_string_false_accepted": True,
+        "approved_string_false_accepted": False,
+        "confirmed_string_false_accepted": False,
         "current_alias_writer_emits_bool_true": True,
         "productive_affect_writer_found": False,
-        "alias_read_mutates_dedupe_cache": True,
-        "affect_read_mutates_dedupe_cache": True,
+        "rejected_alias_mutates_dedupe_cache": False,
+        "rejected_affect_mutates_dedupe_cache": False,
         "concurrent_identical_alias_rows": len(duplicate_store.memories),
         "ordinary_turn_can_write_relational_fact": True,
         "durable_dedupe_read_failure_means_absent": True,

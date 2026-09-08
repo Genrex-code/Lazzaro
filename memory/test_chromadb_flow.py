@@ -119,7 +119,7 @@ def test_coleccion_vacia():
 
 
 def test_insercion_y_conteo():
-    """Agregar documentos incrementa el conteo, IDs duplicados retornan False."""
+    """Agregar documentos incrementa el conteo y no duplica IDs existentes."""
     with ChromaTestContext("insercion") as client:
         ok = client.agregar(
             documentos=["uno", "dos", "tres"],
@@ -129,9 +129,14 @@ def test_insercion_y_conteo():
         assert ok, "La inserción inicial debe ser exitosa"
         assert client.contar() == 3, "Debe haber 3 documentos"
 
-        # Insertar duplicado → el cliente devuelve False, no lanza excepción
-        duplicado = client.agregar(documentos=["uno"], metadatos=[{}], ids=["a"])
-        assert not duplicado, "Insertar un ID duplicado debe retornar False"
+        # Chroma 1.5.9 acepta el ID existente como no-op. ROOT-015 definira
+        # un receipt que distinga created/already; aqui solo protegemos el efecto.
+        client.agregar(
+            documentos=["uno"],
+            metadatos=[{"tag": "duplicate-fixture"}],
+            ids=["a"],
+        )
+        assert client.contar() == 3, "El ID existente no debe crear una cuarta fila"
 
 
 def test_busqueda_semantica():
@@ -225,28 +230,17 @@ def test_persistencia_tras_reabrir():
 def test_eliminacion():
     """Eliminar documentos reduce el conteo y ya no aparecen."""
     with ChromaTestContext("eliminar") as client:
-        client.agregar(
+        insertado = client.agregar(
             documentos=["a", "b", "c"],
-            metadatos=[{}] * 3,
+            metadatos=[{"kind": "delete-fixture", "index": i} for i in range(3)],
             ids=["x", "y", "z"],
         )
+        assert insertado, "La precondición de inserción válida debe cumplirse"
         assert client.contar() == 3
         assert client.eliminar(["x", "y"]), "Eliminar debe devolver True"
         assert client.contar() == 1, "Debe quedar un solo documento"
         datos = client.listar(limite=5)
         assert datos is not None and _ids(datos) == ["z"], "Solo debe aparecer el documento no eliminado"
-with ChromaTestContext("debug") as client:
-
-    print("ANTES:", client.contar())
-
-    ok = client.agregar(
-        documentos=["a", "b", "c"],
-        metadatos=[{}, {}, {}],
-        ids=["x", "y", "z"],
-    )
-
-    print("agregar() =", ok)
-    print("DESPUÉS:", client.contar())
 
 
 # ------------------------------------------------------------

@@ -43,7 +43,7 @@ ACTIVE_FILES = (
     ACTIVE_CHROMA / "chroma.sqlite3",
 )
 TEST_ROOTS = ("ai_engine", "core", "memory", "terminal_client")
-KNOWN_FAILURE = "memory.test_chromadb_flow.test_eliminacion"
+KNOWN_FAILURE: str | None = None
 GUARD_COUNTS: Counter[str] = Counter()
 GUARD_EVENTS: list[dict] = []
 SOCKETPAIR_SCOPE = threading.local()
@@ -240,7 +240,7 @@ def safe_exception(exc: BaseException) -> dict:
 
 
 def known_failure_matches(name: str, exc: BaseException) -> bool:
-    if name != KNOWN_FAILURE or not isinstance(exc, AssertionError):
+    if KNOWN_FAILURE is None or name != KNOWN_FAILURE or not isinstance(exc, AssertionError):
         return False
     for frame in traceback.extract_tb(exc.__traceback__):
         if frame.name == "test_eliminacion" and frame.line == "assert client.contar() == 3":
@@ -386,7 +386,8 @@ def main() -> int:
     }
     report["suite_gate"] = "PASS" if (
         totals["PASS"] + totals["KNOWN_XFAIL"] == expected_test_units
-        and totals["KNOWN_XFAIL"] == 1 and not totals["FAIL"]
+        and totals["KNOWN_XFAIL"] == (1 if KNOWN_FAILURE is not None else 0)
+        and not totals["FAIL"]
         and len(results) == expected_test_units
         and not import_failures and not fatal
     ) else "FAIL"

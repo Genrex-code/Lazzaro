@@ -4,7 +4,7 @@ Proporciona una interfaz limpia y tolerante a fallos para el resto del sistema.
 """
 
 from pathlib import Path
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar, TypeAlias, cast
 import gc
 import threading
 import chromadb
@@ -20,6 +20,12 @@ except Exception:  # pragma: no cover - compatibilidad con versiones antiguas
 from core.logger import get_logger
 
 logger = get_logger(__name__)
+
+TransportMetadata: TypeAlias = dict[str, Any] | None
+AddMetadataInput: TypeAlias = (
+    dict[str, Any] | list[TransportMetadata] | None
+)
+UpdateMetadataInput: TypeAlias = dict[str, Any] | list[dict[str, Any]] | None
 
 
 class ChromaClient:
@@ -135,16 +141,127 @@ class ChromaClient:
 
     # Operaciones CRUD
 
+    @staticmethod
+    def _normalizar_metadatos_add(
+        metadatos: AddMetadataInput,
+        cantidad_ids: int,
+    ) -> tuple[bool, list[TransportMetadata] | None, str]:
+        """Canonicaliza ausencia a None y devuelve copias sin mutar al caller."""
+        if metadatos is None:
+            return True, None, ""
+
+        filas: list[TransportMetadata]
+        if isinstance(metadatos, dict):
+            if cantidad_ids != 1:
+                return False, None, "single_metadata_batch_mismatch"
+            filas = [metadatos]
+        elif isinstance(metadatos, list):
+            if not metadatos:
+                return False, None, "empty_metadata_batch"
+            if len(metadatos) != cantidad_ids:
+                return False, None, "metadata_batch_mismatch"
+            filas = metadatos
+        else:
+            return False, None, "invalid_metadata_container"
+
+        normalizadas: list[TransportMetadata] = []
+        for metadata in filas:
+            if metadata is None:
+                normalizadas.append(None)
+                continue
+            if not isinstance(metadata, dict):
+                return False, None, "invalid_metadata_row"
+            normalizadas.append(dict(metadata) if metadata else None)
+        return True, normalizadas, ""
+
+    @staticmethod
+    def _normalizar_metadatos_update(
+        metadatos: UpdateMetadataInput,
+        cantidad_ids: int,
+    ) -> tuple[bool, list[dict[str, Any]] | None, str]:
+        """Exige cambios no vacios; None seria un no-op exitoso en Chroma."""
+        if metadatos is None:
+            return False, None, "absent_metadata"
+
+        filas: list[dict[str, Any]]
+        if isinstance(metadatos, dict):
+            if cantidad_ids != 1:
+                return False, None, "single_metadata_batch_mismatch"
+            filas = [metadatos]
+        elif isinstance(metadatos, list):
+            if not metadatos:
+                return False, None, "empty_metadata_batch"
+            if len(metadatos) != cantidad_ids:
+                return False, None, "metadata_batch_mismatch"
+            filas = metadatos
+        else:
+            return False, None, "invalid_metadata_container"
+
+        normalizadas: list[dict[str, Any]] = []
+        for metadata in filas:
+            if not isinstance(metadata, dict):
+                return False, None, "invalid_metadata_row"
+            if not metadata:
+                return False, None, "empty_metadata"
+            normalizadas.append(dict(metadata))
+        return True, normalizadas, ""
+
+    @staticmethod
+    def _normalizar_metadata_leida(metadata: Metadata | None) -> Metadata | None:
+        """Usa None como unica forma de metadata ausente en lecturas."""
+        if metadata is None or not metadata:
+            return None
+        return dict(metadata)
+
+    @classmethod
+    def _normalizar_resultado_query(cls, resultado: QueryResult) -> QueryResult:
+        copia = dict(resultado)
+        metadatas = resultado.get("metadatas")
+        if metadatas is not None:
+            copia["metadatas"] = [
+                None
+                if batch is None
+                else [cls._normalizar_metadata_leida(metadata) for metadata in batch]
+                for batch in metadatas
+            ]
+        return cast(QueryResult, copia)
+
+    @classmethod
+    def _normalizar_resultado_listado(
+        cls,
+        resultado: dict[str, list[Any]],
+    ) -> dict[str, list[Any]]:
+        copia = dict(resultado)
+        metadatas = resultado.get("metadatas")
+        if metadatas is not None:
+            copia["metadatas"] = [
+                cls._normalizar_metadata_leida(metadata)
+                for metadata in metadatas
+            ]
+        return copia
+
     def agregar(
         self,
         documentos: list[str],
-        metadatos: list[dict[str, Any]],
+        metadatos: AddMetadataInput,
         ids: list[str],
     ) -> bool:
         """
         Anade una o varias entradas a la coleccion.
         Retorna True si la operacion fue exitosa, False en caso de error.
         """
+        valido, metadatos_backend, reason_code = self._normalizar_metadatos_add(
+            metadatos,
+            len(ids),
+        )
+        if not valido:
+            logger.warning(
+                "Metadata rechazada. operation=add_metadata reason_code=%s input_type=%s",
+                reason_code,
+                type(metadatos).__name__,
+            )
+            return False
+
         collection = self._collection
         if collection is None:
             logger.warning("Intento de agregar a ChromaDB sin conexion.")
@@ -153,7 +270,7 @@ class ChromaClient:
             try:
                 collection.add(
                     documents=documentos,
-                    metadatas=metadatos,
+                    metadatas=metadatos_backend,
                     ids=ids,
                 )
                 logger.debug("Agregados %d documentos a '%s'.", len(ids), self.collection_name)
@@ -168,19 +285,28 @@ class ChromaClient:
     def actualizar_metadatos(
         self,
         ids: list[str],
-        metadatos: list[dict[str, Any]],
+        metadatos: UpdateMetadataInput,
     ) -> bool:
         """Actualiza metadata escalar sin reescribir documentos ni embeddings."""
+        valido, metadatos_backend, reason_code = self._normalizar_metadatos_update(
+            metadatos,
+            len(ids),
+        )
+        if not valido or metadatos_backend is None:
+            logger.warning(
+                "Metadata rechazada. operation=update_metadata reason_code=%s input_type=%s",
+                reason_code,
+                type(metadatos).__name__,
+            )
+            return False
+
         collection = self._collection
         if collection is None:
             logger.warning("Intento de actualizar ChromaDB sin conexion.")
             return False
-        if len(ids) != len(metadatos):
-            logger.error("IDs y metadatos deben tener la misma longitud.")
-            return False
         with self._lock:
             try:
-                collection.update(ids=ids, metadatas=metadatos)
+                collection.update(ids=ids, metadatas=metadatos_backend)
                 logger.debug("Actualizada metadata de %d documentos.", len(ids))
                 return True
             except Exception as e:
@@ -206,12 +332,13 @@ class ChromaClient:
             return None
         with self._lock:
             try:
-                return collection.query(
+                resultado = collection.query(
                     query_texts=[consulta],
                     n_results=n_resultados,
                     where=where,
                     include=["documents", "metadatas", "distances"],
                 )
+                return self._normalizar_resultado_query(resultado)
             except Exception as e:
                 logger.error("Error al buscar en ChromaDB: %s", e)
                 return None
@@ -237,7 +364,8 @@ class ChromaClient:
                 }
                 if limite is not None:
                     kwargs["limit"] = limite
-                return cast(dict[str, list[Any]], collection.get(**kwargs))
+                resultado = cast(dict[str, list[Any]], collection.get(**kwargs))
+                return self._normalizar_resultado_listado(resultado)
             except Exception as e:
                 logger.error(
                     "Error al listar documentos en ChromaDB: error_type=%s",

@@ -65,6 +65,13 @@ class MemoryDocument:
     contenido: str
     metadata: dict[str, Any]       # dict compatible con ChromaDB (valores simples)
 
+    def __post_init__(self) -> None:
+        """Impide persistir una memoria cognitiva sin metadata central."""
+        if not isinstance(self.metadata, dict):
+            raise TypeError("MemoryDocument.metadata debe ser un dict no vacio.")
+        if not self.metadata:
+            raise ValueError("MemoryDocument.metadata no puede estar vacio.")
+
 # Elemento de la memoria de trabajo (volátil, en RAM)
 @dataclass(frozen=True)
 class WorkingMemoryItem:

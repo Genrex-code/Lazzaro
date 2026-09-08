@@ -177,22 +177,23 @@ def chroma_metadata_matrix() -> dict[str, Any]:
                     "valid": client.agregar(["valid"], [{"kind": "valid"}], ["valid"]),
                 }
                 rows = client.listar(limite=10)
-                assert outcomes == {"none": True, "empty": False, "valid": True}
+                assert outcomes == {"none": True, "empty": True, "valid": True}
                 assert rows is not None
-                assert set(rows["ids"]) == {"none", "valid"}
+                assert set(rows["ids"]) == {"none", "empty", "valid"}
                 metadata_by_id = dict(zip(rows["ids"], rows["metadatas"]))
                 assert metadata_by_id["none"] is None
+                assert metadata_by_id["empty"] is None
                 assert metadata_by_id["valid"] == {"kind": "valid"}
-                assert client.contar() == 2
+                assert client.contar() == 3
             finally:
                 client.close()
 
     return {
         "chromadb_version": importlib.metadata.version("chromadb"),
         "adapter_runtime_none": "accepted_and_persisted_as_null",
-        "adapter_runtime_empty_dict": "rejected_and_reported_false",
+        "adapter_runtime_empty_dict": "canonicalized_to_null_and_accepted",
         "adapter_runtime_valid_dict": "accepted",
-        "historical_test_empty_metadata_expectation_matches_runtime": False,
+        "historical_empty_metadata_bug_resolved": True,
         "active_chroma_constructed": False,
         "semantic_query_executed": False,
         "network_allowed": False,
@@ -346,9 +347,13 @@ def optional_defaults_and_mutability() -> dict[str, Any]:
         valencia="not-a-float",  # type: ignore[arg-type]
         impacto_emocional=99,
     )
-    empty_document = MemoryDocument(id="", contenido="", metadata={})
+    empty_document_rejected = False
+    try:
+        MemoryDocument(id="", contenido="", metadata={})
+    except ValueError:
+        empty_document_rejected = True
     assert runtime_wrong_type.valencia == "not-a-float"
-    assert empty_document.metadata == {}
+    assert empty_document_rejected
 
     direct_semantic_default = SemanticMemory(
         "direct-default",
@@ -370,7 +375,7 @@ def optional_defaults_and_mutability() -> dict[str, Any]:
         "unknown_dataclass_field_rejected": unknown_field_rejected,
         "declared_types_runtime_validated": False,
         "range_constraints_runtime_validated": False,
-        "empty_memory_document_runtime_rejected": False,
+        "empty_memory_document_runtime_rejected": empty_document_rejected,
         "semantic_origin_direct_default": direct_semantic_default,
         "semantic_origin_encoder_default": encoder_semantic_default,
         "semantic_origin_defaults_are_equal": False,
