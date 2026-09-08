@@ -20,6 +20,7 @@ from memory.episodic_memory import EpisodicMemoryStore
 from memory.memory_decay import MemoryDecay
 from memory.memory_encoder import MemoryEncoder
 from memory.memory_filters import MemoryFilters
+from memory.memory_schema import CANONICAL_DEFAULT_ORIGIN, MemorySchemaCodec, SEMANTIC_KIND
 from memory.memory_retriever import MemoryRetriever
 from memory.memory_summarizer import MemorySummarizer
 from memory.memory_types import MemoryResult
@@ -152,7 +153,7 @@ class MemoryManager:
         self,
         tipo_evento: str,
         narrativa: str,
-        estado_emocional: Optional[dict[str, float]] = None,
+        estado_emocional: Optional[dict[str, bool | int | float]] = None,
         valencia: float = 0.0,
         impacto_emocional: float = 0.5,
         extra: Optional[dict[str, Any]] = None,
@@ -187,7 +188,7 @@ class MemoryManager:
         tipo_evento: str = "semantica",
         valencia: float = 0.0,
         impacto_emocional: float = 0.5,
-        origen: str = "determinista",
+        origen: str = CANONICAL_DEFAULT_ORIGIN,
         extra: Optional[dict[str, Any]] = None,
     ) -> Optional[str]:
         """Almacena una regla o abstraccion semantica."""
@@ -1024,8 +1025,12 @@ class MemoryManager:
             logger.warning("El backend no permite asociar el nuevo recibo de transacción.")
             return False
 
-        metadata_actualizada = dict(metadata)
-        metadata_actualizada["transacciones_guardado_hashes"] = ",".join(hashes)
+        metadata_actualizada = MemorySchemaCodec.update_scalar_extra(
+            metadata,
+            key="transacciones_guardado_hashes",
+            value=",".join(hashes),
+            expected_kind=SEMANTIC_KIND,
+        )
         try:
             return bool(
                 actualizar(

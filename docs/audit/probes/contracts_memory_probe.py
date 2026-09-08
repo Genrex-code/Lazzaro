@@ -269,9 +269,9 @@ def valid_roundtrips() -> dict[str, Any]:
         and recovered_semantic.recuerdo.metadata.timestamp == fixed
     )
     assert episode_core_preserved and semantic_core_preserved
-    assert recovered_episode.recuerdo.metadata.extra == scalar_extra
-    assert recovered_semantic.recuerdo.metadata.extra == scalar_extra
-    assert recovered_episode.recuerdo.estado_emocional is None
+    assert recovered_episode.recuerdo.metadata.extra == {**scalar_extra, **lossy_extra}
+    assert recovered_semantic.recuerdo.metadata.extra == {**scalar_extra, **lossy_extra}
+    assert recovered_episode.recuerdo.estado_emocional == emotional_state
     assert recovered_episode.distancia == 0.125
     assert recovered_semantic.distancia == 0.375
     assert recovered_episode.metadata_score == recovered_semantic.metadata_score == 1.0
@@ -280,8 +280,8 @@ def valid_roundtrips() -> dict[str, Any]:
         "episodic_core_fields_preserved": episode_core_preserved,
         "semantic_core_fields_preserved": semantic_core_preserved,
         "scalar_extra_preserved": True,
-        "non_scalar_extra_dropped": sorted(lossy_extra),
-        "episodic_emotional_state_preserved": False,
+        "non_scalar_extra_preserved": sorted(lossy_extra),
+        "episodic_emotional_state_preserved": True,
         "raw_distance_preserved": True,
         "store_result_metadata_score_before_rerank": 1.0,
         "ranking_order_is_id_document_metadata_distance_index_order": True,
@@ -327,7 +327,9 @@ def optional_defaults_and_mutability() -> dict[str, Any]:
     assert none_state.estado_emocional is None and empty_state.estado_emocional == {}
     none_doc = MemoryEncoder.a_documento(none_state)
     empty_doc = MemoryEncoder.a_documento(empty_state)
-    assert none_doc.metadata == empty_doc.metadata
+    assert none_doc.metadata != empty_doc.metadata
+    assert none_doc.metadata["__lazzaro_memory_state_json"] == "null"
+    assert empty_doc.metadata["__lazzaro_memory_state_json"] == "{}"
 
     empty_input: dict[str, Any] = {}
     encoded_empty = MemoryEncoder.codificar_episodio("event", "", extra=empty_input)
@@ -361,15 +363,15 @@ def optional_defaults_and_mutability() -> dict[str, Any]:
         "rule",
     ).origen
     encoder_semantic_default = MemoryEncoder.codificar_semantica("rule").origen
-    assert direct_semantic_default == "consolidacion"
-    assert encoder_semantic_default == "determinista"
+    assert direct_semantic_default == "desconocido"
+    assert encoder_semantic_default == "desconocido"
 
     return {
         "default_extra_isolated": True,
         "dataclass_top_level_frozen": top_level_frozen,
         "nested_dicts_deeply_immutable": not nested_mutation_visible,
         "none_vs_empty_emotional_state_distinct_in_memory": True,
-        "none_vs_empty_emotional_state_distinct_after_encoding": False,
+        "none_vs_empty_emotional_state_distinct_after_encoding": True,
         "empty_extra_input_identity_preserved": False,
         "nonempty_extra_input_identity_preserved": True,
         "unknown_dataclass_field_rejected": unknown_field_rejected,
@@ -378,7 +380,7 @@ def optional_defaults_and_mutability() -> dict[str, Any]:
         "empty_memory_document_runtime_rejected": empty_document_rejected,
         "semantic_origin_direct_default": direct_semantic_default,
         "semantic_origin_encoder_default": encoder_semantic_default,
-        "semantic_origin_defaults_are_equal": False,
+        "semantic_origin_defaults_are_equal": True,
     }
 
 
@@ -401,10 +403,12 @@ def metadata_collisions_and_missing_fields() -> dict[str, Any]:
         narrativa="collision",
     )
     collision_doc = MemoryEncoder.a_documento(colliding)
-    assert collision_doc.metadata["tipo"] == "semantico"
-    assert collision_doc.metadata["tipo_evento"] == "overridden_event"
-    assert collision_doc.metadata["valencia"] == "invalid-overwrite"
-    assert collision_doc.metadata["timestamp"] == "invalid-overwrite"
+    assert collision_doc.metadata["tipo"] == "episodico"
+    assert collision_doc.metadata["tipo_evento"] == "original_event"
+    assert collision_doc.metadata["valencia"] == 0.4
+    assert collision_doc.metadata["timestamp"] == fixed.isoformat()
+    collision_extra = json.loads(collision_doc.metadata["__lazzaro_memory_extra_json"])
+    assert collision_extra == colliding.metadata.extra
 
     semantic_collision = SemanticMemory(
         id="semantic-collision",
@@ -419,7 +423,11 @@ def metadata_collisions_and_missing_fields() -> dict[str, Any]:
         origen="canonical-origin",
     )
     semantic_collision_doc = MemoryEncoder.a_documento(semantic_collision)
-    assert semantic_collision_doc.metadata["origen"] == "extra-overwrite"
+    assert semantic_collision_doc.metadata["origen"] == "canonical-origin"
+    semantic_collision_extra = json.loads(
+        semantic_collision_doc.metadata["__lazzaro_memory_extra_json"]
+    )
+    assert semantic_collision_extra["origen"] == "extra-overwrite"
 
     missing = ReplayClient()
     missing.query_result = {"ids": [["missing"]]}
@@ -472,9 +480,10 @@ def metadata_collisions_and_missing_fields() -> dict[str, Any]:
     assert recovered_semantic.recuerdo.origen == "determinista"
 
     return {
-        "extra_can_override_reserved_fields": True,
-        "extra_can_change_persisted_memory_kind": True,
-        "extra_can_override_semantic_origin": True,
+        "extra_can_override_reserved_fields": False,
+        "extra_can_change_persisted_memory_kind": False,
+        "extra_can_override_semantic_origin": False,
+        "colliding_extra_preserved_as_data": True,
         "omitted_metadata_batch_uses_defaults": True,
         "explicit_null_metadata_uses_defaults": False,
         "explicit_null_metadata_raises": explicit_null_raises,

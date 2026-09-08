@@ -16,6 +16,7 @@ if __package__ in (None, ""):
 import memory.memory_manager as memory_manager_module
 from memory.memory_manager import MemoryManager
 from memory.chroma_client import ChromaClient
+from memory.memory_schema import MemorySchemaCodec, SEMANTIC_KIND
 
 
 def assert_true(condicion: bool, mensaje: str) -> None:
@@ -341,6 +342,13 @@ def test_transaction_and_snapshot_fingerprints_are_durable() -> None:
         "Una nueva transacción sin cambios no debe duplicar la fotografía.",
     )
     assert_true(len(shared_records) == 1, "Transacción y huella deben dejar una sola unidad.")
+    persisted_metadata = shared_records[0]["metadata"]
+    decoded_metadata = MemorySchemaCodec.decode_metadata(persisted_metadata, SEMANTIC_KIND)
+    assert_true(
+        persisted_metadata["transacciones_guardado_hashes"]
+        == decoded_metadata.extra["transacciones_guardado_hashes"],
+        "El receipt manual debe mantener payload y proyección sincronizados.",
+    )
 
     manager.conversation_memory.registrar_turno(
         usuario="Ahora agrega el faro verde.",

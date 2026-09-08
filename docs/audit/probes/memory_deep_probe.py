@@ -146,7 +146,7 @@ def probe_real_roundtrip_delete_and_wrapper_isolation() -> dict[str, Any]:
                     valencia=-0.25,
                     impacto_emocional=0.8,
                     timestamp=fixed,
-                    extra={"scalar": "kept", "nested": {"lost": True}},
+                    extra={"scalar": "kept", "nested": {"preserved": True}},
                 ),
                 narrativa="synthetic episodic document",
                 estado_emocional={"energia": 0.3, "estres": 0.7},
@@ -177,11 +177,17 @@ def probe_real_roundtrip_delete_and_wrapper_isolation() -> dict[str, Any]:
             sem = recovered_semantic[0].recuerdo
             require(ep.id == episode.id and ep.narrativa == episode.narrativa, "episode core roundtrip")
             require(ep.metadata.timestamp == fixed, "episode timestamp roundtrip")
-            require(ep.metadata.extra == {"scalar": "kept"}, "episode scalar extra only")
-            require(ep.estado_emocional is None, "episodic emotional state is not persisted")
+            require(
+                ep.metadata.extra == {"scalar": "kept", "nested": {"preserved": True}},
+                "episode rich extra roundtrip",
+            )
+            require(
+                ep.estado_emocional == {"energia": 0.3, "estres": 0.7},
+                "episodic emotional state roundtrip",
+            )
             require(sem.id == semantic.id and sem.regla == semantic.regla, "semantic core roundtrip")
             require(sem.origen == semantic.origen, "semantic origin roundtrip")
-            require(sem.metadata.extra == {"scalar": 7}, "semantic scalar extra only")
+            require(sem.metadata.extra == {"scalar": 7, "items": [1, 2]}, "semantic rich extra roundtrip")
 
             before_delete = first.contar()
             require(first.eliminar([episode.id]), "valid delete call must report success")
@@ -208,8 +214,8 @@ def probe_real_roundtrip_delete_and_wrapper_isolation() -> dict[str, Any]:
     return {
         "active_chroma_opened": False,
         "network_allowed": False,
-        "episodic_roundtrip": "core fields preserved; estado_emocional/non-scalars lost",
-        "semantic_roundtrip": "core fields preserved; non-scalars lost",
+        "episodic_roundtrip": "core, rich extra, and estado_emocional preserved in V1",
+        "semantic_roundtrip": "core and rich extra preserved in V1",
         "valid_delete": "row removed",
         "unknown_delete": "true_noop",
         "empty_delete": "false",

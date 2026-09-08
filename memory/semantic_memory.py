@@ -4,7 +4,6 @@ Proporciona metodos para almacenar y recuperar reglas, patrones y abstracciones
 utilizando ChromaClient y MemoryEncoder.
 """
 
-import datetime
 from typing import List
 
 from chromadb.api.types import Metadata, Where
@@ -12,19 +11,10 @@ from chromadb.api.types import Metadata, Where
 from core.logger import get_logger
 from memory.chroma_client import ChromaClient
 from memory.memory_encoder import MemoryEncoder
+from memory.memory_schema import SEMANTIC_KIND, MemorySchemaCodec
 from memory.memory_types import MemoryMetadata, MemoryResult, SemanticMemory
 
 logger = get_logger(__name__)
-
-
-def _valor_a_str(valor: object, default: str) -> str:
-    return valor if isinstance(valor, str) else default
-
-
-def _valor_a_float(valor: object, default: float) -> float:
-    if isinstance(valor, (int, float)) and not isinstance(valor, bool):
-        return float(valor)
-    return default
 
 
 class SemanticMemoryStore:
@@ -82,43 +72,20 @@ class SemanticMemoryStore:
             meta = metadatas[i] if i < len(metadatas) else {}
             doc_text = documents[i] if i < len(documents) else ""
 
-            tipo_evento = _valor_a_str(meta.get("tipo_evento"), "semantica")
-            valencia = _valor_a_float(meta.get("valencia"), 0.0)
-            impacto = _valor_a_float(meta.get("impacto_emocional"), 0.5)
-            ts_str = _valor_a_str(meta.get("timestamp"), "")
-            try:
-                ts = (
-                    datetime.datetime.fromisoformat(ts_str)
-                    if ts_str
-                    else datetime.datetime.utcnow()
-                )
-            except Exception:
-                ts = datetime.datetime.utcnow()
-
-            origen = _valor_a_str(meta.get("origen"), "determinista")
-
-            reserved = {
-                "tipo_evento",
-                "valencia",
-                "impacto_emocional",
-                "timestamp",
-                "tipo",
-                "origen",
-            }
-            extra = {k: v for k, v in meta.items() if k not in reserved}
+            decoded = MemorySchemaCodec.decode_metadata(meta, SEMANTIC_KIND)
 
             metadata = MemoryMetadata(
-                tipo_evento=tipo_evento,
-                valencia=valencia,
-                impacto_emocional=impacto,
-                timestamp=ts,
-                extra=extra,
+                tipo_evento=decoded.tipo_evento,
+                valencia=decoded.valencia,
+                impacto_emocional=decoded.impacto_emocional,
+                timestamp=decoded.timestamp,
+                extra=decoded.extra,
             )
             recuerdo = SemanticMemory(
                 id=id_,
                 metadata=metadata,
                 regla=doc_text,
-                origen=origen,
+                origen=decoded.origen,
             )
             distancia = distances[i] if i < len(distances) else 1.0
             output.append(MemoryResult(recuerdo=recuerdo, distancia=distancia))

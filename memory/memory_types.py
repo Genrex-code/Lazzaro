@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 from datetime import datetime
 
+from memory.memory_schema import CANONICAL_DEFAULT_ORIGIN
+
 # Metadata común a todo recuerdo
 
 @dataclass(frozen=True)
@@ -35,7 +37,7 @@ class EpisodicMemory:
     id: str                        # UUID único
     metadata: MemoryMetadata
     narrativa: str                 # Descripción textual limpia (ej. "Falló herramienta X bajo multitarea")
-    estado_emocional: Optional[dict[str, float]] = None  # snapshot de state_engine (opcional)
+    estado_emocional: Optional[dict[str, bool | int | float]] = None  # snapshot de state_engine (opcional)
     # Podría agregarse 'resultado', 'herramienta', etc. en el futuro
 
 # Memoria semántica (abstracciones, reglas, patrones)
@@ -50,7 +52,7 @@ class SemanticMemory:
     id: str
     metadata: MemoryMetadata
     regla: str                     # ej. "La multitarea excesiva reduce precisión"
-    origen: str = "consolidacion"  # "manual", "gemini", "determinista"
+    origen: str = CANONICAL_DEFAULT_ORIGIN  # workflow/mecanismo productor conocido
 
 # Documento listo para embedding (desacoplado de la representación interna)
 @dataclass(frozen=True)

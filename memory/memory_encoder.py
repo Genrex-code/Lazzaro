@@ -8,6 +8,7 @@ from typing import Any, Optional
 import uuid
 
 from core.logger import get_logger
+from memory.memory_schema import CANONICAL_DEFAULT_ORIGIN, MemorySchemaCodec
 from memory.memory_types import (
     EpisodicMemory,
     SemanticMemory,
@@ -25,19 +26,10 @@ class MemoryEncoder:
     """
 
     @staticmethod
-    def _extra_plano(extra: dict[str, Any]) -> dict[str, str | int | float | bool]:
-        """Conserva solo metadata compatible con ChromaDB."""
-        return {
-            k: v
-            for k, v in extra.items()
-            if isinstance(v, (str, int, float, bool))
-        }
-
-    @staticmethod
     def codificar_episodio(
         tipo_evento: str,
         narrativa: str,
-        estado_emocional: Optional[dict[str, float]] = None,
+        estado_emocional: Optional[dict[str, bool | int | float]] = None,
         valencia: float = 0.0,
         impacto_emocional: float = 0.5,
         extra: Optional[dict[str, Any]] = None,
@@ -61,7 +53,11 @@ class MemoryEncoder:
             valencia=valencia,
             impacto_emocional=impacto_emocional,
             timestamp=datetime.utcnow(),
-            extra=extra or {},
+            extra=(
+                {}
+                if extra is None or (isinstance(extra, dict) and not extra)
+                else extra
+            ),
         )
         recuerdo_id = str(uuid.uuid4())
         logger.debug(
@@ -84,7 +80,7 @@ class MemoryEncoder:
         tipo_evento: str = "semantica",
         valencia: float = 0.0,
         impacto_emocional: float = 0.5,
-        origen: str = "determinista",
+        origen: str = CANONICAL_DEFAULT_ORIGIN,
         extra: Optional[dict[str, Any]] = None,
     ) -> SemanticMemory:
         """
@@ -106,7 +102,11 @@ class MemoryEncoder:
             valencia=valencia,
             impacto_emocional=impacto_emocional,
             timestamp=datetime.utcnow(),
-            extra=extra or {},
+            extra=(
+                {}
+                if extra is None or (isinstance(extra, dict) and not extra)
+                else extra
+            ),
         )
         recuerdo_id = str(uuid.uuid4())
         logger.debug("Codificada semántica '%s' (id=%s)", regla[:60], recuerdo_id)
@@ -130,16 +130,14 @@ class MemoryEncoder:
         """
         if isinstance(recuerdo, EpisodicMemory):
             contenido = recuerdo.narrativa
-            # Metadata plana (Chromadb solo admite tipos básicos)
-            metadata_plana = {
-                "tipo": "episodico",
-                "tipo_evento": recuerdo.metadata.tipo_evento,
-                "valencia": recuerdo.metadata.valencia,
-                "impacto_emocional": recuerdo.metadata.impacto_emocional,
-                "timestamp": recuerdo.metadata.timestamp.isoformat(),
-            }
-            if recuerdo.metadata.extra:
-                metadata_plana.update(MemoryEncoder._extra_plano(recuerdo.metadata.extra))
+            metadata_plana = MemorySchemaCodec.encode_episodic_metadata(
+                tipo_evento=recuerdo.metadata.tipo_evento,
+                valencia=recuerdo.metadata.valencia,
+                impacto_emocional=recuerdo.metadata.impacto_emocional,
+                timestamp=recuerdo.metadata.timestamp,
+                extra=recuerdo.metadata.extra,
+                estado_emocional=recuerdo.estado_emocional,
+            )
             return MemoryDocument(
                 id=recuerdo.id,
                 contenido=contenido,
@@ -147,16 +145,14 @@ class MemoryEncoder:
             )
         else:  # SemanticMemory
             contenido = recuerdo.regla
-            metadata_plana = {
-                "tipo": "semantico",
-                "tipo_evento": recuerdo.metadata.tipo_evento,
-                "valencia": recuerdo.metadata.valencia,
-                "impacto_emocional": recuerdo.metadata.impacto_emocional,
-                "origen": recuerdo.origen,
-                "timestamp": recuerdo.metadata.timestamp.isoformat(),
-            }
-            if recuerdo.metadata.extra:
-                metadata_plana.update(MemoryEncoder._extra_plano(recuerdo.metadata.extra))
+            metadata_plana = MemorySchemaCodec.encode_semantic_metadata(
+                tipo_evento=recuerdo.metadata.tipo_evento,
+                valencia=recuerdo.metadata.valencia,
+                impacto_emocional=recuerdo.metadata.impacto_emocional,
+                timestamp=recuerdo.metadata.timestamp,
+                extra=recuerdo.metadata.extra,
+                origen=recuerdo.origen,
+            )
             return MemoryDocument(
                 id=recuerdo.id,
                 contenido=contenido,
