@@ -729,13 +729,7 @@ public class LazzaroAgent : MonoBehaviour
         }
         accionesEsperandoAutorizacion.Remove(contexto.IdAccion);
 
-        // 1. Mostrar Pensamiento Privado en la UI
-        if (textoPensamientoUI != null && !string.IsNullOrEmpty(respuesta.accion.pensamiento_privado))
-        {
-            textoPensamientoUI.text = $"[Pensando...]\n{respuesta.accion.pensamiento_privado}";
-        }
-
-        // 2. Mostrar la Voz en la UI
+        // La voz publica viaja solamente como parametro contractual de `hablar`.
         if (respuesta.accion.nombre == "hablar")
         {
             string textoVoz = respuesta.accion.parametros?["texto_a_comunicar"]?.ToString() ?? "";
@@ -748,8 +742,6 @@ public class LazzaroAgent : MonoBehaviour
         {
             textoVozUI.text = ""; // Limpia la burbuja de voz si hace otra cosa
         }
-
-        if (mostrarLogsCognitivos) Debug.Log($"Pensamiento de Lazzaro: {respuesta.accion.pensamiento_privado}");
 
         EncolarInicioEjecucion(contexto);
 

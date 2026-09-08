@@ -307,7 +307,7 @@ def test_historical_cache_race_no_longer_raises_key_error() -> None:
     assert_true(list(cache) == ["new"] and len(cache) == 1, "La eviction debe quedar coherente.")
 
 
-def test_notification_append_and_drain_never_lose_concurrent_item() -> None:
+def test_private_notification_sources_do_not_touch_queue_during_drain() -> None:
     class PausingClearDeque(deque):
         def __init__(self, *args: object, **kwargs: object) -> None:
             super().__init__(*args, **kwargs)
@@ -322,7 +322,7 @@ def test_notification_append_and_drain_never_lose_concurrent_item() -> None:
                 assert_true(self.release.wait(timeout=WAIT_SECONDS), "No se liberó notification.clear.")
             super().clear()
 
-    initial = NotificacionSaliente(tipo="pensamiento", mensaje="initial")
+    initial = NotificacionSaliente(tipo="info", mensaje="initial")
     queue = PausingClearDeque((initial,), maxlen=50)
     orchestrator = _bare_orchestrator()
     lock = ObservedLock()
@@ -333,29 +333,24 @@ def test_notification_append_and_drain_never_lose_concurrent_item() -> None:
     drainer = threading.Thread(
         target=_thread_target(errors, lambda: first_batch.append(orchestrator.obtener_notificaciones()))
     )
-    appender = threading.Thread(
-        target=_thread_target(
-            errors,
-            lambda: orchestrator._agregar_notificacion_si_corresponde(
-                ActionResponse(pensamiento="", accion="hablar", error="late")
-            ),
-        )
-    )
     drainer.start()
     assert_true(queue.before_clear.wait(timeout=WAIT_SECONDS), "El drain no llegó a clear.")
-    appender.start()
-    assert_true(lock.contended.wait(timeout=WAIT_SECONDS), "Append no esperó el drain atómico.")
+    emitted = orchestrator._agregar_notificacion_si_corresponde(
+        ActionResponse(pensamiento="private", accion="none", error="internal")
+    )
+    assert_true(emitted is False, "Cognition y errores internos no producen notificaciones.")
+    assert_true(not lock.contended.is_set(), "La fuente privada no debe intentar escribir la cola.")
     queue.release.set()
-    _join_threads([drainer, appender], errors)
+    _join_threads([drainer], errors)
     second_batch = orchestrator.obtener_notificaciones()
     assert_true([item.mensaje for item in first_batch[0]] == ["initial"], "El primer batch debe ser estable.")
-    assert_true(len(second_batch) == 1 and "late" in second_batch[0].mensaje, "El append debe quedar para un batch.")
+    assert_true(second_batch == [], "La fuente privada no debe dejar un segundo batch.")
 
 
 def test_two_notification_drains_do_not_duplicate() -> None:
     orchestrator = _bare_orchestrator()
-    orchestrator._agregar_notificacion_si_corresponde(
-        ActionResponse(pensamiento="una", accion="none")
+    orchestrator._notificaciones.append(
+        NotificacionSaliente(tipo="info", mensaje="public intent fixture")
     )
     first = orchestrator.obtener_notificaciones()
     second = orchestrator.obtener_notificaciones()
@@ -611,7 +606,7 @@ def main() -> None:
         test_cache_hit_and_lru_touch_are_atomic,
         test_cache_put_and_eviction_are_atomic_and_bounded,
         test_historical_cache_race_no_longer_raises_key_error,
-        test_notification_append_and_drain_never_lose_concurrent_item,
+        test_private_notification_sources_do_not_touch_queue_during_drain,
         test_two_notification_drains_do_not_duplicate,
         test_working_memory_append_and_snapshot_are_owned,
         test_working_memory_concurrent_read_write_returns_coherent_snapshots,

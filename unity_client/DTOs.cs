@@ -18,8 +18,6 @@ public class AccionSaliente
 {
     public string id_accion;
     public string nombre;
-    public string pensamiento_privado;
-    public string razonamiento;
     public JObject parametros;
     public bool requiere_confirmacion;
     public string estado_ejecucion;

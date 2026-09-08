@@ -664,7 +664,11 @@ def test_action_adapter_preserves_id_through_durable_roundtrip() -> None:
     restored = orchestrator._restaurar_accion_desde_ledger(payload)
     assert_true(restored.id_accion == outgoing.id_accion, "El adapter no debe regenerar id_accion.")
     assert_true(restored.nombre == outgoing.nombre and restored.parametros == outgoing.parametros, "La accion operacional debe reconstruirse.")
-    assert_true(restored.pensamiento_privado == "", "El ledger no debe persistir pensamiento privado.")
+    restored_payload = restored.model_dump(mode="python")
+    assert_true(
+        "pensamiento_privado" not in restored_payload and "razonamiento" not in restored_payload,
+        "El replay durable no debe reconstruir campos cognitivos ni siquiera vacios.",
+    )
 
 
 def test_sandbox_synchronous_outcome_is_recorded_and_consumed() -> None:

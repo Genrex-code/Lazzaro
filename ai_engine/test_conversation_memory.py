@@ -263,8 +263,6 @@ def main() -> None:
         id_accion="accion-test",
         nombre="hablar",
         parametros=respuesta.parametros,
-        razonamiento=respuesta.razon,
-        pensamiento_privado=respuesta.pensamiento,
     )
 
     orquestador._registrar_turno_conversacional_si_aplica(

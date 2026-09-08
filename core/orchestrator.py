@@ -3338,8 +3338,6 @@ class Orchestrator:
                 if isinstance(payload.get("parametros"), dict)
                 else {}
             ),
-            razonamiento="",
-            pensamiento_privado="",
             requiere_confirmacion=payload.get("requiere_confirmacion") is True,
             estado_ejecucion=str(
                 payload.get("estado_ejecucion") or ActionState.LEGACY_UNKNOWN.value
@@ -3375,8 +3373,6 @@ class Orchestrator:
             id_accion=record.action_id,
             nombre=record.action_name,
             parametros=dict(record.parameters),
-            razonamiento="",
-            pensamiento_privado="",
             requiere_confirmacion=record.requires_confirmation,
             estado_ejecucion=record.action_state.value,
             id_transaccion_origen=record.transaction_id,
@@ -3636,8 +3632,6 @@ class Orchestrator:
             id_accion=str(uuid.uuid4()),
             nombre=action_response.accion,
             parametros=action_response.parametros,
-            razonamiento=action_response.razon,
-            pensamiento_privado=action_response.pensamiento,
             requiere_confirmacion=requiere_confirmacion,
         )
 
@@ -3688,29 +3682,8 @@ class Orchestrator:
         return vectores.get(direccion_escape, (0.0, -1.0))
 
     def _agregar_notificacion_si_corresponde(self, action_response: ActionResponse) -> bool:
-        """Si el agente quiere comunicar algo espontaneo, lo encola."""
-        nuevas: list[NotificacionSaliente] = []
-        if action_response.accion == "none" and action_response.pensamiento:
-            nuevas.append(
-                NotificacionSaliente(
-                    tipo="pensamiento",
-                    mensaje=action_response.pensamiento,
-                    timestamp=datetime.utcnow(),
-                )
-            )
-
-        if action_response.error:
-            nuevas.append(
-                NotificacionSaliente(
-                    tipo="error",
-                    mensaje=f"Error de razonamiento: {action_response.error}",
-                    timestamp=datetime.utcnow(),
-                )
-            )
-        if nuevas:
-            with self._obtener_lock_recurso("_notificaciones_lock"):
-                self._notificaciones.extend(nuevas)
-            return True
+        """No convierte cognition ni errores internos en mensajes publicos."""
+        del action_response
         return False
 
     def _herramientas_para_evento(self, evento: EventoEntrante, triage_decision: dict) -> list[str]:

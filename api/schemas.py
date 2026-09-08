@@ -128,14 +128,6 @@ class AccionSaliente(BaseModel):
         default_factory=dict,
         description="Argumentos necesarios para ejecutar la accion.",
     )
-    razonamiento: str = Field(
-        "",
-        description="Explicacion textual de por que el agente eligio esta accion.",
-    )
-    pensamiento_privado: str = Field(
-        "",
-        description="Monologo interno del agente para depuracion.",
-    )
     requiere_confirmacion: StrictBool = Field(
         False,
         description="Si es True, el frontend deberia pedir confirmacion antes de ejecutar.",
@@ -165,13 +157,12 @@ class AccionSaliente(BaseModel):
     )
 
     model_config = ConfigDict(
+        extra="forbid",
         json_schema_extra={
             "example": {
                 "id_accion": "550e8400-e29b-41d4-a716-446655440000",
                 "nombre": "navegar_a_objeto",
                 "parametros": {"nombre_objeto": "Arbol_01"},
-                "razonamiento": "Necesito acercarme al arbol mas cercano para explorarlo.",
-                "pensamiento_privado": "La ruta esta libre y el objetivo sigue vigente.",
                 "requiere_confirmacion": False,
             }
         }
@@ -215,8 +206,6 @@ class RespuestaAPI(BaseModel):
                     "id_accion": "550e8400-e29b-41d4-a716-446655440000",
                     "nombre": "interactuar_objeto_3d",
                     "parametros": {"nombre_objeto": "Arbol_01", "tipo_accion": "golpear"},
-                    "razonamiento": "Ya estoy lo bastante cerca para interactuar con el arbol.",
-                    "pensamiento_privado": "Debo aprovechar la proximidad antes de seguir moviendome.",
                     "requiere_confirmacion": False,
                 },
             }
@@ -266,7 +255,7 @@ class NotificacionSaliente(BaseModel):
     sin que haya un evento de entrada previo.
     """
 
-    tipo: str = Field(..., description="'info', 'alerta', 'error', 'pensamiento'")
+    tipo: str = Field(..., description="Tipo publico explicito, por ejemplo 'info' o 'alerta'.")
     mensaje: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
