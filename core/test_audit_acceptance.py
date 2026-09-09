@@ -30,6 +30,11 @@ from core.test_orchestrator_audit import (
     assert_true,
 )
 from memory.memory_manager import MemoryManager
+from memory.retrieval_types import (
+    MemoryRetrievalReceipt,
+    RetrievalHealth,
+    StoreRetrievalReceipt,
+)
 from memory.working_memory import WorkingMemory
 from terminal_client.test_chat import _orquestador_aislado
 
@@ -90,17 +95,32 @@ def test_transaction_is_reconstructed_from_jsonl_only() -> None:
         results = _ranked_memory_results()
         manager = object.__new__(MemoryManager)
 
-        def search(**kwargs):
+        def search_with_receipt(**kwargs):
             calls["search"] += 1
-            return results
+            episodic = StoreRetrievalReceipt(
+                RetrievalHealth.OK,
+                (results[0],),
+                candidate_count=1,
+            )
+            semantic = StoreRetrievalReceipt(
+                RetrievalHealth.OK,
+                (results[1],),
+                candidate_count=1,
+            )
+            return MemoryRetrievalReceipt(
+                RetrievalHealth.OK,
+                tuple(results),
+                episodic,
+                semantic,
+            )
 
         class Summary:
             def resumir(self, recuerdos, max_caracteres):
                 calls["summary"] += 1
-                assert_true(recuerdos is results, "La metadata y el contexto deben usar los mismos resultados.")
+                assert_true(tuple(recuerdos) == tuple(results), "La metadata y el contexto deben usar los mismos resultados.")
                 return "SECRET_ACCEPTANCE_MEMORY_CONTEXT"
 
-        manager.buscar_recuerdos = search
+        manager.buscar_recuerdos_con_recibo = search_with_receipt
         manager.summarizer = Summary()
         orchestrator.memory.obtener_contexto_memoria_con_metadata = manager.obtener_contexto_memoria_con_metadata
 

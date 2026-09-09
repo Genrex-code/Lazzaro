@@ -340,7 +340,11 @@ class ChromaClient:
                 )
                 return self._normalizar_resultado_query(resultado)
             except Exception as e:
-                logger.error("Error al buscar en ChromaDB: %s", e)
+                logger.error(
+                    "Fallo de retrieval. component=chroma_client operation=search "
+                    "reason_code=BACKEND_FAILURE error_type=%s",
+                    type(e).__name__,
+                )
                 return None
 
     def listar(

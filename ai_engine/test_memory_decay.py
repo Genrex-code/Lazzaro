@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import sys
 from pathlib import Path
 
@@ -21,15 +21,16 @@ def assert_true(condicion: bool, mensaje: str) -> None:
 
 
 class FakeClientConEpisodios:
-    def __init__(self) -> None:
-        ahora = datetime.utcnow()
+    def __init__(self, ahora: datetime) -> None:
         self.registros = {
-            "ids": ["old-low", "old-high", "new-low", "critical"],
+            "ids": ["old-low", "old-high", "new-low", "critical", "future", "invalid-time"],
             "documents": [
                 "Veo una capsula sin cambios relevantes.",
                 "Observacion muy importante que no debe compactarse.",
                 "Veo un cubo nuevo hace un instante.",
                 "Alerta de dolor fisico por choque.",
+                "Observacion con reloj futuro.",
+                "Observacion con reloj corrupto.",
             ],
             "metadatas": [
                 {
@@ -56,6 +57,18 @@ class FakeClientConEpisodios:
                     "impacto_emocional": 0.2,
                     "timestamp": (ahora - timedelta(days=20)).isoformat(),
                 },
+                {
+                    "tipo": "episodico",
+                    "tipo_evento": "actualizacion_estado",
+                    "impacto_emocional": 0.1,
+                    "timestamp": (ahora + timedelta(days=1)).isoformat(),
+                },
+                {
+                    "tipo": "episodico",
+                    "tipo_evento": "actualizacion_estado",
+                    "impacto_emocional": 0.1,
+                    "timestamp": "not-iso",
+                },
             ],
         }
 
@@ -66,7 +79,7 @@ class FakeClientConEpisodios:
 def main() -> None:
     print("=== INICIANDO PRUEBA DE MEMORY DECAY ===\n")
 
-    ahora = datetime.utcnow()
+    ahora = datetime.now(timezone.utc)
     reciente = EpisodicMemory(
         id="recent",
         metadata=MemoryMetadata(
@@ -99,7 +112,10 @@ def main() -> None:
         origen="conversacion_selectiva",
     )
 
-    peso_antiguo = MemoryDecay.calcular_importancia_efectiva(antiguo)
+    peso_antiguo = MemoryDecay.calcular_importancia_efectiva(
+        antiguo,
+        now_utc=ahora,
+    )
     assert_true(
         peso_antiguo["importancia_total"] < antiguo.metadata.impacto_emocional,
         "Un recuerdo antiguo debe perder importancia efectiva.",
@@ -111,7 +127,7 @@ def main() -> None:
         MemoryResult(recuerdo=semantico_antiguo, distancia=0.1),
     ]
     retriever = object.__new__(MemoryRetriever)
-    MemoryRetriever._calcular_scores(retriever, resultados)
+    MemoryRetriever._calcular_scores(retriever, resultados, now_utc=ahora)
     scores = {resultado.recuerdo.id: resultado.metadata_score for resultado in resultados}
     assert_true(
         scores["recent"] > scores["old"],
@@ -123,7 +139,7 @@ def main() -> None:
     )
 
     gestor = object.__new__(MemoryManager)
-    gestor.client = FakeClientConEpisodios()
+    gestor.client = FakeClientConEpisodios(ahora)
     gestor.decay = MemoryDecay()
     gestor.consolidacion_antiguedad_minutos = 5
     gestor.consolidacion_umbral = 30

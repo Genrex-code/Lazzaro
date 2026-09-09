@@ -37,7 +37,7 @@ from ai_engine.learned_alias_candidates import LearnedAliasCandidate
 from memory.chroma_client import ChromaClient
 from memory.conversation_memory import ConversationMemory
 from memory.episodic_memory import EpisodicMemoryStore
-from memory.memory_decay import MemoryDecay
+from memory.memory_decay import MemoryDecay, MemoryTemporalError
 from memory.memory_encoder import MemoryEncoder
 from memory.memory_filters import MemoryFilters
 from memory.memory_manager import MemoryContextResult, MemoryManager
@@ -49,6 +49,12 @@ from memory.memory_types import (
     SemanticMemory,
 )
 from memory.semantic_memory import SemanticMemoryStore
+from memory.retrieval_types import (
+    MemoryRetrievalReceipt,
+    RetrievalHealth,
+    RetrievalIssueCode,
+    StoreRetrievalReceipt,
+)
 from memory.working_memory import WorkingMemory
 
 
@@ -251,6 +257,16 @@ class SearchStore:
             raise self.error
         return list(self.results)
 
+    def buscar_con_recibo(self, *_args, **_kwargs):
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return StoreRetrievalReceipt(
+            health=RetrievalHealth.OK if self.results else RetrievalHealth.OK_EMPTY,
+            results=tuple(self.results),
+            candidate_count=len(self.results),
+        )
+
 
 def _synthetic_result(memory_id: str, semantic: bool = False, *, timestamp: datetime | None = None) -> MemoryResult:
     metadata = MemoryMetadata(
@@ -274,8 +290,10 @@ def probe_retrieval_states_and_obs005() -> dict[str, Any]:
     )
     failed_store = EpisodicMemoryStore(failed_store_client)  # type: ignore[arg-type]
     empty_store = EpisodicMemoryStore(empty_store_client)  # type: ignore[arg-type]
-    require(failed_store.buscar("synthetic") == [], "store collapses client failure to []")
-    require(empty_store.buscar("synthetic") == [], "store maps valid no-hit to []")
+    failed_store_receipt = failed_store.buscar_con_recibo("synthetic")
+    empty_store_receipt = empty_store.buscar_con_recibo("synthetic")
+    require(failed_store_receipt.health == RetrievalHealth.FAILED, "store exposes client failure")
+    require(empty_store_receipt.health == RetrievalHealth.OK_EMPTY, "store exposes valid no-hit")
 
     episode = _synthetic_result("episode")
     semantic = _synthetic_result("semantic", semantic=True)
@@ -294,18 +312,27 @@ def probe_retrieval_states_and_obs005() -> dict[str, Any]:
             SearchStore(error=RuntimeError("synthetic semantic failure")),
         ),
     }
-    observed: dict[str, list[str]] = {}
+    observed: dict[str, dict[str, Any]] = {}
     for name, (episodic, semantic_store) in combinations.items():
-        retriever = MemoryRetriever(episodic, semantic_store)  # type: ignore[arg-type]
-        observed[name] = [item.recuerdo.id for item in retriever.buscar("synthetic")]
+        retriever = MemoryRetriever(
+            episodic,
+            semantic_store,
+            clock=lambda: datetime.now(timezone.utc),
+        )  # type: ignore[arg-type]
+        receipt = retriever.buscar_con_recibo("synthetic")
+        observed[name] = {
+            "ids": [item.recuerdo.id for item in receipt.results],
+            "health": receipt.health.value,
+        }
         require(episodic.calls == 1 and semantic_store.calls == 1, "hybrid retrieval calls both stores once")
 
-    require(observed["both_empty"] == observed["both_error"] == [], "both error and no-hit are identical")
-    require(observed["episodic_error_semantic_hit"] == ["semantic"], "partial semantic hit survives")
-    require(observed["episodic_hit_semantic_error"] == ["episode"], "partial episodic hit survives")
+    require(observed["both_empty"]["health"] == "OK_EMPTY", "healthy empty is explicit")
+    require(observed["both_error"]["health"] == "FAILED", "both failures are explicit")
+    require(observed["episodic_error_semantic_hit"] == {"ids": ["semantic"], "health": "PARTIAL"}, "partial semantic hit survives visibly")
+    require(observed["episodic_hit_semantic_error"] == {"ids": ["episode"], "health": "PARTIAL"}, "partial episodic hit survives visibly")
 
     class OneSearchManager:
-        buscar_recuerdos = MemoryManager.buscar_recuerdos
+        buscar_recuerdos_con_recibo = MemoryManager.buscar_recuerdos_con_recibo
         obtener_contexto_memoria_con_metadata = MemoryManager.obtener_contexto_memoria_con_metadata
 
         def __init__(self):
@@ -316,13 +343,20 @@ def probe_retrieval_states_and_obs005() -> dict[str, Any]:
                 {"resumir": staticmethod(lambda memories, _limit: f"synthetic:{len(memories)}")},
             )()
 
-        def buscar_recuerdos(self, query: str, limite: int = 5):
+        def buscar_recuerdos_con_recibo(self, query: str, limite: int = 5):
             self.calls += 1
             first = _synthetic_result("rank-1")
             second = _synthetic_result("rank-2", semantic=True)
             first.metadata_score = 0.9
             second.metadata_score = 0.7
-            return [first, second]
+            episodic = StoreRetrievalReceipt(RetrievalHealth.OK, (first,), 1)
+            semantic_receipt = StoreRetrievalReceipt(RetrievalHealth.OK, (second,), 1)
+            return MemoryRetrievalReceipt(
+                RetrievalHealth.OK,
+                (first, second),
+                episodic,
+                semantic_receipt,
+            )
 
     one = OneSearchManager()
     context = one.obtener_contexto_memoria_con_metadata("synthetic", limite=5)
@@ -331,20 +365,20 @@ def probe_retrieval_states_and_obs005() -> dict[str, Any]:
     require(context.scores == (0.9, 0.7), "OBS-005 scores align with IDs")
 
     return {
-        "chroma_failure_at_store": [],
-        "valid_no_hit_at_store": [],
+        "chroma_failure_at_store": failed_store_receipt.health.value,
+        "valid_no_hit_at_store": empty_store_receipt.health.value,
         "hybrid_queries_per_retrieval": 2,
-        "partial_failure_visible_to_caller": False,
-        "both_error_equals_no_hit": True,
-        "partial_results_look_complete": True,
+        "partial_failure_visible_to_caller": True,
+        "both_error_equals_no_hit": False,
+        "partial_results_look_complete": False,
         "obs005_hybrid_search_calls": one.calls,
         "obs005_ids_scores_aligned": True,
     }
 
 
 def probe_scoring_filters_and_poison_record() -> dict[str, Any]:
-    now = datetime.utcnow()
-    recent = _synthetic_result("recent", timestamp=now)
+    now = datetime.now(timezone.utc)
+    recent = _synthetic_result("recent", timestamp=now.replace(tzinfo=None))
     old = _synthetic_result("old", timestamp=now - timedelta(days=30))
     semantic_old = _synthetic_result(
         "semantic-old",
@@ -352,7 +386,7 @@ def probe_scoring_filters_and_poison_record() -> dict[str, Any]:
         timestamp=now - timedelta(days=365),
     )
     retriever = object.__new__(MemoryRetriever)
-    MemoryRetriever._calcular_scores(retriever, [recent, old, semantic_old])
+    MemoryRetriever._calcular_scores(retriever, [recent, old, semantic_old], now_utc=now)
     require(recent.metadata_score > old.metadata_score, "recent episode must outrank equivalent old episode")
     require(semantic_old.metadata_score > old.metadata_score, "semantic memory decays slower")
 
@@ -362,24 +396,34 @@ def probe_scoring_filters_and_poison_record() -> dict[str, Any]:
         "synthetic",
     )
     unbounded_result = MemoryResult(unbounded, distancia=-2.0)
-    MemoryRetriever._calcular_scores(retriever, [unbounded_result])
+    MemoryRetriever._calcular_scores(retriever, [unbounded_result], now_utc=now)
     require(unbounded_result.metadata_score > 1.0, "metadata_score is not range-bounded")
 
-    future_weight = MemoryDecay.calcular_peso_recencia(now + timedelta(days=365))
-    require(future_weight == 1.0, "future memory receives maximum recency")
-    aware = _synthetic_result("aware", timestamp=datetime.now(timezone.utc))
-    poison_store = SearchStore([recent, aware])
-    empty_semantic = SearchStore()
-    poison_retriever = MemoryRetriever(poison_store, empty_semantic)  # type: ignore[arg-type]
-    poison_raised = False
+    future_rejected = False
     try:
-        poison_retriever.buscar("synthetic")
-    except TypeError:
-        poison_raised = True
-    require(poison_raised, "one aware timestamp poisons the whole rerank")
+        MemoryDecay.calcular_peso_recencia(now + timedelta(days=365), now_utc=now)
+    except MemoryTemporalError as exc:
+        future_rejected = exc.reason_code == RetrievalIssueCode.FUTURE_TIMESTAMP
+    require(future_rejected, "future memory is rejected as untrusted temporal evidence")
+
+    aware = _synthetic_result("aware", timestamp=now - timedelta(seconds=1))
+    future = _synthetic_result("future", timestamp=now + timedelta(days=365))
+    poison_store = SearchStore([recent, aware, future])
+    empty_semantic = SearchStore()
+    poison_retriever = MemoryRetriever(
+        poison_store,
+        empty_semantic,
+        clock=lambda: now,
+    )  # type: ignore[arg-type]
+    poison_receipt = poison_retriever.buscar_con_recibo("synthetic")
+    require(poison_receipt.health == RetrievalHealth.PARTIAL, "future row degrades health")
+    require(
+        {item.recuerdo.id for item in poison_receipt.results} == {"recent", "aware"},
+        "valid naive and aware rows survive a future poison row",
+    )
 
     class ManagerWithPoison:
-        buscar_recuerdos = MemoryManager.buscar_recuerdos
+        buscar_recuerdos_con_recibo = MemoryManager.buscar_recuerdos_con_recibo
         obtener_contexto_memoria_con_metadata = MemoryManager.obtener_contexto_memoria_con_metadata
 
         def __init__(self):
@@ -390,8 +434,9 @@ def probe_scoring_filters_and_poison_record() -> dict[str, Any]:
                 {"resumir": staticmethod(lambda memories, _limit: f"synthetic:{len(memories)}")},
             )()
 
-    collapsed = ManagerWithPoison().obtener_contexto_memoria_con_metadata("synthetic")
-    require(collapsed == MemoryContextResult(texto="synthetic:0"), "manager collapses poison failure to empty retrieval")
+    visible = ManagerWithPoison().obtener_contexto_memoria_con_metadata("synthetic")
+    require(visible.health == RetrievalHealth.PARTIAL, "manager exposes poison health")
+    require(visible.retrieved_ids == tuple(item.recuerdo.id for item in poison_receipt.results), "manager preserves valid poison-batch results")
 
     filters = [
         MemoryFilters.por_tipo_evento("synthetic"),
@@ -408,8 +453,9 @@ def probe_scoring_filters_and_poison_record() -> dict[str, Any]:
     invalid_filter_client = QueryClient(None)
     invalid_filter_store = EpisodicMemoryStore(invalid_filter_client)  # type: ignore[arg-type]
     require(
-        invalid_filter_store.buscar("synthetic", where=recent_filter) == [],
-        "an invalid recent-filter query is indistinguishable from no-hit",
+        invalid_filter_store.buscar_con_recibo("synthetic", where=recent_filter).health
+        == RetrievalHealth.FAILED,
+        "an invalid recent-filter query is visible as failure",
     )
 
     return {
@@ -417,9 +463,9 @@ def probe_scoring_filters_and_poison_record() -> dict[str, Any]:
         "recent_episode_beats_old": True,
         "semantic_decay_slower": True,
         "metadata_score_bounded_0_1": False,
-        "future_timestamp_recency": future_weight,
-        "aware_timestamp_poisoned_all_results": poison_raised,
-        "poison_visible_to_manager": False,
+        "future_timestamp_recency": "rejected:FUTURE_TIMESTAMP",
+        "aware_timestamp_poisoned_all_results": False,
+        "poison_visible_to_manager": True,
         "filters_mutate_inputs": False,
         "recientes_interpreted_by_retriever": False,
     }

@@ -115,7 +115,8 @@ def test_coleccion_vacia():
         datos = client.listar(limite=5)
         assert datos is not None and len(_ids(datos)) == 0, "Listar en vacío no devuelve IDs"
         res = client.buscar("consulta", n_resultados=3)
-        assert res is None or len(_ids(res)) == 0, "Buscar en vacío no devuelve IDs"
+        assert res is not None, "Una búsqueda sana vacía debe distinguirse de un fallo"
+        assert res.get("ids") == [[]], "Buscar en vacío conserva el batch vacío de Chroma"
 
 
 def test_insercion_y_conteo():

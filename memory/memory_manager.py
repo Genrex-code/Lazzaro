@@ -17,13 +17,19 @@ from core.logger import get_logger
 from memory.chroma_client import ChromaClient
 from memory.conversation_memory import ConversationMemory, PublicConversationTurn
 from memory.episodic_memory import EpisodicMemoryStore
-from memory.memory_decay import MemoryDecay
+from memory.memory_decay import MemoryDecay, MemoryTemporalError
 from memory.memory_encoder import MemoryEncoder
 from memory.memory_filters import MemoryFilters
 from memory.memory_schema import CANONICAL_DEFAULT_ORIGIN, MemorySchemaCodec, SEMANTIC_KIND
 from memory.memory_retriever import MemoryRetriever
 from memory.memory_summarizer import MemorySummarizer
 from memory.memory_types import MemoryResult
+from memory.retrieval_types import (
+    MemoryRetrievalReceipt,
+    RetrievalHealth,
+    RetrievalIssueCode,
+    StoreRetrievalReceipt,
+)
 from memory.semantic_memory import SemanticMemoryStore
 from memory.working_memory import WorkingMemory
 
@@ -37,6 +43,15 @@ class MemoryContextResult:
     texto: str = ""
     retrieved_ids: tuple[str, ...] = ()
     scores: tuple[float, ...] = ()
+    health: RetrievalHealth = RetrievalHealth.FAILED
+    episodic_health: RetrievalHealth = RetrievalHealth.FAILED
+    episodic_valid_count: int = 0
+    episodic_dropped_count: int = 0
+    semantic_health: RetrievalHealth = RetrievalHealth.FAILED
+    semantic_valid_count: int = 0
+    semantic_dropped_count: int = 0
+    dropped_count: int = 0
+    reason_codes: tuple[RetrievalIssueCode, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -479,17 +494,48 @@ class MemoryManager:
         filtros_episodicos: Optional[dict] = None,
         filtros_semanticos: Optional[dict] = None,
     ) -> list[MemoryResult]:
-        """Busca recuerdos combinados ordenados por relevancia."""
+        """Adaptador legacy: proyecta la lista del mismo receipt hibrido."""
+        return list(
+            self.buscar_recuerdos_con_recibo(
+                query=query,
+                limite=limite,
+                filtros_episodicos=filtros_episodicos,
+                filtros_semanticos=filtros_semanticos,
+            ).results
+        )
+
+    def buscar_recuerdos_con_recibo(
+        self,
+        query: str,
+        limite: int = 5,
+        filtros_episodicos: Optional[dict] = None,
+        filtros_semanticos: Optional[dict] = None,
+    ) -> MemoryRetrievalReceipt:
+        """Busca una vez y conserva salud por fuente y ranking final."""
         try:
-            return self.retriever.buscar(
+            return self.retriever.buscar_con_recibo(
                 query=query,
                 limite=limite,
                 where_episodica=filtros_episodicos,
                 where_semantica=filtros_semanticos,
             )
         except Exception as e:
-            logger.error("Error en buscar_recuerdos: %s", e, exc_info=True)
-            return []
+            logger.error(
+                "Fallo de retrieval. component=memory_manager operation=hybrid_search "
+                "health=FAILED reason_code=INTERNAL_FAILURE error_type=%s",
+                type(e).__name__,
+            )
+            failed = StoreRetrievalReceipt(
+                health=RetrievalHealth.FAILED,
+                reason_codes=(RetrievalIssueCode.INTERNAL_FAILURE,),
+            )
+            return MemoryRetrievalReceipt(
+                health=RetrievalHealth.FAILED,
+                results=(),
+                episodic=failed,
+                semantic=failed,
+                reason_codes=(RetrievalIssueCode.INTERNAL_FAILURE,),
+            )
 
     def obtener_contexto_memoria(
         self,
@@ -505,7 +551,11 @@ class MemoryManager:
                 max_caracteres=max_caracteres,
             ).texto
         except Exception as e:
-            logger.error("Error al obtener contexto de memoria: %s", e, exc_info=True)
+            logger.error(
+                "Fallo de contexto. component=memory_manager operation=context_text "
+                "error_type=%s",
+                type(e).__name__,
+            )
             return ""
 
     def obtener_contexto_memoria_con_metadata(
@@ -515,17 +565,19 @@ class MemoryManager:
         max_caracteres: int = 600,
     ) -> MemoryContextResult:
         """Resume una sola recuperación y expone únicamente IDs/scores alineados."""
-        try:
-            recuerdos = self.buscar_recuerdos(query=query, limite=limite)
-        except Exception as e:
-            logger.error("Error al obtener contexto de memoria: %s", e, exc_info=True)
-            return MemoryContextResult()
+        receipt = self.buscar_recuerdos_con_recibo(query=query, limite=limite)
+        recuerdos = list(receipt.results)
 
-        try:
-            texto = str(self.summarizer.resumir(recuerdos, max_caracteres) or "")
-        except Exception as e:
-            logger.error("Error al resumir contexto de memoria: %s", e, exc_info=True)
-            texto = ""
+        texto = ""
+        if receipt.health == RetrievalHealth.OK_EMPTY or recuerdos:
+            try:
+                texto = str(self.summarizer.resumir(recuerdos, max_caracteres) or "")
+            except Exception as e:
+                logger.error(
+                    "Fallo de contexto. component=memory_manager operation=summarize "
+                    "error_type=%s",
+                    type(e).__name__,
+                )
 
         try:
             pares = tuple(
@@ -540,12 +592,32 @@ class MemoryManager:
                 "No se pudo extraer metadata de la recuperación; se conserva el contexto. error_type=%s",
                 type(e).__name__,
             )
-            return MemoryContextResult(texto=texto)
+            return MemoryContextResult(
+                texto=texto,
+                health=receipt.health,
+                episodic_health=receipt.episodic.health,
+                episodic_valid_count=receipt.episodic.valid_count,
+                episodic_dropped_count=receipt.episodic.dropped_count,
+                semantic_health=receipt.semantic.health,
+                semantic_valid_count=receipt.semantic.valid_count,
+                semantic_dropped_count=receipt.semantic.dropped_count,
+                dropped_count=receipt.dropped_count,
+                reason_codes=receipt.reason_codes,
+            )
 
         return MemoryContextResult(
             texto=texto,
             retrieved_ids=tuple(memory_id for memory_id, _ in pares),
             scores=tuple(score for _, score in pares),
+            health=receipt.health,
+            episodic_health=receipt.episodic.health,
+            episodic_valid_count=receipt.episodic.valid_count,
+            episodic_dropped_count=receipt.episodic.dropped_count,
+            semantic_health=receipt.semantic.health,
+            semantic_valid_count=receipt.semantic.valid_count,
+            semantic_dropped_count=receipt.semantic.dropped_count,
+            dropped_count=receipt.dropped_count,
+            reason_codes=receipt.reason_codes,
         )
 
     def obtener_contexto_relacional(
@@ -567,15 +639,46 @@ class MemoryManager:
             if not query_limpia:
                 query_limpia = "identidad relacion usuario apodo nombre preferencias creador"
 
-            recuerdos = self.semantic_store.buscar(
-                query=query_limpia,
-                n=max(1, limite * 3),
-                where={"tipo_evento": "memoria_relacional"},
-            )
+            buscar_con_recibo = getattr(self.semantic_store, "buscar_con_recibo", None)
+            if callable(buscar_con_recibo):
+                receipt = buscar_con_recibo(
+                    query=query_limpia,
+                    n=max(1, limite * 3),
+                    where={"tipo_evento": "memoria_relacional"},
+                )
+            else:
+                legacy_results = tuple(
+                    self.semantic_store.buscar(
+                        query=query_limpia,
+                        n=max(1, limite * 3),
+                        where={"tipo_evento": "memoria_relacional"},
+                    )
+                )
+                receipt = StoreRetrievalReceipt(
+                    health=(
+                        RetrievalHealth.OK
+                        if legacy_results
+                        else RetrievalHealth.OK_EMPTY
+                    ),
+                    results=legacy_results,
+                    candidate_count=len(legacy_results),
+                )
+
+            if receipt.health in {RetrievalHealth.FAILED, RetrievalHealth.PARTIAL}:
+                logger.warning(
+                    "Retrieval relacional degradado. component=memory_manager "
+                    "operation=relational_search source=semantic health=%s dropped_count=%d",
+                    receipt.health.value,
+                    receipt.dropped_count,
+                )
+            recuerdos = list(receipt.results)
             if not recuerdos:
                 return ""
 
-            recuerdos_vigentes = self._seleccionar_memorias_relacionales_vigentes(recuerdos)
+            recuerdos_vigentes = self._seleccionar_memorias_relacionales_vigentes(
+                recuerdos,
+                now_utc=datetime.now(timezone.utc),
+            )
             lineas = ["MEMORIA RELACIONAL PERSISTENTE:"]
             for resultado in recuerdos_vigentes[:limite]:
                 regla = str(getattr(resultado.recuerdo, "regla", "") or "").strip()
@@ -587,7 +690,11 @@ class MemoryManager:
                 return ""
             return self._recortar_texto("\n".join(lineas), max_caracteres)
         except Exception as e:
-            logger.error("Error al obtener memoria relacional: %s", e, exc_info=True)
+            logger.error(
+                "Fallo de retrieval. component=memory_manager operation=relational_context "
+                "error_type=%s",
+                type(e).__name__,
+            )
             return ""
 
     def agregar_accion(self, accion: str, resultado: str = "pendiente", detalles: Optional[dict] = None):
@@ -1524,16 +1631,34 @@ class MemoryManager:
     def _seleccionar_memorias_relacionales_vigentes(
         self,
         recuerdos: list[MemoryResult],
+        now_utc: datetime | None = None,
     ) -> list[MemoryResult]:
         """Prioriza el hecho mas reciente por categoria y conserva revocaciones explicitas."""
         if not recuerdos:
             return []
 
+        reference = MemoryDecay.normalizar_instante_utc(
+            now_utc if now_utc is not None else datetime.now(timezone.utc)
+        )
         seleccion: dict[str, MemoryResult] = {}
         sin_categoria: list[MemoryResult] = []
+        timestamps: dict[int, datetime] = {}
 
         for recuerdo in recuerdos:
             metadata = getattr(recuerdo.recuerdo, "metadata", None)
+            timestamp = getattr(metadata, "timestamp", None)
+            try:
+                timestamps[id(recuerdo)] = MemoryDecay.normalizar_instante_scoring(
+                    timestamp,
+                    reference,
+                )
+            except MemoryTemporalError as exc:
+                logger.warning(
+                    "Resultado relacional aislado. component=memory_manager "
+                    "operation=relational_order health=PARTIAL reason_code=%s",
+                    exc.reason_code.value,
+                )
+                continue
             extra = getattr(metadata, "extra", {}) if metadata else {}
             categoria = str(extra.get("categoria_relacional", "")).strip()
             if not categoria:
@@ -1541,14 +1666,14 @@ class MemoryManager:
                 continue
 
             existente = seleccion.get(categoria)
-            if existente is None or self._timestamp_relacional(recuerdo) >= self._timestamp_relacional(existente):
+            if existente is None or timestamps[id(recuerdo)] >= timestamps[id(existente)]:
                 seleccion[categoria] = recuerdo
 
         vigentes = list(seleccion.values()) + sin_categoria
         vigentes.sort(
             key=lambda resultado: (
                 self._estado_relacional_prioridad(resultado),
-                self._timestamp_relacional(resultado),
+                timestamps[id(resultado)],
                 getattr(resultado, "metadata_score", 0.0),
             ),
             reverse=True,
@@ -1556,10 +1681,14 @@ class MemoryManager:
         return vigentes
 
     @staticmethod
-    def _timestamp_relacional(resultado: MemoryResult) -> datetime:
+    def _timestamp_relacional(
+        resultado: MemoryResult,
+        now_utc: datetime | None = None,
+    ) -> datetime:
         metadata = getattr(resultado.recuerdo, "metadata", None)
         timestamp = getattr(metadata, "timestamp", None)
-        return timestamp if isinstance(timestamp, datetime) else datetime.min
+        reference = now_utc if now_utc is not None else datetime.now(timezone.utc)
+        return MemoryDecay.normalizar_instante_scoring(timestamp, reference)
 
     @staticmethod
     def _estado_relacional_prioridad(resultado: MemoryResult) -> int:
@@ -1667,7 +1796,8 @@ class MemoryManager:
         if not ids:
             return []
 
-        umbral_antiguedad = datetime.utcnow() - timedelta(minutes=self.consolidacion_antiguedad_minutos)
+        now_utc = datetime.now(timezone.utc)
+        umbral_antiguedad = now_utc - timedelta(minutes=self.consolidacion_antiguedad_minutos)
         candidatos: list[dict[str, Any]] = []
         for idx, doc_id in enumerate(ids):
             meta = metas[idx] if idx < len(metas) else {}
@@ -1687,9 +1817,22 @@ class MemoryManager:
 
             ts_raw = meta.get("timestamp")
             try:
-                ts = datetime.fromisoformat(str(ts_raw)) if ts_raw else datetime.utcnow()
-            except Exception:
-                ts = datetime.utcnow()
+                if not isinstance(ts_raw, str) or not ts_raw:
+                    raise MemoryTemporalError(RetrievalIssueCode.INVALID_TIMESTAMP)
+                ts_decoded = datetime.fromisoformat(ts_raw)
+                ts = MemoryDecay.normalizar_instante_scoring(ts_decoded, now_utc)
+            except (MemoryTemporalError, TypeError, ValueError) as exc:
+                reason = (
+                    exc.reason_code
+                    if isinstance(exc, MemoryTemporalError)
+                    else RetrievalIssueCode.INVALID_TIMESTAMP
+                )
+                logger.warning(
+                    "Candidato de consolidacion aislado. component=memory_manager "
+                    "operation=consolidation_selection reason_code=%s",
+                    reason.value,
+                )
+                continue
             if ts > umbral_antiguedad:
                 continue
 
@@ -1698,6 +1841,7 @@ class MemoryManager:
                 impacto_emocional=impacto,
                 vida_media_horas=72.0,
                 minimo_recencia=0.05,
+                now_utc=now_utc,
             )
             if decaimiento["importancia_total"] > self.consolidacion_importancia_maxima:
                 continue

@@ -6,13 +6,22 @@ qué recuerdos son candidatos a ser descartados o comprimidos por el garbage col
 """
 
 import math
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from memory.memory_types import EpisodicMemory, SemanticMemory
+from memory.retrieval_types import RetrievalIssueCode
 from core.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+class MemoryTemporalError(ValueError):
+    """Error temporal acotado y machine-readable para retrieval/scoring."""
+
+    def __init__(self, reason_code: RetrievalIssueCode):
+        self.reason_code = reason_code
+        super().__init__(f"memory_temporal_error reason_code={reason_code.value}")
 
 
 class MemoryDecay:
@@ -22,10 +31,43 @@ class MemoryDecay:
     """
 
     @staticmethod
+    def normalizar_instante_utc(timestamp: datetime) -> datetime:
+        """Interpreta naive legacy como UTC y convierte aware al mismo huso."""
+
+        if not isinstance(timestamp, datetime):
+            raise MemoryTemporalError(RetrievalIssueCode.INVALID_TIMESTAMP)
+        try:
+            offset = timestamp.utcoffset()
+        except (OverflowError, ValueError) as exc:
+            raise MemoryTemporalError(RetrievalIssueCode.INVALID_TIMESTAMP) from exc
+        if timestamp.tzinfo is None:
+            return timestamp.replace(tzinfo=timezone.utc)
+        if offset is None:
+            raise MemoryTemporalError(RetrievalIssueCode.INVALID_TIMESTAMP)
+        try:
+            return timestamp.astimezone(timezone.utc)
+        except (OverflowError, ValueError) as exc:
+            raise MemoryTemporalError(RetrievalIssueCode.INVALID_TIMESTAMP) from exc
+
+    @staticmethod
+    def normalizar_instante_scoring(
+        timestamp: datetime,
+        now_utc: datetime,
+    ) -> datetime:
+        """Normaliza un timestamp y rechaza evidencia temporal futura."""
+
+        instant = MemoryDecay.normalizar_instante_utc(timestamp)
+        reference = MemoryDecay.normalizar_instante_utc(now_utc)
+        if instant > reference:
+            raise MemoryTemporalError(RetrievalIssueCode.FUTURE_TIMESTAMP)
+        return instant
+
+    @staticmethod
     def calcular_peso_recencia(
         timestamp: datetime,
         vida_media_horas: float = 48.0,
         minimo: float = 0.1,
+        now_utc: datetime | None = None,
     ) -> float:
         """
         Calcula un peso basado en la antigüedad usando decaimiento exponencial.
@@ -41,9 +83,12 @@ class MemoryDecay:
         Returns:
             float entre minimo y 1.0.
         """
-        ahora = datetime.utcnow()
-        antiguedad_horas = (ahora - timestamp).total_seconds() / 3600.0
-        if antiguedad_horas <= 0:
+        reference = MemoryDecay.normalizar_instante_utc(
+            now_utc if now_utc is not None else datetime.now(timezone.utc)
+        )
+        instant = MemoryDecay.normalizar_instante_scoring(timestamp, reference)
+        antiguedad_horas = (reference - instant).total_seconds() / 3600.0
+        if antiguedad_horas == 0:
             return 1.0
         # Decaimiento exponencial: peso = e^(-lambda * t)
         # donde lambda = ln(2) / vida_media
@@ -84,6 +129,7 @@ class MemoryDecay:
         ultimo_acceso: Optional[datetime] = None,
         vida_media_horas: float = 48.0,
         minimo_recencia: float = 0.1,
+        now_utc: datetime | None = None,
     ) -> dict:
         """
         Calcula un diccionario con los pesos y la importancia combinada del recuerdo.
@@ -104,6 +150,7 @@ class MemoryDecay:
             ultimo_acceso=ultimo_acceso,
             vida_media_horas=vida_media_horas,
             minimo_recencia=minimo_recencia,
+            now_utc=now_utc,
         )
 
     @staticmethod
@@ -114,6 +161,7 @@ class MemoryDecay:
         ultimo_acceso: Optional[datetime] = None,
         vida_media_horas: float = 48.0,
         minimo_recencia: float = 0.1,
+        now_utc: datetime | None = None,
     ) -> dict:
         """
         Variante liviana para datos ya extraidos de Chroma sin reconstruir recuerdos.
@@ -122,6 +170,7 @@ class MemoryDecay:
             timestamp,
             vida_media_horas=vida_media_horas,
             minimo=minimo_recencia,
+            now_utc=now_utc,
         )
         peso_uso = MemoryDecay.calcular_peso_uso(accesos, ultimo_acceso)
         impacto_limpio = max(0.0, min(1.0, float(impacto_emocional)))
@@ -141,6 +190,7 @@ class MemoryDecay:
         umbral_importancia: float = 0.1,
         vida_media_horas: float = 48.0,
         minimo_recencia: float = 0.1,
+        now_utc: datetime | None = None,
     ) -> bool:
         """
         Determina si un recuerdo puede ser considerado para eliminación/compresión.
@@ -159,5 +209,6 @@ class MemoryDecay:
             ultimo_acceso,
             vida_media_horas=vida_media_horas,
             minimo_recencia=minimo_recencia,
+            now_utc=now_utc,
         )
         return importancia["importancia_total"] < umbral_importancia

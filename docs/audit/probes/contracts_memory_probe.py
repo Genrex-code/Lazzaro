@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import FrozenInstanceError
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import importlib.metadata
 import json
 import logging
@@ -35,7 +35,7 @@ logging.getLogger().handlers = [logging.NullHandler()]
 import memory.chroma_client as chroma_client_module
 from memory.chroma_client import ChromaClient
 from memory.episodic_memory import EpisodicMemoryStore
-from memory.memory_decay import MemoryDecay
+from memory.memory_decay import MemoryDecay, MemoryTemporalError
 from memory.memory_encoder import MemoryEncoder
 from memory.memory_manager import MemoryContextResult, MemoryManager
 from memory.memory_retriever import MemoryRetriever
@@ -48,6 +48,12 @@ from memory.memory_types import (
     SemanticMemory,
 )
 from memory.semantic_memory import SemanticMemoryStore
+from memory.retrieval_types import (
+    MemoryRetrievalReceipt,
+    RetrievalHealth,
+    RetrievalIssueCode,
+    StoreRetrievalReceipt,
+)
 
 
 ACTIVE_CHROMA = (ROOT / "lazzaro_data").resolve()
@@ -431,13 +437,10 @@ def metadata_collisions_and_missing_fields() -> dict[str, Any]:
 
     missing = ReplayClient()
     missing.query_result = {"ids": [["missing"]]}
-    recovered_missing = EpisodicMemoryStore(missing).buscar("probe", n=1)[0]  # type: ignore[arg-type]
-    assert recovered_missing.recuerdo.metadata.tipo_evento == "desconocido"
-    assert recovered_missing.recuerdo.metadata.valencia == 0.0
-    assert recovered_missing.recuerdo.metadata.impacto_emocional == 0.5
-    assert recovered_missing.recuerdo.narrativa == ""
-    assert recovered_missing.recuerdo.metadata.extra == {}
-    assert recovered_missing.distancia == 1.0
+    missing_receipt = EpisodicMemoryStore(missing).buscar_con_recibo("probe", n=1)  # type: ignore[arg-type]
+    assert missing_receipt.health == RetrievalHealth.PARTIAL
+    assert missing_receipt.reason_codes == (RetrievalIssueCode.MALFORMED_BATCH,)
+    assert missing_receipt.candidate_count == missing_receipt.dropped_count == 1
 
     unknown = ReplayClient()
     unknown.query_result = {
@@ -453,11 +456,10 @@ def metadata_collisions_and_missing_fields() -> dict[str, Any]:
         }]],
         "distances": [[0.2]],
     }
-    recovered_unknown = EpisodicMemoryStore(unknown).buscar("probe", n=1)[0]  # type: ignore[arg-type]
-    assert recovered_unknown.recuerdo.metadata.valencia == 0.0
-    assert recovered_unknown.recuerdo.metadata.impacto_emocional == 0.5
-    assert recovered_unknown.recuerdo.metadata.extra == {"future_field": "preserved"}
-    assert isinstance(recovered_unknown.recuerdo.metadata.timestamp, datetime)
+    unknown_receipt = EpisodicMemoryStore(unknown).buscar_con_recibo("probe", n=1)  # type: ignore[arg-type]
+    assert unknown_receipt.health == RetrievalHealth.PARTIAL
+    assert unknown_receipt.reason_codes == (RetrievalIssueCode.INVALID_TIMESTAMP,)
+    assert not unknown_receipt.results
 
     explicit_null = ReplayClient()
     explicit_null.query_result = {
@@ -466,33 +468,32 @@ def metadata_collisions_and_missing_fields() -> dict[str, Any]:
         "metadatas": [[None]],
         "distances": [[0.2]],
     }
-    explicit_null_raises = False
-    try:
-        EpisodicMemoryStore(explicit_null).buscar("probe", n=1)  # type: ignore[arg-type]
-    except AttributeError:
-        explicit_null_raises = True
-    assert explicit_null_raises
+    explicit_null_receipt = EpisodicMemoryStore(explicit_null).buscar_con_recibo("probe", n=1)  # type: ignore[arg-type]
+    assert explicit_null_receipt.health == RetrievalHealth.PARTIAL
+    assert explicit_null_receipt.reason_codes == (RetrievalIssueCode.MISSING_METADATA,)
 
     semantic_missing = ReplayClient()
     semantic_missing.query_result = {"ids": [["semantic-missing"]]}
-    recovered_semantic = SemanticMemoryStore(semantic_missing).buscar("probe", n=1)[0]  # type: ignore[arg-type]
-    assert recovered_semantic.recuerdo.metadata.tipo_evento == "semantica"
-    assert recovered_semantic.recuerdo.origen == "determinista"
+    semantic_missing_receipt = SemanticMemoryStore(semantic_missing).buscar_con_recibo("probe", n=1)  # type: ignore[arg-type]
+    assert semantic_missing_receipt.health == RetrievalHealth.PARTIAL
+    assert semantic_missing_receipt.reason_codes == (RetrievalIssueCode.MALFORMED_BATCH,)
 
     return {
         "extra_can_override_reserved_fields": False,
         "extra_can_change_persisted_memory_kind": False,
         "extra_can_override_semantic_origin": False,
         "colliding_extra_preserved_as_data": True,
-        "omitted_metadata_batch_uses_defaults": True,
+        "omitted_metadata_batch_uses_defaults": False,
+        "omitted_metadata_batch_health": missing_receipt.health.value,
         "explicit_null_metadata_uses_defaults": False,
-        "explicit_null_metadata_raises": explicit_null_raises,
-        "unknown_raw_metadata_preserved_in_extra": True,
-        "invalid_timestamp_replaced_with_current_time": True,
+        "explicit_null_metadata_raises": False,
+        "explicit_null_metadata_health": explicit_null_receipt.health.value,
+        "unknown_raw_metadata_preserved_in_extra": False,
+        "invalid_timestamp_replaced_with_current_time": False,
         "bool_numeric_metadata_accepted_as_number": False,
-        "missing_document_default": "empty_string",
-        "missing_distance_default": 1.0,
-        "semantic_missing_origin_default": "determinista",
+        "missing_document_default": None,
+        "missing_distance_default": None,
+        "semantic_missing_origin_default": None,
     }
 
 
@@ -558,13 +559,27 @@ def score_and_result_contract() -> dict[str, Any]:
         wrong_distance_raises = True
     assert wrong_distance_raises
 
+    scoring_now = datetime(2026, 1, 2, tzinfo=timezone.utc)
     aware_timestamp = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    aware_timestamp_fails_decay = False
+    aware_weight = MemoryDecay.calcular_peso_recencia(
+        aware_timestamp,
+        now_utc=scoring_now,
+    )
+    naive_weight = MemoryDecay.calcular_peso_recencia(
+        aware_timestamp.replace(tzinfo=None),
+        now_utc=scoring_now,
+    )
+    assert aware_weight == naive_weight
+
+    future_rejected = False
     try:
-        MemoryDecay.calcular_peso_recencia(aware_timestamp)
-    except TypeError:
-        aware_timestamp_fails_decay = True
-    assert aware_timestamp_fails_decay
+        MemoryDecay.calcular_peso_recencia(
+            scoring_now + timedelta(seconds=1),
+            now_utc=scoring_now,
+        )
+    except MemoryTemporalError as exc:
+        future_rejected = exc.reason_code == RetrievalIssueCode.FUTURE_TIMESTAMP
+    assert future_rejected
 
     return {
         "distance_semantics": "cosine_distance_lower_is_better",
@@ -576,7 +591,9 @@ def score_and_result_contract() -> dict[str, Any]:
         "wrong_distance_type_rejected_at_construction": False,
         "wrong_distance_type_fails_during_rerank": wrong_distance_raises,
         "timezone_aware_datetime_accepted_by_model": True,
-        "timezone_aware_datetime_fails_decay": aware_timestamp_fails_decay,
+        "timezone_aware_datetime_fails_decay": False,
+        "naive_aware_same_instant_same_weight": True,
+        "future_timestamp_rejected": future_rejected,
     }
 
 
@@ -664,8 +681,10 @@ def facade_sentinel_contract() -> dict[str, Any]:
 
     no_hit = context_for(SearchStore(), SearchStore())
     read_error = context_for(SearchStore(error=RuntimeError("synthetic")), SearchStore())
-    assert no_hit == read_error
+    assert no_hit != read_error
     assert no_hit.texto == "No hay recuerdos relevantes para esta situación."
+    assert no_hit.health == RetrievalHealth.OK_EMPTY
+    assert read_error.texto == "" and read_error.health == RetrievalHealth.PARTIAL
     assert no_hit.retrieved_ids == () and no_hit.scores == ()
 
     manager = object.__new__(MemoryManager)
@@ -695,14 +714,32 @@ def facade_sentinel_contract() -> dict[str, Any]:
         metadata_score=0.33,
     )
     manager_with_rank = object.__new__(MemoryManager)
-    manager_with_rank.buscar_recuerdos = lambda **_kwargs: [ranked]
+    episodic_ranked = StoreRetrievalReceipt(
+        RetrievalHealth.OK,
+        (ranked,),
+        candidate_count=1,
+    )
+    semantic_empty = StoreRetrievalReceipt(RetrievalHealth.OK_EMPTY)
+    ranked_receipt = MemoryRetrievalReceipt(
+        RetrievalHealth.OK,
+        (ranked,),
+        episodic_ranked,
+        semantic_empty,
+    )
+    manager_with_rank.retriever = type(
+        "ReceiptRetriever",
+        (),
+        {"buscar_con_recibo": lambda self, **_kwargs: ranked_receipt},
+    )()
     manager_with_rank.summarizer = MemorySummarizer()
     context = manager_with_rank.obtener_contexto_memoria_con_metadata("probe")
     assert context.retrieved_ids == ("ranked",)
     assert context.scores == (0.33,) and context.scores != (ranked.distancia,)
 
     return {
-        "no_hit_and_retrieval_error_same_public_result": True,
+        "no_hit_and_retrieval_error_same_public_result": False,
+        "no_hit_health": no_hit.health.value,
+        "retrieval_error_health": read_error.health.value,
         "no_hit_text_is_empty": False,
         "no_hit_text_sentinel": no_hit.texto,
         "failed_write_false_and_exception_both_return_none": True,

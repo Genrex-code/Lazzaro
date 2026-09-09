@@ -6,13 +6,21 @@ utilizando ChromaClient y MemoryEncoder.
 
 from typing import List
 
-from chromadb.api.types import Metadata, Where
+from chromadb.api.types import Where
 
 from core.logger import get_logger
 from memory.chroma_client import ChromaClient
 from memory.memory_encoder import MemoryEncoder
-from memory.memory_schema import SEMANTIC_KIND, MemorySchemaCodec
+from memory.memory_schema import SEMANTIC_KIND, MemorySchemaCodec, MemorySchemaDecodeError
 from memory.memory_types import MemoryMetadata, MemoryResult, SemanticMemory
+from memory.retrieval_types import (
+    RetrievalHealth,
+    RetrievalIssueCode,
+    StoreRetrievalReceipt,
+    extract_aligned_query_rows,
+    schema_issue_code,
+    validate_transport_row,
+)
 
 logger = get_logger(__name__)
 
@@ -53,26 +61,65 @@ class SemanticMemoryStore:
         Busca recuerdos semanticos por similitud semantica.
         Retorna una lista de MemoryResult con SemanticMemory reconstruidos.
         """
-        where_real = self.client.combinar_where(where, {"tipo": "semantico"})
-        resultados = self.client.buscar(query, n, where_real)
-        if not resultados:
-            return []
+        return list(self.buscar_con_recibo(query, n, where).results)
 
-        ids = resultados["ids"][0] if resultados["ids"] else []
-        document_batches = resultados.get("documents")
-        metadata_batches = resultados.get("metadatas")
-        distance_batches = resultados.get("distances")
+    def buscar_con_recibo(
+        self,
+        query: str,
+        n: int = 5,
+        where: Where | None = None,
+    ) -> StoreRetrievalReceipt:
+        """Busca una vez y conserva salud, resultados validos y descartes."""
 
-        documents: list[str] = document_batches[0] if document_batches else []
-        metadatas: list[Metadata] = metadata_batches[0] if metadata_batches else []
-        distances: list[float] = distance_batches[0] if distance_batches else []
+        try:
+            where_real = self.client.combinar_where(where, {"tipo": SEMANTIC_KIND})
+            resultados = self.client.buscar(query, n, where_real)
+        except Exception as exc:
+            logger.error(
+                "Fallo de retrieval. component=memory_store operation=search "
+                "source=semantic health=FAILED reason_code=BACKEND_FAILURE error_type=%s",
+                type(exc).__name__,
+            )
+            return StoreRetrievalReceipt(
+                health=RetrievalHealth.FAILED,
+                reason_codes=(RetrievalIssueCode.BACKEND_FAILURE,),
+            )
+
+        if resultados is None:
+            return StoreRetrievalReceipt(
+                health=RetrievalHealth.FAILED,
+                reason_codes=(RetrievalIssueCode.BACKEND_FAILURE,),
+            )
+
+        rows, candidate_count, malformed = extract_aligned_query_rows(resultados)
+        if malformed:
+            return StoreRetrievalReceipt(
+                health=RetrievalHealth.PARTIAL,
+                candidate_count=candidate_count,
+                dropped_count=candidate_count,
+                reason_codes=(RetrievalIssueCode.MALFORMED_BATCH,),
+            )
+        if candidate_count == 0:
+            return StoreRetrievalReceipt(health=RetrievalHealth.OK_EMPTY)
 
         output: list[MemoryResult] = []
-        for i, id_ in enumerate(ids):
-            meta = metadatas[i] if i < len(metadatas) else {}
-            doc_text = documents[i] if i < len(documents) else ""
+        reasons: list[RetrievalIssueCode] = []
+        dropped_count = 0
+        for row in rows:
+            clean_row, transport_issue = validate_transport_row(row)
+            if transport_issue is not None:
+                reasons.append(transport_issue)
+                dropped_count += 1
+                continue
 
-            decoded = MemorySchemaCodec.decode_metadata(meta, SEMANTIC_KIND)
+            assert clean_row is not None
+            memory_id, document, metadata_raw, distance = clean_row
+            try:
+                decoded = MemorySchemaCodec.decode_metadata(metadata_raw, SEMANTIC_KIND)
+            except MemorySchemaDecodeError as exc:
+                reasons.append(schema_issue_code(exc))
+                dropped_count += 1
+                continue
 
             metadata = MemoryMetadata(
                 tipo_evento=decoded.tipo_evento,
@@ -81,12 +128,23 @@ class SemanticMemoryStore:
                 timestamp=decoded.timestamp,
                 extra=decoded.extra,
             )
-            recuerdo = SemanticMemory(
-                id=id_,
-                metadata=metadata,
-                regla=doc_text,
-                origen=decoded.origen,
+            output.append(
+                MemoryResult(
+                    recuerdo=SemanticMemory(
+                        id=memory_id,
+                        metadata=metadata,
+                        regla=document,
+                        origen=decoded.origen,
+                    ),
+                    distancia=distance,
+                )
             )
-            distancia = distances[i] if i < len(distances) else 1.0
-            output.append(MemoryResult(recuerdo=recuerdo, distancia=distancia))
-        return output
+
+        health = RetrievalHealth.PARTIAL if dropped_count else RetrievalHealth.OK
+        return StoreRetrievalReceipt(
+            health=health,
+            results=tuple(output),
+            candidate_count=candidate_count,
+            dropped_count=dropped_count,
+            reason_codes=tuple(reasons),
+        )

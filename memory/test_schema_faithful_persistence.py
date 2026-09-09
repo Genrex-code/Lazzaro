@@ -578,12 +578,21 @@ def test_28_legacy_v0_semantic_origin_present_reads() -> None:
 
 
 def test_29_legacy_v0_semantic_origin_missing_uses_legacy_default() -> None:
-    decoded = MemorySchemaCodec.decode_metadata({}, SEMANTIC_KIND)
+    decoded = MemorySchemaCodec.decode_metadata(
+        {"timestamp": FIXED.isoformat()},
+        SEMANTIC_KIND,
+    )
     assert_true(decoded.origen == LEGACY_DEFAULT_ORIGIN, "Fallback legacy cambió.")
 
 
 def test_30_legacy_other_internal_names_remain_extra_without_marker() -> None:
-    decoded = MemorySchemaCodec.decode_metadata({MEMORY_EXTRA_JSON_KEY: "legacy-data"}, EPISODIC_KIND)
+    decoded = MemorySchemaCodec.decode_metadata(
+        {
+            "timestamp": FIXED.isoformat(),
+            MEMORY_EXTRA_JSON_KEY: "legacy-data",
+        },
+        EPISODIC_KIND,
+    )
     assert_true(decoded.extra[MEMORY_EXTRA_JSON_KEY] == "legacy-data", "V0 perdió extra interna histórica.")
 
 

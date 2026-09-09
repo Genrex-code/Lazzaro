@@ -598,11 +598,19 @@ class MemorySchemaCodec:
         tipo_evento = _v0_text(metadata.get("tipo_evento"), default_event)
         valencia = _v0_float(metadata.get("valencia"), 0.0)
         impacto = _v0_float(metadata.get("impacto_emocional"), 0.5)
-        timestamp_raw = _v0_text(metadata.get("timestamp"), "")
+        timestamp_raw = metadata.get("timestamp")
+        if not isinstance(timestamp_raw, str) or not timestamp_raw:
+            raise MemorySchemaDecodeError(
+                "invalid_timestamp",
+                memory_type=expected_kind,
+            )
         try:
-            timestamp = datetime.fromisoformat(timestamp_raw) if timestamp_raw else datetime.utcnow()
-        except Exception:
-            timestamp = datetime.utcnow()
+            timestamp = datetime.fromisoformat(timestamp_raw)
+        except (TypeError, ValueError) as exc:
+            raise MemorySchemaDecodeError(
+                "invalid_timestamp",
+                memory_type=expected_kind,
+            ) from exc
 
         reserved = set(_COMMON_CANONICAL_KEYS)
         if expected_kind == SEMANTIC_KIND:

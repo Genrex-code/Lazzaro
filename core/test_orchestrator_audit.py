@@ -34,6 +34,11 @@ from memory.memory_types import (
     MemoryResult,
     SemanticMemory,
 )
+from memory.retrieval_types import (
+    MemoryRetrievalReceipt,
+    RetrievalHealth,
+    StoreRetrievalReceipt,
+)
 from memory.working_memory import WorkingMemory
 from terminal_client.test_chat import _orquestador_aislado
 
@@ -595,11 +600,26 @@ def test_memory_context_metadata_uses_the_same_ranked_results() -> None:
     summarizer = IdentitySummarizer()
     manager.summarizer = summarizer
 
-    def buscar_recuerdos(**kwargs):
+    def buscar_recuerdos_con_recibo(**kwargs):
         calls["search"] += 1
-        return expected_results
+        episodic = StoreRetrievalReceipt(
+            RetrievalHealth.OK,
+            (expected_results[0],),
+            candidate_count=1,
+        )
+        semantic = StoreRetrievalReceipt(
+            RetrievalHealth.OK,
+            (expected_results[1],),
+            candidate_count=1,
+        )
+        return MemoryRetrievalReceipt(
+            RetrievalHealth.OK,
+            tuple(expected_results),
+            episodic,
+            semantic,
+        )
 
-    manager.buscar_recuerdos = buscar_recuerdos
+    manager.buscar_recuerdos_con_recibo = buscar_recuerdos_con_recibo
 
     result = manager.obtener_contexto_memoria_con_metadata(
         query="consulta única",
@@ -609,8 +629,8 @@ def test_memory_context_metadata_uses_the_same_ranked_results() -> None:
 
     assert_true(calls["search"] == 1, "La observabilidad no debe repetir buscar_recuerdos.")
     assert_true(
-        summarizer.observed_results is expected_results,
-        "El resumidor y la metadata deben usar la misma lista de MemoryResult.",
+        tuple(summarizer.observed_results) == tuple(expected_results),
+        "El resumidor y la metadata deben usar los mismos MemoryResult ordenados.",
     )
     assert_true(result.texto == "SECRET_SUMMARY_CONTEXT", "Debe conservar el contexto funcional.")
     assert_true(result.retrieved_ids == ("mem-01", "mem-72"), "Debe conservar el ranking de IDs.")
