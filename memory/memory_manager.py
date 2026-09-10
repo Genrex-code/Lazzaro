@@ -11,6 +11,7 @@ import json
 import re
 import threading
 from typing import Any, Literal, Optional
+import uuid
 
 from ai_engine.learned_alias_candidates import LearnedAliasCandidate, alias_key
 from core.logger import get_logger
@@ -24,6 +25,17 @@ from memory.memory_schema import CANONICAL_DEFAULT_ORIGIN, MemorySchemaCodec, SE
 from memory.memory_retriever import MemoryRetriever
 from memory.memory_summarizer import MemorySummarizer
 from memory.memory_types import MemoryResult
+from memory.memory_write_coordinator import MemoryWriteCoordinator
+from memory.memory_write_ledger import MemoryWriteLedger
+from memory.memory_write_types import (
+    ExactLookupReceipt,
+    ExactLookupStatus,
+    ExactMemoryRow,
+    MemoryWriteKind,
+    MemoryWriteReceipt,
+    MemoryWriteState,
+    MemoryWriteStatus,
+)
 from memory.retrieval_types import (
     MemoryRetrievalReceipt,
     RetrievalHealth,
@@ -116,6 +128,7 @@ class MemoryManager:
         consolidacion_umbral: int = 30,
         consolidacion_antiguedad_minutos: int = 5,
         consolidacion_importancia_maxima: float = 0.25,
+        memory_write_ledger_path: str | None = None,
     ):
         self.client = chroma_client
         self.encoder = MemoryEncoder()
@@ -141,6 +154,14 @@ class MemoryManager:
             str,
             tuple[PublicConversationTurn, ...],
         ] = OrderedDict()
+        self.memory_write_ledger = MemoryWriteLedger(
+            memory_write_ledger_path or ":memory:"
+        )
+        self.memory_write_ledger.open()
+        self.memory_write_coordinator = MemoryWriteCoordinator(
+            self.client,
+            self.memory_write_ledger,
+        )
         logger.info("MemoryManager inicializado correctamente.")
 
     def _obtener_ram_state_lock(self):
@@ -172,11 +193,109 @@ class MemoryManager:
         valencia: float = 0.0,
         impacto_emocional: float = 0.5,
         extra: Optional[dict[str, Any]] = None,
+        idempotency_key: Any | None = None,
     ) -> Optional[str]:
         """
         Codifica y almacena un nuevo recuerdo episodico.
         Retorna el ID del recuerdo si se guardo, None en caso de error.
         """
+        coordinator = getattr(self, "memory_write_coordinator", None)
+        if coordinator is None:
+            return self._guardar_experiencia_legacy(
+                tipo_evento=tipo_evento,
+                narrativa=narrativa,
+                estado_emocional=estado_emocional,
+                valencia=valencia,
+                impacto_emocional=impacto_emocional,
+                extra=extra,
+            )
+        receipt = self.guardar_experiencia_con_recibo(
+            tipo_evento=tipo_evento,
+            narrativa=narrativa,
+            estado_emocional=estado_emocional,
+            valencia=valencia,
+            impacto_emocional=impacto_emocional,
+            extra=extra,
+            idempotency_key=idempotency_key,
+        )
+        if receipt.status is MemoryWriteStatus.CREATED and receipt.durable:
+            return receipt.target_id
+        if receipt.status is MemoryWriteStatus.ALREADY_EXISTS and receipt.durable:
+            return receipt.target_id
+        return None
+
+    def guardar_experiencia_con_recibo(
+        self,
+        tipo_evento: str,
+        narrativa: str,
+        estado_emocional: Optional[dict[str, bool | int | float]] = None,
+        valencia: float = 0.0,
+        impacto_emocional: float = 0.5,
+        extra: Optional[dict[str, Any]] = None,
+        idempotency_key: Any | None = None,
+    ) -> MemoryWriteReceipt:
+        """Persiste el episodio con identidad estable y recibo verificable."""
+        coordinator = self.memory_write_coordinator
+        source_identity = (
+            idempotency_key
+            if idempotency_key is not None
+            else {"uncorrelated_event": str(uuid.uuid4())}
+        )
+        intent = {
+            "tipo_evento": tipo_evento,
+            "narrativa": narrativa,
+            "estado_emocional": estado_emocional,
+            "valencia": valencia,
+            "impacto_emocional": impacto_emocional,
+            "extra": extra,
+        }
+
+        def build(target_id: str, timestamp_utc: str):
+            recuerdo = self.encoder.codificar_episodio(
+                tipo_evento=tipo_evento,
+                narrativa=narrativa,
+                estado_emocional=estado_emocional,
+                valencia=valencia,
+                impacto_emocional=impacto_emocional,
+                extra=extra,
+                recuerdo_id=target_id,
+                timestamp=self._parse_memory_write_timestamp(timestamp_utc),
+            )
+            return self.encoder.a_documento(recuerdo)
+
+        receipt = coordinator.create_memory(
+            operation_kind=MemoryWriteKind.EPISODIC,
+            source_identity=source_identity,
+            intent=intent,
+            build_document=build,
+        )
+        if (
+            receipt.status is MemoryWriteStatus.CREATED
+            and receipt.durable
+            and receipt.changed_count > 0
+        ):
+            try:
+                self._programar_consolidacion_si_aplica(tipo_evento, extra, narrativa)
+            except Exception as exc:
+                logger.warning(
+                    "Memory maintenance degraded. operation_kind=%s "
+                    "reason_code=POST_WRITE_MAINTENANCE_FAILURE error_type=%s",
+                    MemoryWriteKind.EPISODIC.value,
+                    type(exc).__name__,
+                )
+        return receipt
+
+    def _guardar_experiencia_legacy(
+        self,
+        *,
+        tipo_evento: str,
+        narrativa: str,
+        estado_emocional: Optional[dict[str, bool | int | float]],
+        valencia: float,
+        impacto_emocional: float,
+        extra: Optional[dict[str, Any]],
+    ) -> Optional[str]:
+        """Compatibilidad exclusiva para fakes construidos sin ``__init__``."""
         try:
             recuerdo = self.encoder.codificar_episodio(
                 tipo_evento=tipo_evento,
@@ -187,14 +306,14 @@ class MemoryManager:
                 extra=extra,
             )
             if self.episodic_store.almacenar(recuerdo):
-                logger.debug("Experiencia guardada: %s (id=%s)", tipo_evento, recuerdo.id)
                 self._programar_consolidacion_si_aplica(tipo_evento, extra, narrativa)
                 return recuerdo.id
-
-            logger.warning("No se pudo guardar la experiencia '%s'.", tipo_evento)
             return None
-        except Exception as e:
-            logger.error("Error al guardar experiencia: %s", e, exc_info=True)
+        except Exception as exc:
+            logger.error(
+                "Memory write failed. operation_kind=EPISODIC error_type=%s",
+                type(exc).__name__,
+            )
             return None
 
     def guardar_regla(
@@ -205,9 +324,77 @@ class MemoryManager:
         impacto_emocional: float = 0.5,
         origen: str = CANONICAL_DEFAULT_ORIGIN,
         extra: Optional[dict[str, Any]] = None,
+        idempotency_key: Any | None = None,
+        logical_key: Any | None = None,
+        operation_kind: MemoryWriteKind = MemoryWriteKind.SEMANTIC,
+        legacy_candidates: Any | None = None,
     ) -> Optional[str]:
         """Almacena una regla o abstraccion semantica."""
-        try:
+        coordinator = getattr(self, "memory_write_coordinator", None)
+        if coordinator is None:
+            try:
+                recuerdo = self.encoder.codificar_semantica(
+                    regla=regla,
+                    tipo_evento=tipo_evento,
+                    valencia=valencia,
+                    impacto_emocional=impacto_emocional,
+                    origen=origen,
+                    extra=extra,
+                )
+                return recuerdo.id if self.semantic_store.almacenar(recuerdo) else None
+            except Exception as exc:
+                logger.error(
+                    "Memory write failed. operation_kind=SEMANTIC error_type=%s",
+                    type(exc).__name__,
+                )
+                return None
+
+        receipt = self.guardar_regla_con_recibo(
+            regla=regla,
+            tipo_evento=tipo_evento,
+            valencia=valencia,
+            impacto_emocional=impacto_emocional,
+            origen=origen,
+            extra=extra,
+            idempotency_key=idempotency_key,
+            logical_key=logical_key,
+            operation_kind=operation_kind,
+            legacy_candidates=legacy_candidates,
+        )
+        if receipt.status is MemoryWriteStatus.CREATED and receipt.durable:
+            return receipt.target_id
+        if receipt.status is MemoryWriteStatus.ALREADY_EXISTS and receipt.durable:
+            return receipt.target_id
+        return None
+
+    def guardar_regla_con_recibo(
+        self,
+        regla: str,
+        tipo_evento: str = "semantica",
+        valencia: float = 0.0,
+        impacto_emocional: float = 0.5,
+        origen: str = CANONICAL_DEFAULT_ORIGIN,
+        extra: Optional[dict[str, Any]] = None,
+        idempotency_key: Any | None = None,
+        logical_key: Any | None = None,
+        operation_kind: MemoryWriteKind = MemoryWriteKind.SEMANTIC,
+        legacy_candidates: Any | None = None,
+    ) -> MemoryWriteReceipt:
+        source_identity = (
+            idempotency_key
+            if idempotency_key is not None
+            else {"uncorrelated_semantic": str(uuid.uuid4())}
+        )
+        intent = {
+            "regla": regla,
+            "tipo_evento": tipo_evento,
+            "valencia": valencia,
+            "impacto_emocional": impacto_emocional,
+            "origen": origen,
+            "extra": extra,
+        }
+
+        def build(target_id: str, timestamp_utc: str):
             recuerdo = self.encoder.codificar_semantica(
                 regla=regla,
                 tipo_evento=tipo_evento,
@@ -215,31 +402,28 @@ class MemoryManager:
                 impacto_emocional=impacto_emocional,
                 origen=origen,
                 extra=extra,
+                recuerdo_id=target_id,
+                timestamp=self._parse_memory_write_timestamp(timestamp_utc),
             )
-            if self.semantic_store.almacenar(recuerdo):
-                logger.debug(
-                    "Regla guardada: tipo_evento=%s id=%s",
-                    tipo_evento,
-                    recuerdo.id,
-                )
-                return recuerdo.id
+            return self.encoder.a_documento(recuerdo)
 
-            logger.warning(
-                "No se pudo guardar la regla: tipo_evento=%s.",
-                tipo_evento,
-            )
-            return None
-        except Exception as e:
-            logger.error(
-                "Error al guardar regla: tipo_evento=%s error_type=%s",
-                tipo_evento,
-                type(e).__name__,
-            )
-            return None
+        return self.memory_write_coordinator.create_memory(
+            operation_kind=operation_kind,
+            source_identity=source_identity,
+            intent=intent if logical_key is None else logical_key,
+            build_document=build,
+            logical_identity=logical_key,
+            legacy_candidates=legacy_candidates,
+        )
+
+    @staticmethod
+    def _parse_memory_write_timestamp(timestamp_utc: str) -> datetime:
+        return datetime.fromisoformat(str(timestamp_utc).replace("Z", "+00:00"))
 
     def guardar_alias_aprendido(
         self,
         candidato: LearnedAliasCandidate | dict[str, Any],
+        idempotency_key: Any | None = None,
     ) -> Optional[str]:
         """Aprueba y persiste un alias aprendido si no existe ya."""
         candidate = (
@@ -251,14 +435,6 @@ class MemoryManager:
             return None
 
         key = alias_key(candidate.object_id, candidate.human_concept)
-        if self._ram_set_contains("_alias_aprendidos_guardados", key):
-            logger.debug("Alias aprendido duplicado en cache: %s", key)
-            return None
-        if self._alias_aprendido_ya_persistido(candidate):
-            self._ram_set_add("_alias_aprendidos_guardados", key)
-            logger.debug("Alias aprendido ya existia en memoria semantica: %s", key)
-            return None
-
         regla = (
             f"Alias aprendido: '{candidate.human_concept}' se refiere a "
             f"'{candidate.object_id}'."
@@ -274,17 +450,54 @@ class MemoryManager:
             "legacy_nombre_objeto": candidate.legacy_nombre_objeto or "",
             "approved": True,
         }
-        recuerdo_id = self.guardar_regla(
+        coordinator = getattr(self, "memory_write_coordinator", None)
+        if coordinator is None:
+            if self._ram_set_contains("_alias_aprendidos_guardados", key):
+                return None
+            if self._alias_aprendido_ya_persistido(candidate):
+                self._ram_set_add("_alias_aprendidos_guardados", key)
+                return None
+            recuerdo_id = self.guardar_regla(
+                regla=regla,
+                tipo_evento="alias_aprendido",
+                valencia=0.1,
+                impacto_emocional=0.35,
+                origen=candidate.source,
+                extra=metadata,
+            )
+            if recuerdo_id:
+                self._ram_set_add("_alias_aprendidos_guardados", key)
+            return recuerdo_id
+
+        receipt = self.guardar_regla_con_recibo(
             regla=regla,
             tipo_evento="alias_aprendido",
             valencia=0.1,
             impacto_emocional=0.35,
             origen=candidate.source,
             extra=metadata,
+            idempotency_key=idempotency_key or {"alias": key},
+            logical_key={"object_alias": key},
+            operation_kind=MemoryWriteKind.ALIAS,
+            legacy_candidates=lambda: self._legacy_candidates_por_metadata(
+                {
+                    "$and": [
+                        {"tipo_evento": "alias_aprendido"},
+                        {"object_id": candidate.object_id},
+                        {"human_concept": candidate.human_concept},
+                    ]
+                }
+            ),
         )
-        if recuerdo_id:
+        if receipt.status in {MemoryWriteStatus.CREATED, MemoryWriteStatus.ALREADY_EXISTS}:
             self._ram_set_add("_alias_aprendidos_guardados", key)
-        return recuerdo_id
+        if (
+            receipt.status is MemoryWriteStatus.CREATED
+            and receipt.durable
+            and receipt.changed_count > 0
+        ):
+            return receipt.target_id
+        return None
 
     def obtener_aliases_aprendidos(
         self,
@@ -341,6 +554,7 @@ class MemoryManager:
         weight: float,
         source: str = "event",
         confirmed: bool,
+        idempotency_key: Any | None = None,
     ) -> Optional[str]:
         """Guarda asociacion afectiva espacial como metadata, nunca como comando."""
         if type(confirmed) is not bool:
@@ -366,19 +580,6 @@ class MemoryManager:
             normalized_affect,
             normalized_source,
         )
-        if self._ram_set_contains("_memorias_afectivas_guardadas", key):
-            logger.debug("Memoria afectiva espacial duplicada en cache: %s", key)
-            return None
-        if self._memoria_afectiva_ya_persistida(
-            object_id=normalized_object_id,
-            object_class=normalized_object_class,
-            affect=normalized_affect,
-            source=normalized_source,
-        ):
-            self._ram_set_add("_memorias_afectivas_guardadas", key)
-            logger.debug("Memoria afectiva espacial ya existia: %s", key)
-            return None
-
         subject = normalized_object_id or normalized_object_class
         regla = (
             f"Memoria afectiva espacial: '{subject}' se asocia con "
@@ -392,17 +593,67 @@ class MemoryManager:
             "source": normalized_source,
             "confirmed": confirmed,
         }
-        recuerdo_id = self.guardar_regla(
+        coordinator = getattr(self, "memory_write_coordinator", None)
+        if coordinator is None:
+            if self._ram_set_contains("_memorias_afectivas_guardadas", key):
+                return None
+            if self._memoria_afectiva_ya_persistida(
+                object_id=normalized_object_id,
+                object_class=normalized_object_class,
+                affect=normalized_affect,
+                source=normalized_source,
+            ):
+                self._ram_set_add("_memorias_afectivas_guardadas", key)
+                return None
+            recuerdo_id = self.guardar_regla(
+                regla=regla,
+                tipo_evento="memoria_afectiva_espacial",
+                valencia=_affective_valence(normalized_affect),
+                impacto_emocional=max(0.2, clamped_weight),
+                origen=normalized_source,
+                extra=metadata,
+            )
+            if recuerdo_id:
+                self._ram_set_add("_memorias_afectivas_guardadas", key)
+            return recuerdo_id
+
+        logical_identity = {
+            "object_id": normalized_object_id,
+            "object_class": normalized_object_class,
+            "affect": normalized_affect,
+            "source": normalized_source,
+        }
+        receipt = self.guardar_regla_con_recibo(
             regla=regla,
             tipo_evento="memoria_afectiva_espacial",
             valencia=_affective_valence(normalized_affect),
             impacto_emocional=max(0.2, clamped_weight),
             origen=normalized_source,
             extra=metadata,
+            idempotency_key=idempotency_key or logical_identity,
+            logical_key=logical_identity,
+            operation_kind=MemoryWriteKind.AFFECTIVE,
+            legacy_candidates=lambda: self._legacy_candidates_por_metadata(
+                {
+                    "$and": [
+                        {"tipo_evento": "memoria_afectiva_espacial"},
+                        {"object_id": normalized_object_id},
+                        {"object_class": normalized_object_class},
+                        {"affect": normalized_affect},
+                        {"source": normalized_source},
+                    ]
+                }
+            ),
         )
-        if recuerdo_id:
+        if receipt.status in {MemoryWriteStatus.CREATED, MemoryWriteStatus.ALREADY_EXISTS}:
             self._ram_set_add("_memorias_afectivas_guardadas", key)
-        return recuerdo_id
+        if (
+            receipt.status is MemoryWriteStatus.CREATED
+            and receipt.durable
+            and receipt.changed_count > 0
+        ):
+            return receipt.target_id
+        return None
 
     def obtener_memorias_afectivas_espaciales(
         self,
@@ -783,8 +1034,7 @@ class MemoryManager:
         """
         Persiste una copia pública de toda la RAM sin vaciarla ni consolidarla.
 
-        La transacción y la huella se verifican en Chroma para conservar
-        idempotencia después de reinicios, no solo durante el proceso actual.
+        El ledger conserva correlacion y target; Chroma conserva solo la memoria.
         """
         transaccion = str(id_transaccion or "").strip()
         if not transaccion:
@@ -799,61 +1049,64 @@ class MemoryManager:
             self._guardado_conversacional_lock = lock
 
         with lock:
-            snapshot = self._obtener_o_capturar_fotografia_pendiente(transaccion)
-            existente_transaccion = self._buscar_guardado_por_transaccion(transaccion)
-            if existente_transaccion.status == "error":
-                return ManualConversationSaveResult(
-                    status="error",
-                    error=existente_transaccion.error
-                    or "No se pudo comprobar la idempotencia del guardado.",
+            transaction_hash = self._huella_transaccion_guardado(transaccion)
+            coordinator = getattr(self, "memory_write_coordinator", None)
+            ledger = getattr(self, "memory_write_ledger", None)
+            existing_operation = None
+            if coordinator is not None and ledger is not None:
+                try:
+                    durable_key = coordinator.derive_idempotency_key(
+                        MemoryWriteKind.MANUAL,
+                        {"transaction_hash": transaction_hash},
+                    )
+                    existing_operation = ledger.get_by_key(durable_key)
+                except Exception as exc:
+                    logger.warning(
+                        "Manual memory receipt lookup failed. "
+                        "reason_code=JOURNAL_FAILURE error_type=%s",
+                        type(exc).__name__,
+                    )
+                    return ManualConversationSaveResult(
+                        status="error",
+                        error="No se pudo comprobar el recibo durable del guardado.",
+                    )
+            if (
+                existing_operation is not None
+                and existing_operation.state is MemoryWriteState.COMMITTED
+                and existing_operation.final_status
+                in {MemoryWriteStatus.CREATED, MemoryWriteStatus.ALREADY_EXISTS}
+            ):
+                exact = coordinator._lookup_exact((existing_operation.target_id,))
+                if exact.status is ExactLookupStatus.FAILED or not exact.rows:
+                    return ManualConversationSaveResult(
+                        status="error",
+                        memory_id=existing_operation.target_id,
+                        error="El recibo existe, pero el efecto no pudo verificarse.",
+                    )
+                metadata = exact.rows[0].metadata or {}
+                return self._resultado_guardado_existente(
+                    (existing_operation.target_id, metadata)
                 )
-            if existente_transaccion.status == "found" and existente_transaccion.record:
-                self._olvidar_fotografia_pendiente(transaccion)
-                return self._resultado_guardado_existente(existente_transaccion.record)
 
+            snapshot = self._obtener_o_capturar_fotografia_pendiente(transaccion)
             if not snapshot:
+                if existing_operation is not None:
+                    return ManualConversationSaveResult(
+                        status="error",
+                        error="El intento pendiente requiere el snapshot original para reanudarse.",
+                    )
+                legacy = self._buscar_guardado_por_transaccion(transaccion)
+                if legacy.status == "found" and legacy.record:
+                    return self._resultado_guardado_existente(legacy.record)
+                if legacy.status == "error":
+                    return ManualConversationSaveResult(
+                        status="error",
+                        error="No se pudo comprobar un guardado manual anterior.",
+                    )
                 self._olvidar_fotografia_pendiente(transaccion)
                 return ManualConversationSaveResult(status="empty")
 
             fingerprint = self._huella_fotografia_conversacional(snapshot)
-            existente_huella = self._buscar_guardado_conversacional(
-                "huella_guardado_conversacional",
-                fingerprint,
-            )
-            if existente_huella.status == "error":
-                return ManualConversationSaveResult(
-                    status="error",
-                    fingerprint=fingerprint,
-                    turn_count=len(snapshot),
-                    error=existente_huella.error
-                    or "No se pudo comprobar si la conversación ya estaba guardada.",
-                )
-            if existente_huella.status == "found" and existente_huella.record:
-                resultado_existente = self._resultado_guardado_existente(
-                    existente_huella.record,
-                    fallback_fingerprint=fingerprint,
-                    fallback_turn_count=len(snapshot),
-                )
-                recibo_asociado = self._asociar_transaccion_a_guardado(
-                    existente_huella.record,
-                    transaccion,
-                )
-                if not recibo_asociado:
-                    return ManualConversationSaveResult(
-                        status="error",
-                        memory_id=resultado_existente.memory_id,
-                        fingerprint=resultado_existente.fingerprint,
-                        turn_count=resultado_existente.turn_count,
-                        started_at=resultado_existente.started_at,
-                        ended_at=resultado_existente.ended_at,
-                        error=(
-                            "La conversación ya existe, pero Chroma no confirmó "
-                            "el recibo durable de esta transacción."
-                        ),
-                    )
-                self._olvidar_fotografia_pendiente(transaccion)
-                return resultado_existente
-
             documento = self._documento_fotografia_conversacional(snapshot)
             inicio = self._timestamp_utc(snapshot[0].timestamp)
             fin = self._timestamp_utc(snapshot[-1].timestamp)
@@ -870,12 +1123,8 @@ class MemoryManager:
                     ),
                 )
 
-            error_guardado: Optional[str] = None
-            memory_id: Optional[str] = None
-            transaction_hash = self._huella_transaccion_guardado(transaccion)
-
             try:
-                memory_id = self.guardar_regla(
+                receipt = self.guardar_regla_con_recibo(
                     regla=documento,
                     tipo_evento="memoria_conversacional_manual",
                     valencia=0.25,
@@ -891,40 +1140,45 @@ class MemoryManager:
                         "inicio_utc": inicio,
                         "fin_utc": fin,
                     },
+                    idempotency_key={"transaction_hash": transaction_hash},
+                    logical_key={"snapshot_fingerprint": fingerprint},
+                    operation_kind=MemoryWriteKind.MANUAL,
+                    legacy_candidates=lambda: self._legacy_candidates_por_metadata(
+                        {"huella_guardado_conversacional": fingerprint}
+                    ),
                 )
             except Exception as exc:
-                error_guardado = str(exc)
                 logger.error(
-                    "Error inesperado guardando fotografia conversacional: "
-                    "error_type=%s",
+                    "Manual memory write failed. operation_kind=MANUAL error_type=%s",
                     type(exc).__name__,
                 )
+                return ManualConversationSaveResult(
+                    status="error",
+                    fingerprint=fingerprint,
+                    turn_count=len(snapshot),
+                    started_at=inicio,
+                    ended_at=fin,
+                    error="La memoria persistente no confirmó la escritura.",
+                )
 
-            if memory_id:
+            if receipt.status in {
+                MemoryWriteStatus.CREATED,
+                MemoryWriteStatus.ALREADY_EXISTS,
+            } and receipt.durable:
                 self._olvidar_fotografia_pendiente(transaccion)
                 return ManualConversationSaveResult(
-                    status="saved",
-                    memory_id=memory_id,
+                    status=(
+                        "saved"
+                        if receipt.status is MemoryWriteStatus.CREATED
+                        and receipt.changed_count > 0
+                        else "already_saved"
+                    ),
+                    memory_id=receipt.target_id,
                     fingerprint=fingerprint,
                     turn_count=len(snapshot),
                     started_at=inicio,
                     ended_at=fin,
                 )
-
-            # Cubre una escritura confirmada por el backend seguida de timeout/error.
-            existente_despues = self._buscar_guardado_conversacional(
-                "huella_guardado_conversacional",
-                fingerprint,
-            )
-            if existente_despues.status == "found" and existente_despues.record:
-                self._olvidar_fotografia_pendiente(transaccion)
-                return self._resultado_guardado_existente(
-                    existente_despues.record,
-                    fallback_fingerprint=fingerprint,
-                    fallback_turn_count=len(snapshot),
-                )
-            if existente_despues.status == "error" and not error_guardado:
-                error_guardado = existente_despues.error
 
             return ManualConversationSaveResult(
                 status="error",
@@ -932,7 +1186,7 @@ class MemoryManager:
                 turn_count=len(snapshot),
                 started_at=inicio,
                 ended_at=fin,
-                error=error_guardado or "La memoria persistente no confirmó la escritura.",
+                error="La memoria persistente no confirmó la escritura.",
             )
 
     @classmethod
@@ -1052,6 +1306,45 @@ class MemoryManager:
         return _ManualConversationLookup(
             status="found",
             record=(str(ids[0]), dict(metadata)),
+        )
+
+    def _legacy_candidates_por_metadata(
+        self,
+        where: dict[str, Any],
+    ) -> ExactLookupReceipt:
+        """Lista matches de una identidad de dominio para adopcion puntual legacy."""
+        client = getattr(self, "client", None)
+        listar = getattr(client, "listar", None)
+        if not callable(listar):
+            return ExactLookupReceipt(status=ExactLookupStatus.FAILED)
+        try:
+            records = listar(where=where)
+        except Exception as exc:
+            logger.warning(
+                "Legacy memory lookup failed. reason_code=BACKEND_FAILURE error_type=%s",
+                type(exc).__name__,
+            )
+            return ExactLookupReceipt(status=ExactLookupStatus.FAILED)
+        if records is None:
+            return ExactLookupReceipt(status=ExactLookupStatus.FAILED)
+        ids = records.get("ids") or []
+        documents = records.get("documents") or []
+        metadatas = records.get("metadatas") or []
+        rows: list[ExactMemoryRow] = []
+        for index, memory_id in enumerate(ids):
+            metadata = metadatas[index] if index < len(metadatas) else None
+            rows.append(
+                ExactMemoryRow(
+                    id=str(memory_id),
+                    document=str(documents[index]) if index < len(documents) else "",
+                    metadata=dict(metadata) if isinstance(metadata, dict) else None,
+                )
+            )
+        requested = tuple(row.id for row in rows)
+        return ExactLookupReceipt(
+            status=ExactLookupStatus.PRESENT if rows else ExactLookupStatus.ABSENT,
+            requested_ids=requested,
+            rows=tuple(rows),
         )
 
     def _buscar_guardado_por_transaccion(
@@ -1295,30 +1588,63 @@ class MemoryManager:
                     regla=regla,
                 )
 
-            if self._ram_set_contains("_hechos_conversacionales_guardados", huella):
-                continue
-            if self._hecho_relacional_ya_persistido(huella):
-                self._ram_set_add("_hechos_conversacionales_guardados", huella)
-                continue
+            coordinator = getattr(self, "memory_write_coordinator", None)
+            if coordinator is None:
+                if self._ram_set_contains("_hechos_conversacionales_guardados", huella):
+                    continue
+                if self._hecho_relacional_ya_persistido(huella):
+                    self._ram_set_add("_hechos_conversacionales_guardados", huella)
+                    continue
 
-            guardada = self.guardar_regla(
-                regla=regla,
-                tipo_evento="memoria_relacional",
-                valencia=0.25,
-                impacto_emocional=0.65,
-                origen="conversacion_selectiva",
-                extra={
-                    "fuente": "memoria_conversacional_fase_4",
-                    "route": route,
-                    "intent": intent,
-                    "id_transaccion": metadata_base.get("id_transaccion"),
-                    "accion": metadata_base.get("accion"),
-                    "huella_conversacional": huella,
-                    "categoria_relacional": hecho.get("categoria_relacional", ""),
-                    "valor_relacional": hecho.get("valor_relacional", ""),
-                    "estado_relacional": hecho.get("estado_relacional", "activo"),
-                },
-            )
+            extra_regla = {
+                "fuente": "memoria_conversacional_fase_4",
+                "route": route,
+                "intent": intent,
+                "id_transaccion": metadata_base.get("id_transaccion"),
+                "accion": metadata_base.get("accion"),
+                "huella_conversacional": huella,
+                "categoria_relacional": hecho.get("categoria_relacional", ""),
+                "valor_relacional": hecho.get("valor_relacional", ""),
+                "estado_relacional": hecho.get("estado_relacional", "activo"),
+            }
+            if coordinator is None:
+                guardada = self.guardar_regla(
+                    regla=regla,
+                    tipo_evento="memoria_relacional",
+                    valencia=0.25,
+                    impacto_emocional=0.65,
+                    origen="conversacion_selectiva",
+                    extra=extra_regla,
+                )
+            else:
+                logical_identity = {
+                    "huella_relacional": huella,
+                    "domain_policy_version": 1,
+                }
+                receipt = self.guardar_regla_con_recibo(
+                    regla=regla,
+                    tipo_evento="memoria_relacional",
+                    valencia=0.25,
+                    impacto_emocional=0.65,
+                    origen="conversacion_selectiva",
+                    extra=extra_regla,
+                    idempotency_key={
+                        "transaction_id": metadata_base.get("id_transaccion") or "uncorrelated",
+                        "fact_fingerprint": huella,
+                    },
+                    logical_key=logical_identity,
+                    operation_kind=MemoryWriteKind.RELATIONAL,
+                    legacy_candidates=lambda value=huella: self._legacy_candidates_por_metadata(
+                        {"huella_conversacional": value}
+                    ),
+                )
+                guardada = (
+                    receipt.target_id
+                    if receipt.status
+                    in {MemoryWriteStatus.CREATED, MemoryWriteStatus.ALREADY_EXISTS}
+                    and receipt.durable
+                    else None
+                )
             if guardada:
                 self._ram_set_add("_hechos_conversacionales_guardados", huella)
 
@@ -1706,6 +2032,11 @@ class MemoryManager:
 
     def close(self) -> None:
         """Cierra recursos persistentes de memoria."""
+        coordinator = getattr(self, "memory_write_coordinator", None)
+        if coordinator is not None:
+            close_coordinator = getattr(coordinator, "close", None)
+            if callable(close_coordinator):
+                close_coordinator()
         close = getattr(self.client, "close", None)
         if callable(close):
             close()
@@ -1729,11 +2060,15 @@ class MemoryManager:
         if debe_consolidar:
             self.consolidar_memorias_si_hace_falta()
 
-    def consolidar_memorias_si_hace_falta(self) -> None:
+    def consolidar_memorias_si_hace_falta(self) -> MemoryWriteReceipt | None:
         """
         Resume recuerdos observacionales antiguos y los reemplaza por una regla semantica.
         Evita llenar el contexto con ruido de percepcion repetitiva.
         """
+        coordinator = getattr(self, "memory_write_coordinator", None)
+        if coordinator is not None:
+            return self._consolidar_memorias_verificable()
+
         candidatos = self._obtener_candidatos_consolidacion()
         if len(candidatos) < self.consolidacion_umbral:
             return
@@ -1783,6 +2118,133 @@ class MemoryManager:
                 "La regla del lote %s se guardo, pero no fue posible eliminar los episodios originales.",
                 lote_consolidacion,
             )
+        return None
+
+    def _consolidar_memorias_verificable(self) -> MemoryWriteReceipt | None:
+        """Ejecuta o reanuda una consolidacion write-before-delete journalizada."""
+        pending = tuple(
+            operation
+            for operation in self.memory_write_ledger.list_nonterminal(limit=100)
+            if operation.operation_kind is MemoryWriteKind.CONSOLIDATION
+        )
+        if pending:
+            operation = pending[0]
+            source_ids = operation.source_ids
+            candidatos = self._candidatos_consolidacion_por_ids(source_ids)
+            if candidatos is None and not operation.expected_fingerprint:
+                return MemoryWriteReceipt(
+                    operation_id=operation.operation_id,
+                    idempotency_key="",
+                    operation_kind=MemoryWriteKind.CONSOLIDATION,
+                    status=MemoryWriteStatus.AMBIGUOUS,
+                    target_id=operation.target_id,
+                    reconciliation_required=True,
+                )
+            return self._ejecutar_consolidacion_verificable(
+                source_ids,
+                candidatos or [],
+            )
+
+        candidatos = self._obtener_candidatos_consolidacion()
+        if len(candidatos) < self.consolidacion_umbral:
+            return None
+        candidatos = sorted(candidatos, key=lambda item: str(item.get("id") or ""))
+        source_ids = tuple(str(item["id"]) for item in candidatos)
+        return self._ejecutar_consolidacion_verificable(source_ids, candidatos)
+
+    def _ejecutar_consolidacion_verificable(
+        self,
+        source_ids: tuple[str, ...],
+        candidatos: list[dict[str, Any]],
+    ) -> MemoryWriteReceipt:
+        source_ids = tuple(sorted(dict.fromkeys(source_ids)))
+        lote = self._calcular_lote_consolidacion(list(source_ids))
+        legacy_lote = self._calcular_lote_consolidacion_legacy(list(source_ids))
+        regla = self._construir_regla_consolidacion(candidatos) if candidatos else ""
+        intent = {
+            "schema_policy_version": 1,
+            "source_ids": source_ids,
+        }
+        extra = {
+            "consolidacion_de": len(source_ids),
+            "tipo_fuente": "observacional",
+            "lote_consolidacion": lote,
+        }
+
+        def build(target_id: str, timestamp_utc: str):
+            if not regla:
+                raise ValueError("consolidation payload unavailable")
+            memory = self.encoder.codificar_semantica(
+                regla=regla,
+                tipo_evento="consolidacion_observacional",
+                valencia=0.0,
+                impacto_emocional=0.35,
+                origen="determinista",
+                extra=extra,
+                recuerdo_id=target_id,
+                timestamp=self._parse_memory_write_timestamp(timestamp_utc),
+            )
+            return self.encoder.a_documento(memory)
+
+        def legacy_candidates() -> ExactLookupReceipt:
+            current = self._legacy_candidates_por_metadata({"lote_consolidacion": lote})
+            if current.status is ExactLookupStatus.FAILED or current.rows:
+                return current
+            return self._legacy_candidates_por_metadata(
+                {"lote_consolidacion": legacy_lote}
+            )
+
+        receipt = self.memory_write_coordinator.consolidate_memory(
+            source_ids=source_ids,
+            intent=intent,
+            build_document=build,
+            legacy_candidates=legacy_candidates,
+        )
+        if receipt.status in {MemoryWriteStatus.CREATED, MemoryWriteStatus.ALREADY_EXISTS}:
+            logger.info(
+                "Memory consolidation completed. operation_id=%s matched_count=%d changed_count=%d",
+                receipt.operation_id,
+                receipt.matched_count,
+                receipt.changed_count,
+            )
+        else:
+            logger.warning(
+                "Memory consolidation pending. operation_id=%s status=%s reconciliation_required=%s",
+                receipt.operation_id,
+                receipt.status.value,
+                receipt.reconciliation_required,
+            )
+        return receipt
+
+    def _candidatos_consolidacion_por_ids(
+        self,
+        source_ids: tuple[str, ...],
+    ) -> list[dict[str, Any]] | None:
+        lookup = self.memory_write_coordinator._lookup_exact(source_ids)
+        if lookup.status is ExactLookupStatus.FAILED:
+            return None
+        if set(lookup.present_ids) != set(source_ids):
+            return None
+        candidatos: list[dict[str, Any]] = []
+        for row in lookup.rows:
+            metadata = row.metadata or {}
+            timestamp_raw = metadata.get("timestamp")
+            try:
+                timestamp = datetime.fromisoformat(str(timestamp_raw))
+            except (TypeError, ValueError):
+                return None
+            candidatos.append(
+                {
+                    "id": row.id,
+                    "documento": row.document,
+                    "tipo_evento": str(metadata.get("tipo_evento") or "observacion"),
+                    "metadata": metadata,
+                    "timestamp": timestamp,
+                    "decaimiento": {"importancia_total": 0.0},
+                }
+            )
+        candidatos.sort(key=lambda item: str(item["id"]))
+        return candidatos
 
     def _obtener_candidatos_consolidacion(self) -> list[dict[str, Any]]:
         """Recupera recuerdos episodicos de bajo impacto aptos para consolidacion."""
@@ -1873,6 +2335,21 @@ class MemoryManager:
 
     @staticmethod
     def _calcular_lote_consolidacion(ids: list[str]) -> str:
+        canonico = json.dumps(
+            {
+                "version": 1,
+                "namespace": "lazzaro.memory.consolidation",
+                "operation_kind": MemoryWriteKind.CONSOLIDATION.value,
+                "source_identity": {"source_ids": sorted(set(ids))},
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return f"mwb:v1:{sha256(canonico.encode('utf-8')).hexdigest()}"
+
+    @staticmethod
+    def _calcular_lote_consolidacion_legacy(ids: list[str]) -> str:
         lote = "|".join(sorted(ids))
         return sha1(lote.encode("utf-8")).hexdigest()[:16]
 

@@ -56,6 +56,7 @@ from core.material_attestation import (
 )
 from core.tool_policy import ToolPolicy
 from memory.memory_manager import ManualConversationSaveResult
+from memory.memory_write_types import MemoryWriteReceipt, MemoryWriteStatus
 from tools.executor import ActionExecutor
 
 logger = get_logger(__name__)
@@ -932,7 +933,7 @@ class Orchestrator:
             phase="memory",
             required=False,
         )
-        created_memory_id = self._guardar_evento_en_memoria(
+        memory_write_result = self._guardar_evento_en_memoria(
             evento=evento,
             tipo_memoria=tipo_memoria,
             narrativa=narrativa,
@@ -940,8 +941,31 @@ class Orchestrator:
             estado_actual=estado_actual,
             es_interrupcion_critica=es_interrupcion_critica,
         )
-        if created_memory_id:
-            memory_snapshot["created_ids"] = [str(created_memory_id)]
+        if isinstance(memory_write_result, MemoryWriteReceipt):
+            persisted = (
+                memory_write_result.durable
+                and memory_write_result.status
+                in {MemoryWriteStatus.CREATED, MemoryWriteStatus.ALREADY_EXISTS}
+            )
+            newly_created = (
+                persisted
+                and memory_write_result.status is MemoryWriteStatus.CREATED
+                and memory_write_result.changed_count > 0
+                and bool(memory_write_result.target_id)
+            )
+            if newly_created:
+                memory_snapshot["created_ids"] = [str(memory_write_result.target_id)]
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                "memory:event_episode",
+                TurnEffectStatus.APPLIED if persisted else (
+                    TurnEffectStatus.AMBIGUOUS
+                    if memory_write_result.status is MemoryWriteStatus.AMBIGUOUS
+                    else TurnEffectStatus.FAILED
+                ),
+            )
+        elif memory_write_result:
+            memory_snapshot["created_ids"] = [str(memory_write_result)]
             self._cerrar_efecto_uow(
                 evento.id_transaccion,
                 "memory:event_episode",
@@ -1674,16 +1698,23 @@ class Orchestrator:
         percepcion_resumida: str,
         estado_actual: dict,
         es_interrupcion_critica: bool,
-    ) -> str | None:
+    ) -> str | None | MemoryWriteReceipt:
         """Escribe todos los eventos para no romper consolidacion/sueno."""
         try:
-            return self.memory.guardar_experiencia(
-                tipo_evento=tipo_memoria,
-                narrativa=self._construir_narrativa_memoria(narrativa, percepcion_resumida, evento),
-                estado_emocional=estado_actual,
-                valencia=0.0,
-                impacto_emocional=self._calcular_impacto_memoria(evento, es_interrupcion_critica),
-                extra={
+            kwargs = {
+                "tipo_evento": tipo_memoria,
+                "narrativa": self._construir_narrativa_memoria(
+                    narrativa,
+                    percepcion_resumida,
+                    evento,
+                ),
+                "estado_emocional": estado_actual,
+                "valencia": 0.0,
+                "impacto_emocional": self._calcular_impacto_memoria(
+                    evento,
+                    es_interrupcion_critica,
+                ),
+                "extra": {
                     "origen": evento.origen,
                     "objeto": evento.objeto_involucrado,
                     "estado_fisico": evento.detalles.get("estado_fisico"),
@@ -1691,6 +1722,22 @@ class Orchestrator:
                     "accion": evento.detalles.get("accion"),
                     "exito": evento.detalles.get("exito"),
                 },
+            }
+            guardar_con_recibo = getattr(
+                self.memory,
+                "guardar_experiencia_con_recibo",
+                None,
+            )
+            if callable(guardar_con_recibo):
+                return guardar_con_recibo(
+                    **kwargs,
+                    idempotency_key={
+                        "transaction_id": evento.id_transaccion,
+                        "event_kind": tipo_memoria,
+                    },
+                )
+            return self.memory.guardar_experiencia(
+                **kwargs,
             )
         except Exception as e:
             logger.error("Error guardando evento en MemoryManager: %s", e, exc_info=True)
@@ -1847,7 +1894,19 @@ class Orchestrator:
         if not callable(guardar_alias):
             return False
         try:
-            return bool(guardar_alias(candidate))
+            try:
+                return bool(
+                    guardar_alias(
+                        candidate,
+                        idempotency_key={
+                            "action_id": str(pending.get("id_accion") or ""),
+                            "effect": "learned_alias",
+                        },
+                    )
+                )
+            except TypeError:
+                # Compatibilidad con adapters de tests/legacy de una sola posicion.
+                return bool(guardar_alias(candidate))
         except Exception as e:
             logger.error("Error guardando alias aprendido: %s", e, exc_info=True)
             return False

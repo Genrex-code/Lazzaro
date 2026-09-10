@@ -244,6 +244,25 @@ def test_eliminacion():
         assert datos is not None and _ids(datos) == ["z"], "Solo debe aparecer el documento no eliminado"
 
 
+def test_lookup_exacto_por_id_distingue_presencia_ausencia_y_no_usa_query():
+    """ROOT-015 verifica mutaciones con collection.get(ids=...), no similitud."""
+    with ChromaTestContext("lookup_exacto") as client:
+        assert client.agregar(
+            documentos=["documento exacto"],
+            metadatos=[{"kind": "exact"}],
+            ids=["exact-1"],
+        )
+        present = client.obtener_por_ids(["exact-1", "missing"])
+        absent = client.obtener_por_ids(["missing"])
+        empty = client.obtener_por_ids([])
+        assert present.status.value == "PRESENT"
+        assert present.present_ids == ("exact-1",)
+        assert present.rows[0].document == "documento exacto"
+        assert present.rows[0].metadata == {"kind": "exact"}
+        assert absent.status.value == "ABSENT" and absent.rows == ()
+        assert empty.status.value == "ABSENT" and empty.requested_ids == ()
+
+
 # ------------------------------------------------------------
 def main():
     pruebas = [
@@ -254,6 +273,7 @@ def main():
         ("Metadatos actualizados", test_metadata_actualizada),
         ("Persistencia tras reabrir", test_persistencia_tras_reabrir),
         ("Eliminación", test_eliminacion),
+        ("Lookup exacto por ID", test_lookup_exacto_por_id_distingue_presencia_ausencia_y_no_usa_query),
     ]
     for nombre, func in pruebas:
         try:

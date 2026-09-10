@@ -33,6 +33,8 @@ class MemoryEncoder:
         valencia: float = 0.0,
         impacto_emocional: float = 0.5,
         extra: Optional[dict[str, Any]] = None,
+        recuerdo_id: str | None = None,
+        timestamp: datetime | None = None,
     ) -> EpisodicMemory:
         """
         Construye un EpisodicMemory inmutable a partir de los datos crudos de un evento.
@@ -52,14 +54,14 @@ class MemoryEncoder:
             tipo_evento=tipo_evento,
             valencia=valencia,
             impacto_emocional=impacto_emocional,
-            timestamp=datetime.utcnow(),
+            timestamp=timestamp or datetime.utcnow(),
             extra=(
                 {}
                 if extra is None or (isinstance(extra, dict) and not extra)
                 else extra
             ),
         )
-        recuerdo_id = str(uuid.uuid4())
+        recuerdo_id = recuerdo_id or str(uuid.uuid4())
         logger.debug(
             "Codificado episodio '%s' (id=%s, valencia=%.2f, impacto=%.2f)",
             tipo_evento,
@@ -82,6 +84,8 @@ class MemoryEncoder:
         impacto_emocional: float = 0.5,
         origen: str = CANONICAL_DEFAULT_ORIGIN,
         extra: Optional[dict[str, Any]] = None,
+        recuerdo_id: str | None = None,
+        timestamp: datetime | None = None,
     ) -> SemanticMemory:
         """
         Construye una abstracción semántica (regla/patrón).
@@ -101,14 +105,14 @@ class MemoryEncoder:
             tipo_evento=tipo_evento,
             valencia=valencia,
             impacto_emocional=impacto_emocional,
-            timestamp=datetime.utcnow(),
+            timestamp=timestamp or datetime.utcnow(),
             extra=(
                 {}
                 if extra is None or (isinstance(extra, dict) and not extra)
                 else extra
             ),
         )
-        recuerdo_id = str(uuid.uuid4())
+        recuerdo_id = recuerdo_id or str(uuid.uuid4())
         logger.debug("Codificada semántica '%s' (id=%s)", regla[:60], recuerdo_id)
         return SemanticMemory(
             id=recuerdo_id,

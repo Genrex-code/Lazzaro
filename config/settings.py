@@ -57,6 +57,7 @@ class Settings(BaseSettings):
 
     CHROMA_DB_PATH: str = "./lazzaro_data"
     ACTION_LEDGER_PATH: str = "./lazzaro_data/action_ledger.sqlite3"
+    MEMORY_WRITE_LEDGER_PATH: str = "./lazzaro_data/memory_write_ledger.sqlite3"
     DEEPSEEK_MODEL: str = "deepseek-r1:8b"
 
     model_config = SettingsConfigDict(

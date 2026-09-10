@@ -155,8 +155,14 @@ def _manual_records(client: FakePersistentClient) -> list[dict[str, Any]]:
     ]
 
 
-def _manager_with_private_turn(client: FakePersistentClient) -> MemoryManager:
-    manager = MemoryManager(client)
+def _manager_with_private_turn(
+    client: FakePersistentClient,
+    memory_write_ledger_path: str | None = None,
+) -> MemoryManager:
+    manager = MemoryManager(
+        client,
+        memory_write_ledger_path=memory_write_ledger_path,
+    )
     manager.conversation_memory.registrar_turno(
         usuario="Vi un cactus azul junto al entorno de pruebas.",
         lazzaro="Lo observé contigo y hablamos de conservar ese recuerdo.",
@@ -314,8 +320,8 @@ def test_empty_ram_and_write_failures_never_claim_success() -> None:
             f"save-commit-incierto-{mode}"
         )
         assert_true(
-            committed.status == "already_saved",
-            "Una respuesta perdida después del commit debe reconocerse por huella.",
+            committed.status == "saved",
+            "Una respuesta perdida con exact match conserva el outcome CREATED.",
         )
         assert_true(
             len(_manual_records(client_after_commit)) == 1,
@@ -324,8 +330,13 @@ def test_empty_ram_and_write_failures_never_claim_success() -> None:
 
 
 def test_transaction_and_snapshot_fingerprints_are_durable() -> None:
+    temporary = TemporaryDirectory(prefix="lazzaro-manual-ledger-")
+    ledger_path = str(Path(temporary.name) / "memory_write_ledger.sqlite3")
     shared_records: list[dict[str, Any]] = []
-    manager = _manager_with_private_turn(FakePersistentClient(shared_records))
+    manager = _manager_with_private_turn(
+        FakePersistentClient(shared_records),
+        ledger_path,
+    )
     first = manager.guardar_fotografia_conversacional("save-idempotent")
     same_transaction = manager.guardar_fotografia_conversacional("save-idempotent")
     new_transaction_same_snapshot = manager.guardar_fotografia_conversacional(
@@ -359,7 +370,11 @@ def test_transaction_and_snapshot_fingerprints_are_durable() -> None:
     assert_true(second.fingerprint != first.fingerprint, "La huella debe cambiar con la RAM.")
     assert_true(len(shared_records) == 2, "Dos fotografías distintas deben coexistir.")
 
-    restarted = MemoryManager(FakePersistentClient(shared_records))
+    manager.close()
+    restarted = MemoryManager(
+        FakePersistentClient(shared_records),
+        memory_write_ledger_path=ledger_path,
+    )
     after_restart = restarted.guardar_fotografia_conversacional(
         "save-idempotent-new-id"
     )
@@ -377,13 +392,17 @@ def test_transaction_and_snapshot_fingerprints_are_durable() -> None:
         "cactus azul" in recovered[0].recuerdo.regla,
         "La recuperación debe devolver la transcripción pública persistida.",
     )
+    restarted.close()
+    temporary.cleanup()
 
 
 def test_transaction_receipt_update_failure_is_retryable() -> None:
     for mode in ("false", "raise"):
+        temporary = TemporaryDirectory(prefix="lazzaro-manual-receipt-")
+        ledger_path = str(Path(temporary.name) / "memory_write_ledger.sqlite3")
         shared_records: list[dict[str, Any]] = []
         client = FakePersistentClient(shared_records)
-        manager = _manager_with_private_turn(client)
+        manager = _manager_with_private_turn(client, ledger_path)
         first = manager.guardar_fotografia_conversacional(f"receipt-a-{mode}")
         assert_true(first.status == "saved", "La fotografía inicial debe existir.")
 
@@ -392,8 +411,8 @@ def test_transaction_receipt_update_failure_is_retryable() -> None:
             f"receipt-b-{mode}"
         )
         assert_true(
-            missing_receipt.status == "error",
-            "No debe confirmar idempotencia durable si falló asociar el segundo recibo.",
+            missing_receipt.status == "already_saved",
+            "El ledger asocia la segunda transacción sin actualizar metadata Chroma.",
         )
         assert_true(
             len(_manual_records(client)) == 1,
@@ -408,14 +427,20 @@ def test_transaction_receipt_update_failure_is_retryable() -> None:
             "El mismo ID debe completar su recibo durable al reintentar.",
         )
 
-        restarted = MemoryManager(FakePersistentClient(shared_records))
+        manager.close()
+        restarted = MemoryManager(
+            FakePersistentClient(shared_records),
+            memory_write_ledger_path=ledger_path,
+        )
         after_restart = restarted.guardar_fotografia_conversacional(
             f"receipt-b-{mode}"
         )
         assert_true(
             after_restart.status == "already_saved",
-            "El recibo recuperado debe sobrevivir la reconstrucción del manager.",
+            "La key durable del ledger debe sobrevivir la reconstrucción del manager.",
         )
+        restarted.close()
+        temporary.cleanup()
 
 
 def test_compact_digest_covers_the_last_turn_in_persona_context() -> None:
@@ -544,7 +569,7 @@ def test_structured_log_covers_all_statuses_without_private_content() -> None:
             "true",
         ),
         "log-empty": ("empty", 0, "", "false"),
-        "log-error": ("error", 0, "", "false"),
+        "log-error": ("error", error.turn_count, error.fingerprint[:12], "false"),
     }
     assert_true(
         set(by_transaction) == set(expected),
@@ -686,7 +711,11 @@ def test_structured_logging_is_fail_open_and_preserves_exceptions() -> None:
 
 def test_real_chroma_survives_restart_and_recovers_last_turn() -> None:
     with TemporaryDirectory(prefix="lazzaro-manual-save-test-") as temp_dir:
-        first: MemoryManager | None = MemoryManager(ChromaClient(temp_dir))
+        ledger_path = str(Path(temp_dir) / "memory_write_ledger.sqlite3")
+        first: MemoryManager | None = MemoryManager(
+            ChromaClient(temp_dir),
+            memory_write_ledger_path=ledger_path,
+        )
         try:
             for index in range(1, 13):
                 first.conversation_memory.registrar_turno(
@@ -709,7 +738,10 @@ def test_real_chroma_survives_restart_and_recovers_last_turn() -> None:
             first = None
             gc.collect()
 
-        restarted: MemoryManager | None = MemoryManager(ChromaClient(temp_dir))
+        restarted: MemoryManager | None = MemoryManager(
+            ChromaClient(temp_dir),
+            memory_write_ledger_path=ledger_path,
+        )
         try:
             retry_b = restarted.guardar_fotografia_conversacional("real-save-b")
             assert_true(

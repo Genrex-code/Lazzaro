@@ -13,6 +13,10 @@ __pycache__/
 
 # Datos runtime de Lazzaro. Si ya estan trackeados, Git los seguira viendo.
 lazzaro_data/
+# Journal operacional ROOT-015 (incluye sidecars SQLite en runtimes locales).
+lazzaro_data/memory_write_ledger.sqlite3
+lazzaro_data/memory_write_ledger.sqlite3-wal
+lazzaro_data/memory_write_ledger.sqlite3-shm
 
 # Temporales de pruebas locales
 tmp_chroma_introspect/

@@ -13,7 +13,7 @@ No production object is patched on disk.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, fields
 from datetime import datetime, timedelta, timezone
 import importlib.metadata
 import json
@@ -38,6 +38,16 @@ from memory.episodic_memory import EpisodicMemoryStore
 from memory.memory_decay import MemoryDecay, MemoryTemporalError
 from memory.memory_encoder import MemoryEncoder
 from memory.memory_manager import MemoryContextResult, MemoryManager
+from memory.memory_write_coordinator import MemoryWriteCoordinator
+from memory.memory_write_ledger import MemoryWriteLedger
+from memory.memory_write_types import (
+    MemoryWriteKind,
+    MemoryWriteReceipt,
+    MemoryWriteState,
+    MemoryWriteStatus,
+    NON_TERMINAL_MEMORY_WRITE_STATES,
+    TERMINAL_MEMORY_WRITE_STATES,
+)
 from memory.memory_retriever import MemoryRetriever
 from memory.memory_summarizer import MemorySummarizer
 from memory.memory_types import (
@@ -646,19 +656,19 @@ def metadata_bool_sentinels() -> dict[str, Any]:
         "empty_string": affect_is_accepted(""),
     }
     assert alias_matrix == {
-        "missing": True,
+        "missing": False,
         "true_bool": True,
         "false_bool": False,
-        "false_string": True,
-        "zero_int": True,
-        "none": True,
-        "empty_string": True,
+        "false_string": False,
+        "zero_int": False,
+        "none": False,
+        "empty_string": False,
     }
     assert affect_matrix == {
-        "missing": True,
+        "missing": False,
         "true_bool": True,
         "false_bool": False,
-        "false_string": True,
+        "false_string": False,
         "zero_int": False,
         "none": False,
         "empty_string": False,
@@ -666,9 +676,9 @@ def metadata_bool_sentinels() -> dict[str, Any]:
     return {
         "alias_approved_acceptance": alias_matrix,
         "affective_confirmed_acceptance": affect_matrix,
-        "bool_false_string_is_truthy": True,
-        "alias_uses_identity_check_against_false": True,
-        "affective_uses_bool_coercion": True,
+        "bool_false_string_is_truthy": False,
+        "alias_requires_strict_true": True,
+        "affective_requires_strict_true": True,
     }
 
 
@@ -750,6 +760,77 @@ def facade_sentinel_contract() -> dict[str, Any]:
     }
 
 
+def root015_write_contract() -> dict[str, Any]:
+    """Valida contrato estructural ROOT-015 sin payload ni Chroma productivo."""
+    receipt_fields = tuple(field.name for field in fields(MemoryWriteReceipt))
+    expected_fields = (
+        "operation_id",
+        "idempotency_key",
+        "operation_kind",
+        "status",
+        "target_id",
+        "matched_count",
+        "changed_count",
+        "reason_codes",
+        "durable",
+        "reconciliation_required",
+        "replayed",
+    )
+    assert receipt_fields == expected_fields
+    assert TERMINAL_MEMORY_WRITE_STATES == {
+        MemoryWriteState.COMMITTED,
+        MemoryWriteState.FAILED,
+    }
+    assert MemoryWriteState.INTENT_RECORDED in NON_TERMINAL_MEMORY_WRITE_STATES
+    assert MemoryWriteState.RECONCILIATION_REQUIRED in NON_TERMINAL_MEMORY_WRITE_STATES
+    key = MemoryWriteCoordinator.derive_idempotency_key(
+        MemoryWriteKind.EPISODIC,
+        {"transaction_id": "ROOT015_RAW_CANARY"},
+    )
+    assert key.startswith("mwk:v1:") and "ROOT015_RAW_CANARY" not in key
+
+    with TemporaryDirectory(prefix="lazzaro-root015-contract-") as temporary:
+        path = Path(temporary) / "memory_write_ledger.sqlite3"
+        ledger = MemoryWriteLedger(str(path))
+        assert not path.exists()
+        ledger.open()
+        connection = ledger._require_connection()
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info(memory_write_operations)"
+            ).fetchall()
+        }
+        ledger.close()
+        assert tables >= {
+            "memory_write_meta",
+            "memory_write_operations",
+            "memory_write_keys",
+        }
+        assert not columns.intersection(
+            {"document", "narrative", "regla", "conversation", "prompt", "state_payload"}
+        )
+
+    return {
+        "receipt_fields": list(receipt_fields),
+        "statuses": [status.value for status in MemoryWriteStatus],
+        "terminal_states": sorted(state.value for state in TERMINAL_MEMORY_WRITE_STATES),
+        "nonterminal_states": sorted(state.value for state in NON_TERMINAL_MEMORY_WRITE_STATES),
+        "key_format": "mwk:v1:<sha256>",
+        "raw_identity_persisted": False,
+        "ledger_tables": sorted(tables),
+        "cognitive_payload_columns": [],
+        "db_created_on_constructor": False,
+        "temporary_sqlite_only": True,
+    }
+
+
 def main() -> None:
     report = {
         "probe": "contracts_memory_probe",
@@ -761,6 +842,7 @@ def main() -> None:
         "score_and_result_contract": score_and_result_contract(),
         "metadata_bool_sentinels": metadata_bool_sentinels(),
         "facade_sentinel_contract": facade_sentinel_contract(),
+        "root015_write_contract": root015_write_contract(),
         "result": "PASS",
     }
     # ASCII escapes make the evidence stable under Windows' varying console code pages.

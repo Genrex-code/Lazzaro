@@ -18,6 +18,11 @@ except Exception:  # pragma: no cover - compatibilidad con versiones antiguas
     SharedSystemClient = None  # type: ignore[assignment]
 
 from core.logger import get_logger
+from memory.memory_write_types import (
+    ExactLookupReceipt,
+    ExactLookupStatus,
+    ExactMemoryRow,
+)
 
 logger = get_logger(__name__)
 
@@ -377,6 +382,64 @@ class ChromaClient:
                 )
                 return None
 
+    def obtener_por_ids(self, ids: list[str]) -> ExactLookupReceipt:
+        """Lee IDs exactos con ``collection.get``; nunca usa similitud vectorial."""
+        requested = tuple(dict.fromkeys(str(item) for item in ids if str(item)))
+        if not requested:
+            return ExactLookupReceipt(
+                status=ExactLookupStatus.ABSENT,
+                requested_ids=(),
+            )
+
+        collection = self._collection
+        if collection is None:
+            logger.warning(
+                "Exact lookup unavailable. operation=get_by_ids reason_code=BACKEND_FAILURE"
+            )
+            return ExactLookupReceipt(
+                status=ExactLookupStatus.FAILED,
+                requested_ids=requested,
+            )
+        with self._lock:
+            try:
+                raw = cast(
+                    dict[str, list[Any]],
+                    collection.get(
+                        ids=list(requested),
+                        include=["documents", "metadatas"],
+                    ),
+                )
+            except Exception as e:
+                logger.error(
+                    "Exact lookup failed. operation=get_by_ids "
+                    "reason_code=BACKEND_FAILURE error_type=%s",
+                    type(e).__name__,
+                )
+                return ExactLookupReceipt(
+                    status=ExactLookupStatus.FAILED,
+                    requested_ids=requested,
+                )
+
+        raw_ids = raw.get("ids") or []
+        documents = raw.get("documents") or []
+        metadatas = raw.get("metadatas") or []
+        rows_by_id: dict[str, ExactMemoryRow] = {}
+        for index, memory_id in enumerate(raw_ids):
+            memory_id = str(memory_id)
+            document = str(documents[index]) if index < len(documents) else ""
+            metadata = metadatas[index] if index < len(metadatas) else None
+            rows_by_id[memory_id] = ExactMemoryRow(
+                id=memory_id,
+                document=document,
+                metadata=self._normalizar_metadata_leida(metadata),
+            )
+        rows = tuple(rows_by_id[memory_id] for memory_id in requested if memory_id in rows_by_id)
+        return ExactLookupReceipt(
+            status=ExactLookupStatus.PRESENT if rows else ExactLookupStatus.ABSENT,
+            requested_ids=requested,
+            rows=rows,
+        )
+
     def eliminar(self, ids: list[str]) -> bool:
         """Elimina documentos por sus IDs. Retorna True si fue exitoso."""
         collection = self._collection
@@ -389,7 +452,10 @@ class ChromaClient:
                 logger.debug("Eliminados %d documentos de '%s'.", len(ids), self.collection_name)
                 return True
             except Exception as e:
-                logger.error("Error al eliminar documentos: %s", e)
+                logger.error(
+                    "Error al eliminar documentos: error_type=%s",
+                    type(e).__name__,
+                )
                 return False
 
     def contar(self) -> int:

@@ -54,7 +54,10 @@ async def lifespan(app: FastAPI):
 
         logger.info("Inicializando ChromaDB en '%s'...", settings.CHROMA_DB_PATH)
         chroma_client = ChromaClient(db_path=settings.CHROMA_DB_PATH)
-        memory_manager = MemoryManager(chroma_client=chroma_client)
+        memory_manager = MemoryManager(
+            chroma_client=chroma_client,
+            memory_write_ledger_path=settings.MEMORY_WRITE_LEDGER_PATH,
+        )
 
         # Punto principal para cambiar de backend en el futuro:
         # 1. Cambia AI_PROVIDER en .env o en Settings

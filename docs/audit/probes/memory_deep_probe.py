@@ -41,6 +41,15 @@ from memory.memory_decay import MemoryDecay, MemoryTemporalError
 from memory.memory_encoder import MemoryEncoder
 from memory.memory_filters import MemoryFilters
 from memory.memory_manager import MemoryContextResult, MemoryManager
+from memory.memory_write_coordinator import MemoryWriteCoordinator
+from memory.memory_write_ledger import MemoryWriteLedger
+from memory.memory_write_types import MemoryWriteIssueCode, MemoryWriteStatus
+from memory.test_memory_write_transactions import (
+    FakeMutationClient,
+    _consolidate as root015_consolidate,
+    _create as root015_create,
+    _source_row as root015_source_row,
+)
 from memory.memory_retriever import MemoryRetriever
 from memory.memory_types import (
     EpisodicMemory,
@@ -498,6 +507,7 @@ def _write_manager(store: OutcomeStore) -> MemoryManager:
 
 
 def probe_write_receipts_and_concurrent_duplicates() -> dict[str, Any]:
+    """Conserva evidencia historica del adapter sin __init__; no es runtime ROOT-015."""
     failed = _write_manager(OutcomeStore(False))
     require(failed.guardar_experiencia("synthetic", "synthetic") is None, "store False becomes None")
     errored = _write_manager(OutcomeStore(RuntimeError("synthetic store failure")))
@@ -534,6 +544,7 @@ def probe_write_receipts_and_concurrent_duplicates() -> dict[str, Any]:
     require(len(ids) == 2 and len(set(ids)) == 2, "identical concurrent events create distinct IDs")
 
     return {
+        "surface": "legacy_object_new_compatibility_only",
         "store_false_receipt": None,
         "store_exception_receipt": None,
         "post_write_consolidation_failure_receipt": returned,
@@ -602,6 +613,7 @@ def _consolidation_manager(client: ConsolidationClient) -> MemoryManager:
 
 
 def probe_consolidation_partial_failure_and_concurrency() -> dict[str, Any]:
+    """Caracteriza solo el camino legacy de fakes que omiten ownership/runtime init."""
     client = ConsolidationClient(_consolidation_rows(), delete_outcomes=[False, True])
     manager = _consolidation_manager(client)
     manager.consolidar_memorias_si_hace_falta()
@@ -671,6 +683,7 @@ def probe_consolidation_partial_failure_and_concurrency() -> dict[str, Any]:
     require("ids" not in saved["extra"], "consolidated rule does not retain source IDs")
 
     return {
+        "surface": "legacy_object_new_compatibility_only",
         "operation_order": ["semantic_rule", "delete_episodes"],
         "rule_failure_deleted_sources": False,
         "delete_failure_state": "rule_and_sources_coexist",
@@ -748,6 +761,56 @@ def probe_ram_memories() -> dict[str, Any]:
     }
 
 
+def probe_root015_journaled_runtime_path() -> dict[str, Any]:
+    """Comprueba el camino productivo con journal temporal, sin tocar Chroma activo."""
+    with TemporaryDirectory(prefix="lazzaro-root015-deep-") as temporary:
+        ledger_path = str(Path(temporary) / "memory_write_ledger.sqlite3")
+        client = FakeMutationClient()
+        ledger = MemoryWriteLedger(ledger_path)
+        ledger.open()
+        coordinator = MemoryWriteCoordinator(client, ledger)
+
+        created = root015_create(coordinator, key="deep-event", text="deep-safe")
+        replay = root015_create(coordinator, key="deep-event", text="deep-safe")
+        conflict = root015_create(coordinator, key="deep-event", text="different")
+        require(created.status is MemoryWriteStatus.CREATED, "new write must be CREATED")
+        require(replay.status is MemoryWriteStatus.CREATED and replay.replayed, "replay preserves durable CREATED")
+        require(replay.target_id == created.target_id and client.add_calls == 1, "replay reuses target without add")
+        require(
+            conflict.status is MemoryWriteStatus.FAILED
+            and MemoryWriteIssueCode.IDEMPOTENCY_CONFLICT in conflict.reason_codes,
+            "same key/different intent must conflict",
+        )
+        require(client.add_calls == 1, "conflict must happen before Chroma")
+
+        for source_id in ("deep-source-a", "deep-source-b"):
+            client.rows[source_id] = root015_source_row(source_id)
+        consolidation = root015_consolidate(
+            coordinator,
+            ids=("deep-source-a", "deep-source-b"),
+            text="deep consolidated pattern",
+        )
+        require(consolidation.status is MemoryWriteStatus.CREATED, "consolidation must commit")
+        require(not any(source_id in client.rows for source_id in ("deep-source-a", "deep-source-b")), "verified replacement permits cleanup")
+        require(not ledger.in_transaction, "no SQLite transaction remains across Chroma")
+        coordinator.close()
+
+    return {
+        "surface": "root015_journaled_runtime",
+        "created": created.status.value,
+        "replay_status": replay.status.value,
+        "replayed": replay.replayed,
+        "same_target": replay.target_id == created.target_id,
+        "physical_add_calls_for_replay": 1,
+        "conflict": conflict.reason_codes[0].value,
+        "conflict_chroma_calls": 0,
+        "consolidation": consolidation.status.value,
+        "sources_deleted_after_verified_replacement": True,
+        "sqlite_transaction_open_after_calls": False,
+        "journal_temporary": True,
+    }
+
+
 class ManualMemoryClient:
     def __init__(self):
         self.records: list[tuple[str, str, dict[str, Any]]] = []
@@ -802,58 +865,63 @@ def _manual_manager(client: ManualMemoryClient) -> MemoryManager:
 
 
 def probe_manual_save_idempotency_and_privacy() -> dict[str, Any]:
-    client = ManualMemoryClient()
-    manager = _manual_manager(client)
-    manager.conversation_memory.registrar_turno(
-        "synthetic public user",
-        "synthetic public assistant",
-        pensamiento="synthetic private thought",
-        metadata={"secret_marker": "synthetic private metadata"},
-    )
+    with TemporaryDirectory(prefix="lazzaro-root015-manual-probe-") as temporary:
+        ledger_path = str(Path(temporary) / "manual.sqlite3")
+        client = FakeMutationClient()
+        manager = MemoryManager(client, memory_write_ledger_path=ledger_path)
+        manager.conversation_memory.registrar_turno(
+            "synthetic public user",
+            "synthetic public assistant",
+            pensamiento="synthetic private thought",
+            metadata={"secret_marker": "synthetic private metadata"},
+        )
 
-    first = manager.guardar_fotografia_conversacional("synthetic-transaction-1")
-    same_transaction = manager.guardar_fotografia_conversacional("synthetic-transaction-1")
-    same_snapshot = manager.guardar_fotografia_conversacional("synthetic-transaction-2")
-    require(first.status == "saved", "first manual save persists")
-    require(same_transaction.status == "already_saved", "same transaction is idempotent")
-    require(same_snapshot.status == "already_saved", "same fingerprint with new transaction reuses record")
-    require(len(client.records) == 1, "idempotent saves keep one semantic record")
+        first = manager.guardar_fotografia_conversacional("synthetic-transaction-1")
+        same_transaction = manager.guardar_fotografia_conversacional("synthetic-transaction-1")
+        same_snapshot = manager.guardar_fotografia_conversacional("synthetic-transaction-2")
+        require(first.status == "saved", "first manual save persists")
+        require(same_transaction.status == "already_saved", "same transaction is idempotent")
+        require(same_snapshot.status == "already_saved", "same fingerprint with new transaction reuses record")
+        require(len(client.rows) == 1, "idempotent saves keep one semantic record")
 
-    document = client.records[0][1]
-    require("synthetic public user" in document and "synthetic public assistant" in document, "public transcript persists")
-    require("synthetic private thought" not in document, "private thought does not persist")
-    require("synthetic private metadata" not in document, "turn metadata does not persist")
+        document = next(iter(client.rows.values())).document
+        require("synthetic public user" in document and "synthetic public assistant" in document, "public transcript persists")
+        require("synthetic private thought" not in document, "private thought does not persist")
+        require("synthetic private metadata" not in document, "turn metadata does not persist")
+        manager.close()
 
-    restarted = _manual_manager(client)
-    after_restart = restarted.guardar_fotografia_conversacional("synthetic-transaction-1")
-    require(after_restart.status == "already_saved", "durable transaction survives manager restart")
+        restarted = MemoryManager(client, memory_write_ledger_path=ledger_path)
+        after_restart = restarted.guardar_fotografia_conversacional("synthetic-transaction-1")
+        require(after_restart.status == "already_saved", "durable transaction survives manager restart")
+        restarted.close()
 
-    failed_client = ManualMemoryClient()
-    pending = _manual_manager(failed_client)
-    pending.conversation_memory.registrar_turno("synthetic old user", "synthetic old assistant")
-    original_save = pending.guardar_regla
-    attempts = 0
+        failed_client = FakeMutationClient()
+        failed_client.add_mode = "false_before"
+        pending = MemoryManager(
+            failed_client,
+            memory_write_ledger_path=str(Path(temporary) / "pending.sqlite3"),
+        )
+        pending.conversation_memory.registrar_turno("synthetic old user", "synthetic old assistant")
+        failed = pending.guardar_fotografia_conversacional("synthetic-pending")
+        pending.conversation_memory.registrar_turno("synthetic new user", "synthetic new assistant")
+        failed_client.add_mode = "success"
+        retry = pending.guardar_fotografia_conversacional("synthetic-pending")
+        require(failed.status == "error" and retry.status == "saved", "pending snapshot is retryable")
+        require(retry.turn_count == 1, "retry reuses first snapshot instead of capturing new turn")
+        retry_document = next(iter(failed_client.rows.values())).document
+        require("synthetic new user" not in retry_document, "retry document excludes later turn")
+        pending.close()
 
-    def fail_once(**kwargs):
-        nonlocal attempts
-        attempts += 1
-        if attempts == 1:
-            return None
-        return original_save(**kwargs)
-
-    pending.guardar_regla = fail_once
-    failed = pending.guardar_fotografia_conversacional("synthetic-pending")
-    pending.conversation_memory.registrar_turno("synthetic new user", "synthetic new assistant")
-    retry = pending.guardar_fotografia_conversacional("synthetic-pending")
-    require(failed.status == "error" and retry.status == "saved", "pending snapshot is retryable")
-    require(retry.turn_count == 1, "retry reuses first snapshot instead of capturing new turn")
-    require("synthetic new user" not in failed_client.records[0][1], "retry document excludes later turn")
-
-    read_error_client = ManualMemoryClient()
-    read_error_client.fail_reads = True
-    read_error = _manual_manager(read_error_client)
-    lookup_failure = read_error.guardar_fotografia_conversacional("synthetic-read-error")
-    require(lookup_failure.status == "error", "manual save distinguishes lookup failure from empty")
+        read_error_client = FakeMutationClient()
+        read_error_client.listar = lambda **_kwargs: None
+        read_error = MemoryManager(
+            read_error_client,
+            memory_write_ledger_path=str(Path(temporary) / "read-error.sqlite3"),
+        )
+        read_error.conversation_memory.registrar_turno("synthetic", "synthetic")
+        lookup_failure = read_error.guardar_fotografia_conversacional("synthetic-read-error")
+        require(lookup_failure.status == "error", "manual save distinguishes lookup failure from empty")
+        read_error.close()
 
     return {
         "first_status": first.status,
@@ -960,6 +1028,7 @@ def probe_alias_affect_relational_side_effects_and_race() -> dict[str, Any]:
     require([item.recuerdo.id for item in selected] == ["new-revoked"], "latest relational correction wins per category")
 
     return {
+        "surface": "legacy_object_new_compatibility_only",
         "approved_string_false_accepted": False,
         "confirmed_string_false_accepted": False,
         "current_alias_writer_emits_bool_true": True,
@@ -1021,6 +1090,7 @@ def probe_chroma_operation_lock_scope() -> dict[str, Any]:
     require(calls == ["add-enter", "add-exit", "delete-enter"], "adapter operations serialize")
 
     return {
+        "surface": "chroma_adapter_call_scope_only",
         "individual_chroma_calls_serialized_same_path": True,
         "multi_call_memory_transactions_serialized": False,
         "observed_order": calls,
@@ -1033,6 +1103,7 @@ PROBES: list[tuple[str, Callable[[], dict[str, Any]]]] = [
     ("scoring_filters_and_poison_record", probe_scoring_filters_and_poison_record),
     ("write_receipts_and_concurrent_duplicates", probe_write_receipts_and_concurrent_duplicates),
     ("consolidation_partial_failure_and_concurrency", probe_consolidation_partial_failure_and_concurrency),
+    ("root015_journaled_runtime_path", probe_root015_journaled_runtime_path),
     ("ram_memories", probe_ram_memories),
     ("manual_save_idempotency_and_privacy", probe_manual_save_idempotency_and_privacy),
     ("alias_affect_relational_side_effects_and_race", probe_alias_affect_relational_side_effects_and_race),
