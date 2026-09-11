@@ -1,31 +1,46 @@
-"""
-oracle_engine.py - Capa 3 (Cortex de Alto Nivel/Oraculo).
-
-Procesa preguntas complejas, codigo y filosofia. Esta capa es fria:
-produce conocimiento interno para que Persona lo verbalice despues.
-"""
+"""Capa 3 fria con parsing estructurado separado de policy y cache."""
 
 from __future__ import annotations
 
-import json
-import re
+from dataclasses import dataclass
 from typing import Any, Literal, Optional
+
+from pydantic import BaseModel, ConfigDict, StrictStr, ValidationError
 
 from core.logger import get_logger
 
 from .oracle_memory import OracleMemory
 from .schemas import OracleResult
+from .structured_parse_types import (
+    JsonObjectInspection,
+    StructuredParseIssueCode,
+    StructuredParseResult,
+    StructuredParseStatus,
+    StructuredTextSalvage,
+    StructuredTextSalvageKind,
+    inspect_json_object,
+)
+
 
 logger = get_logger(__name__)
-
 OracleSource = Literal["api", "fallback"]
 
 
+class _OraclePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    contenido_tecnico: StrictStr
+    resumen_para_persona: Optional[StrictStr] = None
+
+
+@dataclass(frozen=True)
+class OracleStructuredValue:
+    contenido_tecnico: str
+    resumen_para_persona: Optional[str]
+
+
 class OracleEngine:
-    """
-    Motor analitico para tareas complejas (Capa 3).
-    No produce ActionResponse ni voz publica; solo OracleResult frio.
-    """
+    """Produce conocimiento interno; nunca produce acciones ni voz publica."""
 
     def __init__(self):
         self.system_prompt = (
@@ -42,10 +57,7 @@ class OracleEngine:
         mensaje_usuario: str,
         memoria: OracleMemory,
     ) -> Optional[OracleResult]:
-        """
-        Consulta la cache vectorial antes de gastar tokens.
-        Si encuentra conocimiento previo, lo devuelve como OracleResult.
-        """
+        """Consulta el cache existente sin afirmar calidad de parse legacy."""
         buscar_resultado = getattr(memoria, "buscar_resultado_cacheado", None)
         if callable(buscar_resultado):
             resultado = buscar_resultado(mensaje_usuario)
@@ -54,10 +66,9 @@ class OracleEngine:
                 return resultado
             return None
 
-        # Compatibilidad con cache viejo que solo devolvia texto.
         respuesta_cacheada = memoria.buscar_respuesta_cacheada(mensaje_usuario)
         if respuesta_cacheada:
-            logger.info("Oracle Cache HIT legacy. Normalizando a OracleResult.")
+            logger.info("Oracle Cache HIT legacy. Calidad de parse no disponible.")
             return OracleResult(
                 pregunta_original=mensaje_usuario,
                 contenido_tecnico=respuesta_cacheada,
@@ -68,9 +79,7 @@ class OracleEngine:
         return None
 
     def preparar_consulta(self, mensaje_usuario: str) -> list[dict[str, str]]:
-        """
-        Construye el prompt frio y estricto para el modelo local o externo.
-        """
+        """Construye el prompt frio y estricto para el modelo activo."""
         prompt_reglas = (
             f"{self.system_prompt}\n\n"
             "=== FORMATO DE SALIDA ESTRICTO ===\n"
@@ -87,122 +96,233 @@ class OracleEngine:
             {"role": "user", "content": mensaje_usuario},
         ]
 
-    def keep_y_save(
+    def parse_result(
         self,
-        respuesta_llm: str,
+        respuesta_llm: object,
+    ) -> StructuredParseResult[OracleStructuredValue]:
+        """Parsea una salida Oracle sin ejecutar cache, retry ni fallback."""
+        inspection = inspect_json_object(respuesta_llm)
+        if inspection.data is None:
+            issue = inspection.issue_code or StructuredParseIssueCode.MALFORMED_JSON
+            if (
+                issue is StructuredParseIssueCode.PLAIN_TEXT_ONLY
+                and inspection.normalized_text.strip()
+            ):
+                result = self._oracle_degraded_result(
+                    inspection,
+                    (StructuredParseIssueCode.PLAIN_TEXT_ONLY,),
+                    self._bounded_candidate(inspection.normalized_text),
+                )
+                self._log_parse_result(result)
+                return result
+
+            result = StructuredParseResult[OracleStructuredValue](
+                contract_version=1,
+                status=StructuredParseStatus.ERROR,
+                value=None,
+                salvage=None,
+                reason_codes=(issue,),
+                normalizations=inspection.normalizations,
+                raw_shape=inspection.raw_shape,
+                raw_length=inspection.raw_length,
+            )
+            self._log_parse_result(result)
+            return result
+
+        data = inspection.data
+        try:
+            payload = _OraclePayload.model_validate(data)
+        except ValidationError:
+            candidate, legacy_alias = self._safe_oracle_candidate(data)
+            schema_issue = (
+                StructuredParseIssueCode.NONCANONICAL_WRAPPER
+                if legacy_alias
+                else StructuredParseIssueCode.SCHEMA_VALIDATION_FAILED
+            )
+            reasons = self._merge_reason_codes(inspection.issue_code, schema_issue)
+            result = self._oracle_degraded_or_error(
+                inspection,
+                reasons,
+                candidate,
+            )
+            self._log_parse_result(result)
+            return result
+
+        contenido = payload.contenido_tecnico.strip()
+        if not contenido:
+            result = StructuredParseResult[OracleStructuredValue](
+                contract_version=1,
+                status=StructuredParseStatus.ERROR,
+                value=None,
+                salvage=None,
+                reason_codes=(StructuredParseIssueCode.SCHEMA_VALIDATION_FAILED,),
+                normalizations=inspection.normalizations,
+                raw_shape=inspection.raw_shape,
+                raw_length=inspection.raw_length,
+            )
+            self._log_parse_result(result)
+            return result
+
+        resumen = (
+            payload.resumen_para_persona.strip()
+            if isinstance(payload.resumen_para_persona, str)
+            and payload.resumen_para_persona.strip()
+            else None
+        )
+        if inspection.issue_code is not None:
+            result = self._oracle_degraded_result(
+                inspection,
+                (inspection.issue_code,),
+                contenido,
+            )
+            self._log_parse_result(result)
+            return result
+
+        result = StructuredParseResult[OracleStructuredValue](
+            contract_version=1,
+            status=StructuredParseStatus.VALID,
+            value=OracleStructuredValue(
+                contenido_tecnico=contenido,
+                resumen_para_persona=resumen,
+            ),
+            salvage=None,
+            reason_codes=(),
+            normalizations=inspection.normalizations,
+            raw_shape=inspection.raw_shape,
+            raw_length=inspection.raw_length,
+        )
+        self._log_parse_result(result)
+        return result
+
+    def proyectar_resultado(
+        self,
+        parse_result: StructuredParseResult[OracleStructuredValue],
         pregunta_original: str,
         memoria: OracleMemory,
         *,
         fuente: OracleSource = "api",
     ) -> OracleResult:
-        """
-        Limpia la salida del LLM, la normaliza como OracleResult y la cachea.
-        """
+        """Aplica disponibilidad y cache sobre un parse result ya calculado."""
         fuente_normalizada = self._normalizar_fuente(fuente)
-        if not respuesta_llm or not respuesta_llm.strip():
-            logger.warning("El LLM devolvio una respuesta vacia.")
-            return self._fallback(
-                pregunta_original,
-                "El procesamiento complejo fue interrumpido por falta de datos.",
+        if parse_result.status is StructuredParseStatus.VALID:
+            assert parse_result.value is not None
+            resultado = OracleResult(
+                pregunta_original=pregunta_original,
+                contenido_tecnico=parse_result.value.contenido_tecnico,
+                resumen_para_persona=parse_result.value.resumen_para_persona,
+                fuente=fuente_normalizada,
+                cache_hit=False,
+            )
+            self._guardar_resultado(memoria, resultado)
+            return resultado
+
+        if (
+            parse_result.status is StructuredParseStatus.DEGRADED
+            and parse_result.salvage is not None
+            and parse_result.salvage.kind
+            is StructuredTextSalvageKind.ORACLE_CANDIDATE_TEXT
+        ):
+            return OracleResult(
+                pregunta_original=pregunta_original,
+                contenido_tecnico=parse_result.salvage.text,
+                resumen_para_persona=None,
+                fuente=fuente_normalizada,
+                cache_hit=False,
             )
 
-        texto_limpio = self._limpiar_json(respuesta_llm)
-        try:
-            data = json.loads(texto_limpio)
-        except json.JSONDecodeError:
-            if texto_limpio and not texto_limpio.lstrip().startswith("{"):
-                logger.warning("El Oraculo devolvio texto plano; se normaliza como conocimiento interno.")
-                return self._resultado_desde_texto_plano(
-                    texto_limpio,
-                    pregunta_original,
-                    memoria,
-                    fuente_normalizada,
-                )
-            logger.error(
-                "Error al decodificar el JSON del Oraculo. Respuesta cruda %.100s",
-                respuesta_llm,
-            )
-            return self._fallback(
-                pregunta_original,
-                "Mi procesador logico encontro un error de sintaxis al generar conocimiento tecnico.",
-            )
-
-        if not isinstance(data, dict):
-            logger.error("El Oraculo devolvio JSON valido, pero no un objeto.")
-            return self._fallback(
-                pregunta_original,
-                "Mi procesador logico genero una estructura de conocimiento invalida.",
-            )
-
-        contenido_tecnico = self._extraer_contenido_tecnico(data)
-        if not contenido_tecnico:
-            logger.error("El Oraculo no devolvio contenido_tecnico util.")
-            return self._fallback(
-                pregunta_original,
-                "Mi procesador logico no produjo conocimiento util para comunicar.",
-            )
-
-        resumen_para_persona = str(data.get("resumen_para_persona") or data.get("resumen") or "").strip() or None
-        resultado = OracleResult(
-            pregunta_original=pregunta_original,
-            contenido_tecnico=contenido_tecnico,
-            resumen_para_persona=resumen_para_persona,
-            fuente=fuente_normalizada,
-            cache_hit=False,
+        return self._fallback(
+            pregunta_original,
+            "Mi procesador logico no produjo conocimiento estructurado util para comunicar.",
         )
-        self._guardar_resultado(memoria, resultado)
-        return resultado
 
-    @staticmethod
-    def _limpiar_json(texto_crudo: str) -> str:
-        """
-        Elimina fences de Markdown y texto alrededor del JSON.
-        Si no encuentra JSON, conserva texto plano util.
-        """
-        texto = texto_crudo.strip()
-        texto = re.sub(r"<think>.*?</think>", "", texto, flags=re.DOTALL | re.IGNORECASE).strip()
-        texto = re.sub(r"^```(?:json)?\s*", "", texto)
-        texto = re.sub(r"\s*```$", "", texto)
-
-        if not texto.startswith("{"):
-            match = re.search(r"\{.*\}", texto, re.DOTALL)
-            if match:
-                texto = match.group(0)
-
-        return texto.strip()
-
-    @staticmethod
-    def _extraer_contenido_tecnico(data: dict[str, Any]) -> str:
-        for clave in ("contenido_tecnico", "respuesta", "contenido", "explicacion", "resultado"):
-            valor = data.get(clave)
-            if valor:
-                return str(valor).strip()
-
-        parametros = data.get("parametros", {})
-        if isinstance(parametros, dict):
-            for clave in ("texto_a_comunicar", "texto", "mensaje"):
-                valor = parametros.get(clave)
-                if valor:
-                    logger.warning("Normalizando salida legacy del Oraculo con parametros.%s.", clave)
-                    return str(valor).strip()
-        return ""
-
-    def _resultado_desde_texto_plano(
+    def keep_y_save(
         self,
-        texto: str,
+        respuesta_llm: object,
         pregunta_original: str,
         memoria: OracleMemory,
-        fuente: OracleSource,
+        *,
+        fuente: OracleSource = "api",
     ) -> OracleResult:
-        resultado = OracleResult(
-            pregunta_original=pregunta_original,
-            contenido_tecnico=texto.strip(),
-            resumen_para_persona=None,
+        """Wrapper legacy: una sola parseada, policy y cache solo para VALID."""
+        result = self.parse_result(respuesta_llm)
+        return self.proyectar_resultado(
+            result,
+            pregunta_original,
+            memoria,
             fuente=fuente,
-            cache_hit=False,
         )
-        self._guardar_resultado(memoria, resultado)
-        return resultado
+
+    def _oracle_degraded_or_error(
+        self,
+        inspection: JsonObjectInspection,
+        reasons: tuple[StructuredParseIssueCode, ...],
+        candidate: Optional[str],
+    ) -> StructuredParseResult[OracleStructuredValue]:
+        if candidate:
+            return self._oracle_degraded_result(inspection, reasons, candidate)
+        return StructuredParseResult[OracleStructuredValue](
+            contract_version=1,
+            status=StructuredParseStatus.ERROR,
+            value=None,
+            salvage=None,
+            reason_codes=reasons,
+            normalizations=inspection.normalizations,
+            raw_shape=inspection.raw_shape,
+            raw_length=inspection.raw_length,
+        )
+
+    @staticmethod
+    def _oracle_degraded_result(
+        inspection: JsonObjectInspection,
+        reasons: tuple[StructuredParseIssueCode, ...],
+        candidate: str,
+    ) -> StructuredParseResult[OracleStructuredValue]:
+        return StructuredParseResult[OracleStructuredValue](
+            contract_version=1,
+            status=StructuredParseStatus.DEGRADED,
+            value=None,
+            salvage=StructuredTextSalvage(
+                kind=StructuredTextSalvageKind.ORACLE_CANDIDATE_TEXT,
+                text=OracleEngine._bounded_candidate(candidate),
+            ),
+            reason_codes=reasons,
+            normalizations=inspection.normalizations,
+            raw_shape=inspection.raw_shape,
+            raw_length=inspection.raw_length,
+        )
+
+    @staticmethod
+    def _safe_oracle_candidate(data: dict[str, Any]) -> tuple[Optional[str], bool]:
+        canonical = data.get("contenido_tecnico")
+        if isinstance(canonical, str) and canonical.strip():
+            return canonical.strip(), False
+
+        for key in ("respuesta", "contenido", "explicacion", "resultado"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip(), True
+
+        parametros = data.get("parametros")
+        if isinstance(parametros, dict):
+            for key in ("texto_a_comunicar", "texto", "mensaje"):
+                value = parametros.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip(), True
+        return None, False
+
+    @staticmethod
+    def _bounded_candidate(text: str) -> str:
+        return text.strip()[:12_000]
+
+    @staticmethod
+    def _merge_reason_codes(
+        *codes: StructuredParseIssueCode | None,
+    ) -> tuple[StructuredParseIssueCode, ...]:
+        result: list[StructuredParseIssueCode] = []
+        for code in codes:
+            if code is not None and code not in result:
+                result.append(code)
+        return tuple(result)
 
     @staticmethod
     def _guardar_resultado(memoria: OracleMemory, resultado: OracleResult) -> None:
@@ -213,12 +333,14 @@ class OracleEngine:
                 resumen_para_persona=resultado.resumen_para_persona,
                 fuente=resultado.fuente,
             )
-        except Exception as e:
-            logger.error("OracleMemory no pudo guardar el resultado: %s", e, exc_info=True)
+        except Exception as error:
+            logger.error(
+                "Oracle cache write failed component=oracle_cache error_type=%s",
+                type(error).__name__,
+            )
 
     @staticmethod
     def _fallback(pregunta_original: str, mensaje: str) -> OracleResult:
-        """Rescate frio cuando el LLM no produce conocimiento valido."""
         logger.info("Activando fallback frio en Capa 3.")
         return OracleResult(
             pregunta_original=pregunta_original,
@@ -232,3 +354,21 @@ class OracleEngine:
     @staticmethod
     def _normalizar_fuente(fuente: str) -> OracleSource:
         return "fallback" if str(fuente).strip().lower() == "fallback" else "api"
+
+    @staticmethod
+    def _log_parse_result(
+        result: StructuredParseResult[OracleStructuredValue],
+    ) -> None:
+        if result.status is StructuredParseStatus.VALID:
+            logger.debug(
+                "Structured parse component=oracle status=%s raw_length=%d",
+                result.status.value,
+                result.raw_length,
+            )
+            return
+        logger.warning(
+            "Structured parse component=oracle status=%s issue_codes=%s raw_length=%d",
+            result.status.value,
+            ",".join(code.value for code in result.reason_codes),
+            result.raw_length,
+        )

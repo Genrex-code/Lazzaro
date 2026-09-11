@@ -5,7 +5,6 @@ ollama_client.py - Cliente BaseAIClient para modelos locales servidos por Ollama
 from __future__ import annotations
 
 import logging
-import re
 import time
 from typing import Any, Optional
 
@@ -54,7 +53,8 @@ class OllamaClient(BaseAIClient):
             response = self.client.post("/api/generate", json=payload)
             response.raise_for_status()
             data = response.json()
-            texto = self._limpiar_respuesta(str(data.get("response", "")))
+            respuesta = data.get("response", "")
+            texto = respuesta if isinstance(respuesta, str) else ""
             if texto:
                 logger.debug("Ollama -> %d caracteres.", len(texto))
             else:
@@ -160,12 +160,6 @@ class OllamaClient(BaseAIClient):
             "stop": overrides.get("stop_sequences"),
         }
         return {key: value for key, value in options.items() if value is not None}
-
-    @staticmethod
-    def _limpiar_respuesta(texto: str) -> str:
-        texto_limpio = re.sub(r"<think>.*?</think>", "", texto, flags=re.DOTALL | re.IGNORECASE)
-        texto_limpio = texto_limpio.replace("```json", "").replace("```", "").strip()
-        return texto_limpio
 
     @staticmethod
     def _response_format_schema() -> dict[str, Any]:

@@ -1,66 +1,67 @@
-"""
-response_parser.py - Valida y limpia la respuesta JSON del LLM.
-"""
+"""Valida respuestas estructuradas generales sin mezclar parsing y policy."""
 
-import json
-import re
+from __future__ import annotations
+
 from typing import Optional
 
+from pydantic import ValidationError
+
 from ai_engine.schemas import ActionResponse, LLMResponse
+from ai_engine.structured_parse_types import (
+    StructuredParseIssueCode,
+    StructuredParseResult,
+    StructuredParseStatus,
+    inspect_json_object,
+)
 from core.logger import get_logger
+
 
 logger = get_logger(__name__)
 
 
 class ResponseParser:
-    """
-    Parsea la respuesta cruda del LLM, la valida contra el esquema esperado
-    y produce una ActionResponse lista para ser ejecutada o rechazada.
-    """
+    """Convierte una salida LLM en un resultado de parsing finito y versionado."""
 
     @staticmethod
-    def parse(texto_crudo: str, acciones_permitidas: Optional[set[str]] = None) -> ActionResponse:
-        json_str = ResponseParser._extraer_json(texto_crudo)
-        if json_str is None:
-            logger.warning("No se encontro JSON en la respuesta del LLM. Texto: %s", texto_crudo[:200])
-            return ActionResponse(
-                pensamiento=texto_crudo[:200],
-                accion="none",
-                parametros={},
-                razon="",
-                valido=False,
-                error="Respuesta sin JSON valido.",
+    def parse_result(
+        texto_crudo: object,
+        acciones_permitidas: Optional[set[str]] = None,
+    ) -> StructuredParseResult[ActionResponse]:
+        inspection = inspect_json_object(texto_crudo)
+        if inspection.data is None:
+            issue = inspection.issue_code or StructuredParseIssueCode.MALFORMED_JSON
+            result = StructuredParseResult[ActionResponse](
+                contract_version=1,
+                status=StructuredParseStatus.ERROR,
+                value=None,
+                salvage=None,
+                reason_codes=(issue,),
+                normalizations=inspection.normalizations,
+                raw_shape=inspection.raw_shape,
+                raw_length=inspection.raw_length,
             )
+            ResponseParser._log_result(result)
+            return result
 
         try:
-            datos = json.loads(json_str)
-        except json.JSONDecodeError as e:
-            logger.warning("JSON malformado del LLM: %s", e)
-            return ActionResponse(
-                pensamiento=json_str[:200],
-                accion="none",
-                parametros={},
-                razon="",
-                valido=False,
-                error=f"JSON invalido: {e}",
+            respuesta = LLMResponse.model_validate(inspection.data)
+        except ValidationError:
+            reasons = ResponseParser._merge_reasons(
+                inspection.issue_code,
+                StructuredParseIssueCode.SCHEMA_VALIDATION_FAILED,
             )
-
-        try:
-            respuesta = LLMResponse(**datos)
-        except Exception as e:
-            logger.warning("Respuesta JSON no cumple el esquema LLMResponse: %s", e)
-            pensamiento = datos.get("pensamiento", json_str[:200])
-            accion = ResponseParser._normalizar_accion(datos.get("accion"))
-            parametros = datos.get("parametros", {})
-            razon = datos.get("razon", "")
-            return ActionResponse(
-                pensamiento=pensamiento,
-                accion=accion,
-                parametros=parametros if isinstance(parametros, dict) else {},
-                razon=razon,
-                valido=False,
-                error=f"Estructura JSON incorrecta: {e}",
+            result = StructuredParseResult[ActionResponse](
+                contract_version=1,
+                status=StructuredParseStatus.DEGRADED,
+                value=None,
+                salvage=None,
+                reason_codes=reasons,
+                normalizations=inspection.normalizations,
+                raw_shape=inspection.raw_shape,
+                raw_length=inspection.raw_length,
             )
+            ResponseParser._log_result(result)
+            return result
 
         accion_normalizada = ResponseParser._normalizar_accion(respuesta.accion)
         if (
@@ -68,52 +69,116 @@ class ResponseParser:
             and accion_normalizada != "none"
             and accion_normalizada not in acciones_permitidas
         ):
-            logger.warning(
-                "Accion '%s' no esta en la lista de permitidas: %s",
-                accion_normalizada,
-                acciones_permitidas,
+            reasons = ResponseParser._merge_reasons(
+                inspection.issue_code,
+                StructuredParseIssueCode.UNKNOWN_ACTION,
             )
-            return ActionResponse(
+            result = StructuredParseResult[ActionResponse](
+                contract_version=1,
+                status=StructuredParseStatus.DEGRADED,
+                value=None,
+                salvage=None,
+                reason_codes=reasons,
+                normalizations=inspection.normalizations,
+                raw_shape=inspection.raw_shape,
+                raw_length=inspection.raw_length,
+            )
+            ResponseParser._log_result(result)
+            return result
+
+        if inspection.issue_code is not None:
+            result = StructuredParseResult[ActionResponse](
+                contract_version=1,
+                status=StructuredParseStatus.DEGRADED,
+                value=None,
+                salvage=None,
+                reason_codes=(inspection.issue_code,),
+                normalizations=inspection.normalizations,
+                raw_shape=inspection.raw_shape,
+                raw_length=inspection.raw_length,
+            )
+            ResponseParser._log_result(result)
+            return result
+
+        result = StructuredParseResult[ActionResponse](
+            contract_version=1,
+            status=StructuredParseStatus.VALID,
+            value=ActionResponse(
                 pensamiento=respuesta.pensamiento,
                 accion=accion_normalizada,
                 parametros=respuesta.parametros,
                 razon=respuesta.razon,
-                valido=False,
-                error=f"Accion '{accion_normalizada}' no permitida.",
-            )
+                valido=True,
+            ),
+            salvage=None,
+            reason_codes=(),
+            normalizations=inspection.normalizations,
+            raw_shape=inspection.raw_shape,
+            raw_length=inspection.raw_length,
+        )
+        ResponseParser._log_result(result)
+        return result
 
-        logger.debug("Respuesta parseada correctamente. Accion: %s", accion_normalizada)
+    @staticmethod
+    def project_result(result: StructuredParseResult[ActionResponse]) -> ActionResponse:
+        """Aplica la policy legacy de no-op a un resultado ya calculado."""
+        if result.status is StructuredParseStatus.VALID:
+            assert result.value is not None
+            return result.value
+
+        reason = result.reason_codes[0].value
         return ActionResponse(
-            pensamiento=respuesta.pensamiento,
-            accion=accion_normalizada,
-            parametros=respuesta.parametros,
-            razon=respuesta.razon,
-            valido=True,
+            pensamiento="",
+            accion="none",
+            parametros={},
+            razon="",
+            valido=False,
+            error=f"structured_parse:{reason.lower()}",
+            metadata={
+                "structured_parse_status": result.status.value,
+                "structured_parse_reason_codes": tuple(code.value for code in result.reason_codes),
+                "structured_parse_normalizations": tuple(
+                    item.value for item in result.normalizations
+                ),
+            },
         )
 
     @staticmethod
-    def _extraer_json(texto: str) -> Optional[str]:
-        if not texto:
-            return None
-
-        texto_limpio = re.sub(r"<think>.*?</think>", "", texto, flags=re.DOTALL | re.IGNORECASE)
-        texto_limpio = texto_limpio.replace("```json", "").replace("```", "").strip()
-
-        inicio = texto_limpio.find("{")
-        fin = texto_limpio.rfind("}")
-        if inicio != -1 and fin != -1 and fin > inicio:
-            return texto_limpio[inicio : fin + 1]
-
-        return None
+    def parse(texto_crudo: object, acciones_permitidas: Optional[set[str]] = None) -> ActionResponse:
+        """Wrapper compatible derivado de una unica ejecucion de ``parse_result``."""
+        result = ResponseParser.parse_result(texto_crudo, acciones_permitidas)
+        return ResponseParser.project_result(result)
 
     @staticmethod
     def _normalizar_accion(accion: object) -> str:
         if accion is None or not isinstance(accion, str):
             return "none"
-
         accion_limpia = accion.strip()
-        if not accion_limpia:
-            return "none"
-        if accion_limpia.lower() in {"none", "null"}:
+        if not accion_limpia or accion_limpia.lower() in {"none", "null"}:
             return "none"
         return accion_limpia
+
+    @staticmethod
+    def _merge_reasons(
+        first: StructuredParseIssueCode | None,
+        second: StructuredParseIssueCode,
+    ) -> tuple[StructuredParseIssueCode, ...]:
+        if first is None or first is second:
+            return (second,)
+        return (first, second)
+
+    @staticmethod
+    def _log_result(result: StructuredParseResult[ActionResponse]) -> None:
+        if result.status is StructuredParseStatus.VALID:
+            logger.debug(
+                "Structured parse component=response status=%s raw_length=%d",
+                result.status.value,
+                result.raw_length,
+            )
+            return
+        logger.warning(
+            "Structured parse component=response status=%s issue_codes=%s raw_length=%d",
+            result.status.value,
+            ",".join(code.value for code in result.reason_codes),
+            result.raw_length,
+        )

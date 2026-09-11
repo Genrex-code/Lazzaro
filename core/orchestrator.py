@@ -22,6 +22,7 @@ from ai_engine.oracle_engine import OracleEngine
 from ai_engine.oracle_memory import OracleMemory
 from ai_engine.persona_engine import PersonaEngine
 from ai_engine.schemas import ActionResponse, OracleResult
+from ai_engine.structured_parse_types import StructuredParseStatus
 from ai_engine.subjective_effort import SubjectiveEffortCalculator
 from ai_engine.triage_router import TriageRouter
 from api.schemas import AccionSaliente, EstadoAgente, EventoEntrante, NotificacionSaliente
@@ -2087,7 +2088,8 @@ class Orchestrator:
                 token_strategy="cap",
                 error_context="Capa Social",
             )
-            datos = self.persona_engine.parsear_respuesta(raw_response)
+            parse_result = self.persona_engine.parsear_resultado(raw_response)
+            datos = self.persona_engine.proyectar_resultado(parse_result)
             self._observar_fallback_persona(datos, audit_observation)
             if datos.get("requiere_reintento"):
                 logger.info("Capa Social solicita reintento breve por salida LLM irrecuperable.")
@@ -2104,7 +2106,12 @@ class Orchestrator:
                     token_strategy="cap",
                     error_context="Reintento Capa Social",
                 )
-                datos_reintento = self.persona_engine.parsear_respuesta(raw_response_reintento)
+                parse_result_reintento = self.persona_engine.parsear_resultado(
+                    raw_response_reintento
+                )
+                datos_reintento = self.persona_engine.proyectar_resultado(
+                    parse_result_reintento
+                )
                 self._observar_fallback_persona(datos_reintento, audit_observation)
                 datos = datos_reintento
             return self._action_response_desde_persona(datos)
@@ -2131,6 +2138,7 @@ class Orchestrator:
             datos.get("requiere_reintento")
             or datos.get("error")
             or datos.get("recuperado_de_json_parcial")
+            or datos.get("primary_parse_valid") is False
         ):
             return
         audit_observation["fallback_used"] = True
@@ -2243,12 +2251,24 @@ class Orchestrator:
             texto = "No se que decir, mi mente se fue por una rendija."
             parametros = {"texto_a_comunicar": texto}
 
+        metadata = {
+            key: datos[key]
+            for key in (
+                "primary_parse_valid",
+                "structured_parse_status",
+                "structured_parse_reason_codes",
+                "structured_parse_normalizations",
+            )
+            if key in datos
+        }
+
         return ActionResponse(
             pensamiento=str(datos.get("pensamiento_privado", "")),
             accion="hablar",
             parametros=parametros,
             razon=str(datos.get("razon", "Respuesta social de Capa 2.")),
             valido=True,
+            metadata=metadata,
         )
 
     def _resolver_ruta_oracle(
@@ -2292,6 +2312,7 @@ class Orchestrator:
             )
 
         errores: list[str] = []
+        oracle_parse_result = None
         try:
             oracle_result = self.oracle_engine.evaluar_cache(
                 mensaje_usuario,
@@ -2351,8 +2372,11 @@ class Orchestrator:
                         error_context="fallback activo del Oraculo",
                     )
 
-                oracle_result = self.oracle_engine.keep_y_save(
-                    respuesta_cruda or "",
+                oracle_parse_result = self.oracle_engine.parse_result(
+                    respuesta_cruda or ""
+                )
+                oracle_result = self.oracle_engine.proyectar_resultado(
+                    oracle_parse_result,
                     mensaje_usuario,
                     self.oracle_memory,
                     fuente=fuente_oraculo,
@@ -2376,7 +2400,13 @@ class Orchestrator:
 
         if isinstance(audit_observation, dict):
             audit_observation["oracle_source"] = oracle_result.fuente
-            if oracle_result.fuente == "error":
+            if (
+                oracle_result.fuente == "error"
+                or (
+                    oracle_parse_result is not None
+                    and oracle_parse_result.status is not StructuredParseStatus.VALID
+                )
+            ):
                 audit_observation["fallback_used"] = True
                 audit_observation.setdefault(
                     "decision_error_type",
@@ -2427,7 +2457,8 @@ class Orchestrator:
                 token_strategy="cap",
                 error_context="Verbalizacion Capa Social del Oraculo",
             )
-            datos = self.persona_engine.parsear_respuesta(raw_response)
+            parse_result = self.persona_engine.parsear_resultado(raw_response)
+            datos = self.persona_engine.proyectar_resultado(parse_result)
             self._observar_fallback_persona(datos, audit_observation)
             if datos.get("requiere_reintento"):
                 logger.info("Verbalizacion del Oraculo solicita reintento social breve.")
@@ -2444,7 +2475,12 @@ class Orchestrator:
                     token_strategy="cap",
                     error_context="Reintento verbalizacion Capa Social del Oraculo",
                 )
-                datos = self.persona_engine.parsear_respuesta(raw_response_reintento)
+                parse_result_reintento = self.persona_engine.parsear_resultado(
+                    raw_response_reintento
+                )
+                datos = self.persona_engine.proyectar_resultado(
+                    parse_result_reintento
+                )
                 self._observar_fallback_persona(datos, audit_observation)
 
             action_response = self._action_response_desde_persona(datos)

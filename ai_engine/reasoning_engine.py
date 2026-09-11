@@ -105,7 +105,11 @@ class ReasoningEngine:
 
             acciones_permitidas = set(herramientas_filtradas)
             acciones_permitidas.add("none")
-            action = self.response_parser.parse(raw_response, acciones_permitidas)
+            parse_result = self.response_parser.parse_result(
+                raw_response,
+                acciones_permitidas,
+            )
+            action = self.response_parser.project_result(parse_result)
             if action.error or not action.valido:
                 self._observe_failure(
                     audit_observation,

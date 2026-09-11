@@ -7,15 +7,49 @@ garantiza que la unica accion emitida por esta capa sea "hablar".
 
 import json
 import re
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, ConfigDict, StrictStr, ValidationError
 
 from core.logger import get_logger
 
 from .identity_state import IdentityState
 from .persona_prompt_buider import PersonaPromptBuilder
 from .schemas import OracleResult
+from .structured_parse_types import (
+    JsonObjectInspection,
+    StructuredParseIssueCode,
+    StructuredParseResult,
+    StructuredParseStatus,
+    StructuredTextSalvage,
+    StructuredTextSalvageKind,
+    inspect_json_object,
+)
 
 logger = get_logger(__name__)
+
+
+class _PersonaParameters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    texto_a_comunicar: StrictStr
+
+
+class _PersonaPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    accion: StrictStr
+    parametros: _PersonaParameters
+    pensamiento_privado: StrictStr
+    razon: StrictStr
+
+
+@dataclass(frozen=True)
+class PersonaStructuredValue:
+    texto_a_comunicar: str
+    pensamiento_privado: str
+    razon: str
 
 
 class PersonaEngine:
@@ -218,128 +252,267 @@ class PersonaEngine:
             },
         ]
 
-    def parsear_respuesta(self, respuesta_llm: str) -> Dict[str, Any]:
-        """
-        Extrae y valida el JSON de la respuesta cruda del LLM.
-        Si el modelo devuelve JSON parcial, intenta rescatar texto comunicable.
-        """
-        if not respuesta_llm or not respuesta_llm.strip():
-            logger.warning("Respuesta del LLM vacia.")
-            return self._fallback(
-                "Me quede en blanco por un momento.",
-                error="respuesta_vacia",
-                requiere_reintento=True,
+    def parsear_resultado(
+        self,
+        respuesta_llm: object,
+    ) -> StructuredParseResult[PersonaStructuredValue]:
+        """Describe el raw social sin decidir retry, fallback ni accion operativa."""
+        inspection = inspect_json_object(respuesta_llm)
+        if inspection.data is None:
+            issue = inspection.issue_code or StructuredParseIssueCode.MALFORMED_JSON
+            if issue not in {
+                StructuredParseIssueCode.DUPLICATE_KEYS,
+                StructuredParseIssueCode.MULTIPLE_OBJECTS,
+                StructuredParseIssueCode.EMPTY_OUTPUT,
+                StructuredParseIssueCode.WRONG_ROOT_TYPE,
+            }:
+                texto = self._extraer_valor_string(
+                    inspection.normalized_text,
+                    "texto_a_comunicar",
+                )
+                if texto:
+                    result = self._persona_degraded_result(
+                        inspection,
+                        (StructuredParseIssueCode.PARTIAL_RECOVERY,),
+                        texto,
+                    )
+                    self._log_parse_result(result)
+                    return result
+
+            result = StructuredParseResult[PersonaStructuredValue](
+                contract_version=1,
+                status=StructuredParseStatus.ERROR,
+                value=None,
+                salvage=None,
+                reason_codes=(issue,),
+                normalizations=inspection.normalizations,
+                raw_shape=inspection.raw_shape,
+                raw_length=inspection.raw_length,
             )
+            self._log_parse_result(result)
+            return result
+
+        data = inspection.data
+        safe_text = self._safe_persona_text(data)
+        action = data.get("accion")
+        if not isinstance(action, str) or action != "hablar":
+            reasons = self._merge_reason_codes(
+                inspection.issue_code,
+                StructuredParseIssueCode.UNKNOWN_ACTION,
+            )
+            if not isinstance(data.get("parametros"), dict):
+                reasons = self._merge_reason_codes(
+                    *reasons,
+                    StructuredParseIssueCode.INVALID_PARAMETERS,
+                )
+            result = self._persona_degraded_or_error(
+                inspection,
+                reasons,
+                safe_text,
+            )
+            self._log_parse_result(result)
+            return result
 
         try:
-            data = json.loads(self._limpiar_json(respuesta_llm))
-        except json.JSONDecodeError:
-            data = self._rescatar_respuesta_parcial(respuesta_llm)
-            if data is None:
-                logger.error("El LLM no devolvio JSON valido. Respuesta cruda: %.200s", respuesta_llm)
-                return self._fallback(
-                    "Senti un cortocircuito en mi lenguaje, no pude procesar eso.",
-                    error="json_irrecuperable",
-                    requiere_reintento=True,
+            payload = _PersonaPayload.model_validate(data)
+        except ValidationError:
+            reasons = self._merge_reason_codes(
+                inspection.issue_code,
+                StructuredParseIssueCode.SCHEMA_VALIDATION_FAILED,
+            )
+            if not isinstance(data.get("parametros"), dict) or (
+                isinstance(data.get("parametros"), dict)
+                and not isinstance(data["parametros"].get("texto_a_comunicar"), str)
+            ):
+                reasons = self._merge_reason_codes(
+                    *reasons,
+                    StructuredParseIssueCode.INVALID_PARAMETERS,
                 )
-            logger.warning("Se rescato texto comunicable desde JSON social parcial.")
-
-        if not isinstance(data, dict):
-            logger.error("El LLM devolvio JSON valido, pero no un objeto.")
-            return self._fallback(
-                "Mi respuesta salio con una forma rara. Dame un segundo.",
-                error="json_no_objeto",
-                requiere_reintento=True,
+            result = self._persona_degraded_or_error(
+                inspection,
+                reasons,
+                safe_text,
             )
+            self._log_parse_result(result)
+            return result
 
-        accion = data.get("accion", "none")
-        if accion != "hablar":
-            logger.warning("Accion '%s' bloqueada en Capa 2. Forzando 'hablar'.", accion)
-            data["accion"] = "hablar"
+        texto = payload.parametros.texto_a_comunicar.strip()
+        if not texto:
+            result = StructuredParseResult[PersonaStructuredValue](
+                contract_version=1,
+                status=StructuredParseStatus.ERROR,
+                value=None,
+                salvage=None,
+                reason_codes=(StructuredParseIssueCode.INVALID_PARAMETERS,),
+                normalizations=inspection.normalizations,
+                raw_shape=inspection.raw_shape,
+                raw_length=inspection.raw_length,
+            )
+            self._log_parse_result(result)
+            return result
 
-        parametros = data.get("parametros", {})
+        if inspection.issue_code is not None:
+            result = self._persona_degraded_result(
+                inspection,
+                (inspection.issue_code,),
+                texto,
+            )
+            self._log_parse_result(result)
+            return result
+
+        result = StructuredParseResult[PersonaStructuredValue](
+            contract_version=1,
+            status=StructuredParseStatus.VALID,
+            value=PersonaStructuredValue(
+                texto_a_comunicar=self._limitar_texto(texto, 700),
+                pensamiento_privado=self._limitar_texto(payload.pensamiento_privado, 240),
+                razon=self._limitar_texto(payload.razon, 200),
+            ),
+            salvage=None,
+            reason_codes=(),
+            normalizations=inspection.normalizations,
+            raw_shape=inspection.raw_shape,
+            raw_length=inspection.raw_length,
+        )
+        self._log_parse_result(result)
+        return result
+
+    def proyectar_resultado(
+        self,
+        result: StructuredParseResult[PersonaStructuredValue],
+    ) -> Dict[str, Any]:
+        """Aplica policy social a un resultado autoritativo ya calculado."""
+        metadata = self._parse_metadata(result)
+        if result.status is StructuredParseStatus.VALID:
+            assert result.value is not None
+            return {
+                "accion": "hablar",
+                "parametros": {"texto_a_comunicar": result.value.texto_a_comunicar},
+                "pensamiento_privado": result.value.pensamiento_privado,
+                "razon": result.value.razon,
+                "requiere_reintento": False,
+                **metadata,
+            }
+
+        if (
+            result.status is StructuredParseStatus.DEGRADED
+            and result.salvage is not None
+            and result.salvage.kind is StructuredTextSalvageKind.PERSONA_SAFE_TEXT
+        ):
+            return {
+                "accion": "hablar",
+                "parametros": {
+                    "texto_a_comunicar": self._limitar_texto(result.salvage.text, 700)
+                },
+                "pensamiento_privado": "Salida social degradada; se uso texto seguro.",
+                "razon": "Policy social de disponibilidad segura.",
+                "recuperado_de_json_parcial": (
+                    StructuredParseIssueCode.PARTIAL_RECOVERY in result.reason_codes
+                ),
+                "requiere_reintento": False,
+                **metadata,
+            }
+
+        issue = result.reason_codes[0].value.lower()
+        return self._fallback(
+            "Senti un cortocircuito en mi lenguaje, no pude procesar eso.",
+            error=f"structured_parse:{issue}",
+            requiere_reintento=True,
+            parse_metadata=metadata,
+        )
+
+    def parsear_respuesta(self, respuesta_llm: object) -> Dict[str, Any]:
+        """Wrapper legacy: una sola parseada seguida por policy explicita."""
+        result = self.parsear_resultado(respuesta_llm)
+        return self.proyectar_resultado(result)
+
+    def _persona_degraded_or_error(
+        self,
+        inspection: JsonObjectInspection,
+        reasons: tuple[StructuredParseIssueCode, ...],
+        safe_text: Optional[str],
+    ) -> StructuredParseResult[PersonaStructuredValue]:
+        if safe_text:
+            return self._persona_degraded_result(inspection, reasons, safe_text)
+        return StructuredParseResult[PersonaStructuredValue](
+            contract_version=1,
+            status=StructuredParseStatus.ERROR,
+            value=None,
+            salvage=None,
+            reason_codes=reasons,
+            normalizations=inspection.normalizations,
+            raw_shape=inspection.raw_shape,
+            raw_length=inspection.raw_length,
+        )
+
+    def _persona_degraded_result(
+        self,
+        inspection: JsonObjectInspection,
+        reasons: tuple[StructuredParseIssueCode, ...],
+        safe_text: str,
+    ) -> StructuredParseResult[PersonaStructuredValue]:
+        return StructuredParseResult[PersonaStructuredValue](
+            contract_version=1,
+            status=StructuredParseStatus.DEGRADED,
+            value=None,
+            salvage=StructuredTextSalvage(
+                kind=StructuredTextSalvageKind.PERSONA_SAFE_TEXT,
+                text=self._limitar_texto(safe_text, 700),
+            ),
+            reason_codes=reasons,
+            normalizations=inspection.normalizations,
+            raw_shape=inspection.raw_shape,
+            raw_length=inspection.raw_length,
+        )
+
+    @staticmethod
+    def _safe_persona_text(data: dict[str, Any]) -> Optional[str]:
+        parametros = data.get("parametros")
         if not isinstance(parametros, dict):
-            logger.warning("Los parametros sociales no son un objeto. Se usa fallback.")
-            return self._fallback(
-                "No logre ordenar bien lo que queria decir.",
-                error="parametros_invalidos",
-                requiere_reintento=True,
-            )
-
-        texto_a_comunicar = str(parametros.get("texto_a_comunicar", "")).strip()
-        if not texto_a_comunicar:
-            logger.warning("El JSON no contiene 'texto_a_comunicar'. Se usa fallback.")
-            return self._fallback(
-                "No se que decir, mi mente divago.",
-                error="texto_vacio",
-                requiere_reintento=True,
-            )
-
-        data["parametros"] = {"texto_a_comunicar": self._limitar_texto(texto_a_comunicar, 700)}
-        data["pensamiento_privado"] = self._limitar_texto(str(data.get("pensamiento_privado", "")), 240)
-        data["razon"] = self._limitar_texto(str(data.get("razon", "")), 200)
-        data.pop("emocion_facial", None)
-        data.setdefault("requiere_reintento", False)
-        return data
+            return None
+        texto = parametros.get("texto_a_comunicar")
+        if not isinstance(texto, str) or not texto.strip():
+            return None
+        return texto.strip()
 
     @staticmethod
-    def _limpiar_json(texto_crudo: str) -> str:
-        """
-        Elimina bloques de Markdown y texto alrededor del primer JSON.
-        Si el objeto esta truncado, devuelve el fragmento para rescate parcial.
-        """
-        texto = re.sub(r"<think>.*?</think>", "", texto_crudo, flags=re.DOTALL | re.IGNORECASE).strip()
-        texto = re.sub(r"^```(?:json)?\s*", "", texto)
-        texto = re.sub(r"\s*```$", "", texto)
-        objeto = PersonaEngine._extraer_primer_objeto_json(texto)
-        return (objeto or texto).strip()
+    def _merge_reason_codes(
+        *codes: StructuredParseIssueCode | None,
+    ) -> tuple[StructuredParseIssueCode, ...]:
+        result: list[StructuredParseIssueCode] = []
+        for code in codes:
+            if code is not None and code not in result:
+                result.append(code)
+        return tuple(result)
 
     @staticmethod
-    def _extraer_primer_objeto_json(texto: str) -> Optional[str]:
-        inicio = texto.find("{")
-        if inicio == -1:
-            return None
-
-        profundidad = 0
-        en_cadena = False
-        escape = False
-        for indice in range(inicio, len(texto)):
-            char = texto[indice]
-            if escape:
-                escape = False
-                continue
-            if char == "\\":
-                escape = True
-                continue
-            if char == '"':
-                en_cadena = not en_cadena
-                continue
-            if en_cadena:
-                continue
-            if char == "{":
-                profundidad += 1
-            elif char == "}":
-                profundidad -= 1
-                if profundidad == 0:
-                    return texto[inicio : indice + 1]
-
-        return texto[inicio:]
-
-    @classmethod
-    def _rescatar_respuesta_parcial(cls, texto_crudo: str) -> Optional[Dict[str, Any]]:
-        texto = re.sub(r"<think>.*?</think>", "", texto_crudo, flags=re.DOTALL | re.IGNORECASE)
-        texto_rescatado = cls._extraer_valor_string(texto, "texto_a_comunicar")
-        if not texto_rescatado:
-            return None
-
+    def _parse_metadata(
+        result: StructuredParseResult[PersonaStructuredValue],
+    ) -> dict[str, Any]:
         return {
-            "accion": "hablar",
-            "parametros": {"texto_a_comunicar": texto_rescatado},
-            "pensamiento_privado": "Respuesta social recuperada de una salida parcial.",
-            "razon": "Se rescato texto comunicable de una salida incompleta.",
-            "recuperado_de_json_parcial": True,
-            "requiere_reintento": False,
+            "primary_parse_valid": result.status is StructuredParseStatus.VALID,
+            "structured_parse_status": result.status.value,
+            "structured_parse_reason_codes": tuple(code.value for code in result.reason_codes),
+            "structured_parse_normalizations": tuple(
+                item.value for item in result.normalizations
+            ),
         }
+
+    @staticmethod
+    def _log_parse_result(result: StructuredParseResult[PersonaStructuredValue]) -> None:
+        if result.status is StructuredParseStatus.VALID:
+            logger.debug(
+                "Structured parse component=persona status=%s raw_length=%d",
+                result.status.value,
+                result.raw_length,
+            )
+            return
+        logger.warning(
+            "Structured parse component=persona status=%s issue_codes=%s raw_length=%d",
+            result.status.value,
+            ",".join(code.value for code in result.reason_codes),
+            result.raw_length,
+        )
 
     @staticmethod
     def _extraer_valor_string(texto: str, clave: str) -> Optional[str]:
@@ -370,6 +543,7 @@ class PersonaEngine:
         *,
         error: str = "fallo_llm",
         requiere_reintento: bool = False,
+        parse_metadata: Optional[dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Rescate cuando el LLM falla por completo."""
         logger.info("Activando fallback de seguridad en Capa 2.")
@@ -380,4 +554,5 @@ class PersonaEngine:
             "razon": "Error interno.",
             "error": error,
             "requiere_reintento": requiere_reintento,
+            **(parse_metadata or {}),
         }
