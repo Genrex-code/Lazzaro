@@ -4,11 +4,24 @@ Estructuras auditables para resolucion de objetivos de Capa 1.
 
 from __future__ import annotations
 
+from collections.abc import Iterator, Mapping
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 
 ResolutionStatus = Literal["ready", "requires_clarification", "not_found", "not_allowed", "unsafe"]
+MotorDiagnosisStatus = Literal[
+    "sin_intencion",
+    "no_permitida",
+    "falta_objetivo",
+    "ambigua",
+    "lista",
+    "requires_clarification",
+    "not_found",
+    "not_allowed",
+    "unsafe",
+]
 
 
 @dataclass(slots=True)
@@ -103,3 +116,91 @@ class MotorResolution:
             },
             "motor_audit": dict(self.audit),
         }
+
+
+@dataclass(frozen=True, slots=True)
+class MotorDiagnosis(Mapping[str, Any]):
+    """Resultado tipado que transporta una unica resolucion hasta MotorAction.
+
+    Implementa la interfaz de mapping usada por consumidores legacy, pero la
+    ruta productiva conserva ``resolucion_motor`` como autoridad tipada en vez
+    de reconstruirla desde metadata o texto.
+    """
+
+    estado: MotorDiagnosisStatus
+    accion: str | None = None
+    parametros: dict[str, Any] | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    resolucion_motor: MotorResolution | None = None
+
+    def __post_init__(self) -> None:
+        valid_states = {
+            "sin_intencion",
+            "no_permitida",
+            "falta_objetivo",
+            "ambigua",
+            "lista",
+            "requires_clarification",
+            "not_found",
+            "not_allowed",
+            "unsafe",
+        }
+        if self.estado not in valid_states:
+            raise ValueError("unknown motor diagnosis state")
+        if self.parametros is not None and not isinstance(self.parametros, dict):
+            raise TypeError("motor diagnosis parameters must be a dict or None")
+        if not isinstance(self.metadata, dict):
+            raise TypeError("motor diagnosis metadata must be a dict")
+
+        object.__setattr__(
+            self,
+            "parametros",
+            deepcopy(self.parametros) if self.parametros is not None else None,
+        )
+        object.__setattr__(self, "metadata", deepcopy(self.metadata))
+
+        if self.estado == "lista":
+            if not str(self.accion or "").strip() or self.parametros is None:
+                raise ValueError("ready motor diagnosis requires action and parameters")
+        elif self.parametros is not None:
+            raise ValueError("non-ready motor diagnosis cannot materialize parameters")
+
+        resolucion = self.resolucion_motor
+        if resolucion is None:
+            return
+        expected_state = "lista" if resolucion.ready else resolucion.status
+        if self.estado != expected_state:
+            raise ValueError("motor resolution contradicts diagnosis state")
+        if resolucion.action and resolucion.action != self.accion:
+            raise ValueError("motor resolution contradicts diagnosis action")
+        canonical_metadata = resolucion.to_metadata()
+        if any(
+            self.metadata.get(key) != value
+            for key, value in canonical_metadata.items()
+        ):
+            raise ValueError("motor diagnosis metadata contradicts typed resolution")
+
+    @property
+    def ready(self) -> bool:
+        return self.estado == "lista"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "estado": self.estado,
+            "accion": self.accion,
+            "parametros": deepcopy(self.parametros),
+        }
+        if self.metadata:
+            payload["metadata"] = deepcopy(self.metadata)
+        if self.resolucion_motor is not None and not self.resolucion_motor.ready:
+            payload["resolucion_motor"] = self.resolucion_motor.to_dict()
+        return payload
+
+    def __getitem__(self, key: str) -> Any:
+        return self.to_dict()[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.to_dict())
+
+    def __len__(self) -> int:
+        return len(self.to_dict())

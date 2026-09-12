@@ -127,9 +127,12 @@ Archivo fuente: `api/schemas.py`
 | `decision` | `Optional[DecisionPublica]` | Recibo semantico aditivo e independiente de `accion`: solo `version`, `disposition` y `reason_code`. |
 | `timestamp_servidor` | `datetime` | Hora de respuesta del servidor. |
 
-`accion=null` no significa por si solo que no ocurrio nada. `decision` distingue
-`no_action`, `blocked`, `invalid` y `error` sin mezclar ese estado con el
-lifecycle de ejecucion. Los errores HTTP siguen usando `PublicErrorEnvelope v1`.
+`accion=null` no significa por si solo que no ocurrio nada. En el success path,
+`decision` distingue `no_action` y `blocked` sin mezclar ese estado con el
+lifecycle de ejecucion; tambien representa `action` y `clarification`.
+`invalid` y `error` son valores internos reservados en el enum publico, pero el
+runtime actual corta esos turnos antes de crear `AccionSaliente`: la frontera
+HTTP sigue usando `PublicErrorEnvelope v1` conforme ROOT-007/ROOT-010.
 
 ### AccionSaliente
 

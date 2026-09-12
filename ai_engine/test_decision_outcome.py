@@ -20,13 +20,15 @@ from ai_engine.decision_outcome import (
     DecisionReasonCode,
     MotorOutcomeStatus,
 )
+from ai_engine.motor_engine import MotorEngine
+from ai_engine.motor_resolution import CandidateMatch, MotorResolution
 from ai_engine.persona_engine import PersonaEngine
 from ai_engine.response_parser import ResponseParser
 from ai_engine.schemas import ActionResponse, OracleResult
 from ai_engine.structured_parse_types import StructuredParseStatus
 from api.errors import install_public_error_handlers
 from api.routes import router
-from api.schemas import AccionSaliente, PublicErrorEnvelope, RespuestaAPI
+from api.schemas import AccionSaliente, DecisionPublica, PublicErrorEnvelope, RespuestaAPI
 from core.orchestrator import Orchestrator
 
 
@@ -511,13 +513,10 @@ def test_42_api_distinguishes_blocked_none() -> None:
         (DecisionDisposition.INVALID, DecisionQuality.REJECTED, DecisionReasonCode.PARSE_ERROR),
         (DecisionDisposition.ERROR, DecisionQuality.FAILED, DecisionReasonCode.PIPELINE_ERROR),
     ):
-        actionless = AccionSaliente(
-            id_accion=disposition.value,
-            nombre="none",
-        ).attach_decision_outcome(_outcome(disposition, quality, reason))
-        actionless_body = _post(actionless)
-        assert actionless_body["accion"] is None
-        assert actionless_body["decision"] == {
+        reserved_projection = DecisionPublica.from_outcome(
+            _outcome(disposition, quality, reason)
+        ).model_dump(mode="json")
+        assert reserved_projection == {
             "version": 1,
             "disposition": disposition.value,
             "reason_code": reason.value,
@@ -674,6 +673,92 @@ def test_60_decision_outcome_is_single_authority() -> None:
     body = _post(action)
     assert body["decision"]["disposition"] == "blocked"
     assert set(PublicErrorEnvelope.model_fields) == {"version", "status", "error"}
+
+
+def test_61_motor_diagnosis_resolves_each_target_exactly_once() -> None:
+    perception = {
+        "snapshot_id": "root-008-single-resolution",
+        "source": "unity",
+        "objetos_normalizados": [
+            {
+                "id": "Cube_01",
+                "display_name": "Cube_01",
+                "nombre": "Cube_01",
+                "aliases": ["cubo"],
+                "affordances": ["navegar"],
+                "distance": 2.0,
+            }
+        ],
+    }
+
+    def resolution(status: str, target: str) -> MotorResolution:
+        candidate = CandidateMatch(
+            target_id=target,
+            display_name=target,
+            legacy_nombre_objeto=target,
+            confidence=99.0,
+            affordance_decision={"allowed": status not in {"not_allowed", "unsafe"}},
+        )
+        return MotorResolution(
+            status=status,  # type: ignore[arg-type]
+            action="navegar_a_objeto",
+            target_id=target if status != "not_found" else None,
+            target_display_name=target if status != "not_found" else None,
+            legacy_nombre_objeto=target if status != "not_found" else None,
+            confidence=99.0 if status != "not_found" else 0.0,
+            candidates=[candidate] if status != "not_found" else [],
+            reason=f"fixture {status}",
+            audit={"status_reason": f"fixture_{status}"},
+        )
+
+    class ReasoningForbidden:
+        def process(self, **kwargs):
+            del kwargs
+            raise AssertionError("a typed Motor diagnosis must not be reinterpreted")
+
+    for status in (
+        "ready",
+        "requires_clarification",
+        "not_found",
+        "not_allowed",
+        "unsafe",
+    ):
+        calls = {"count": 0}
+        motor = MotorEngine()
+
+        def changing_resolver(**kwargs):
+            del kwargs
+            calls["count"] += 1
+            return resolution(status, "Cube_01" if calls["count"] == 1 else "Cube_02")
+
+        motor._resolver_objetivo_fuzzy = changing_resolver  # type: ignore[method-assign]
+        orchestrator = object.__new__(Orchestrator)
+        orchestrator.motor_engine = motor
+        orchestrator.reasoning = ReasoningForbidden()
+        event = _event("unity")
+        event.detalles["mensaje"] = "ve al cubo"
+        event.detalles.update(perception)
+
+        response = orchestrator._resolver_ruta_motor(
+            evento=event,
+            contexto_llm={},
+            memoria_texto="",
+            herramientas=["navegar_a_objeto"],
+            herramientas_detalle={},
+            politica="exploradora",
+            tarea=None,
+            triage_decision={"intent": "MOTOR_SIMPLE", "route": "motor"},
+        )
+
+        assert calls["count"] == 1, f"{status} resolved the target more than once"
+        assert response.metadata["motor_resolution"]["status"] == status
+        if status == "ready":
+            assert response.accion == "navegar_a_objeto"
+            assert response.parametros["nombre_objeto"] == "Cube_01"
+            assert response.metadata["motor_resolution"]["target_id"] == "Cube_01"
+            assert "Cube_02" not in json.dumps(response.model_dump(mode="json"))
+        else:
+            assert response.accion not in MotorEngine.ACCIONES_CON_OBJETO
 
 
 def main() -> None:

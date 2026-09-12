@@ -2,9 +2,9 @@
 
 ## 1. Estado
 
-`CLOSED_CODE / FIELD_PENDING`. La implementacion, tests offline, documentacion y
-regresion de codigo quedan cerrados. No se ejecuto Unity Play Mode ni prueba de
-campo real.
+`IMPLEMENTED / REVIEW_PENDING / FIELD_PENDING`. El blocker de doble resolucion
+Motor fue corregido y queda pendiente la aprobacion humana de este patch. No se
+ejecuto Unity Play Mode ni prueba de campo real.
 
 ## 2. Tickets y dependencia
 
@@ -99,6 +99,25 @@ ROOT-018.
 Un `none` pasivo conserva `no_action/passive_no_action`; ya no se confunde con
 un bloqueo inseguro. `estado_ejecucion` permanece como state machine independiente.
 
+### 9.1 Una sola autoridad de target
+
+`diagnosticar_comando_usuario()` devuelve un `MotorDiagnosis` tipado y frozen.
+Para una percepcion moderna conserva la misma `MotorResolution`, parametros y
+metadata que eligieron el target. La ruta READY usa
+`procesar_diagnostico_motor()`: revalida coherencia accion/target, la
+postcondicion de affordance ya calculada y el schema fisico/numerico, pero no
+vuelve a llamar `_resolver_objetivo_fuzzy()`.
+
+`procesar_comando_motor()` permanece disponible para decisiones directas o del
+LLM que aun no poseen diagnostico; esas entradas realizan su unica resolucion
+normal. No existe un bool `skip_validation` ni una inferencia desde texto.
+
+La prueba permanente `test_61_motor_diagnosis_resolves_each_target_exactly_once`
+usa un resolver cuyo segundo llamado cambiaria `Cube_01` por `Cube_02`. Para
+`ready`, `requires_clarification`, `not_found`, `not_allowed` y `unsafe`, el
+contador observado es `1`; el `ActionResponse` READY conserva exclusivamente
+`Cube_01`.
+
 ## 10. Proyeccion publica aprobada
 
 `RespuestaAPI` agrega `decision`, independiente de `accion`, con exactamente:
@@ -112,9 +131,13 @@ un bloqueo inseguro. `estado_ejecucion` permanece como state machine independien
 ```
 
 No expone quality, attempt, layer, retry, parse status, Motor status ni
-provenance detallada. Para `no_action`, `blocked`, `invalid` y `error`,
-`accion` puede seguir siendo `null`; `decision` conserva la diferencia. El
-schema anidado de `AccionSaliente` no contiene `decision_outcome`.
+provenance detallada. El success path productivo emite `action`, `no_action`,
+`clarification` o `blocked`; `accion` puede ser `null` para `no_action` o
+`blocked` sin perder la diferencia semantica. `invalid` y `error` permanecen estados
+internos; estan reservados en el enum/OpenAPI, pero un fallo actual del turno
+conserva la semantica HTTP de ROOT-007 y responde `PublicErrorEnvelope v1`. No
+se convierte un failure HTTP en success para publicar `decision`. El schema
+anidado de `AccionSaliente` no contiene `decision_outcome`.
 
 ## 11. Replay y compatibilidad
 
@@ -140,21 +163,22 @@ materializacion.
 
 ## 14. Pruebas de codigo
 
-`ai_engine.test_decision_outcome` aporta 60 pruebas deterministas que cubren los
-60 casos de diseño: Persona, grounding, Oracle verbalization, AI contract, cinco
-estados Motor, parser general, invariantes, privacidad, wire y autoridad unica.
+`ai_engine.test_decision_outcome` aporta 61 pruebas deterministas que cubren los
+60 casos de diseño y el blocker de review: Persona, grounding, Oracle
+verbalization, AI contract, cinco estados Motor, parser general, invariantes,
+privacidad, wire, autoridad unica y contador de resolucion.
 Usa fakes; no abre red, no consulta modelos reales y no toca Chroma activo.
 
 Resultado de cierre:
 
-- ROOT-008: `60/60 PASS`;
+- ROOT-008: `61/61 PASS`;
 - ROOT-020: `55/55 PASS`;
 - ROOT-013: `66/66 PASS`;
 - ROOT-039: `41/41 PASS`;
 - ROOT-009: API `15/15 PASS` y Unity static `10/10 PASS`;
 - ROOT-010: API `18/18 PASS` y Unity static `8/8 PASS`;
 - regresion global, que incluye ROOT-015, ROOT-014, ROOT-001, ROOT-004 y
-  ROOT-007: `715/715 PASS`, `0 XFAIL`, `0 unexpected`, `0 import failures`;
+  ROOT-007: `716/716 PASS`, `0 XFAIL`, `0 unexpected`, `0 import failures`;
 - `compileall` y `git diff --check`: `PASS`;
 - aislamiento: `PASS`; los hashes de los tres archivos Chroma activos
   permanecieron intactos.

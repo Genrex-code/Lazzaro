@@ -17,7 +17,7 @@ from core.logger import get_logger
 
 from .fuzzy_object_resolver import FuzzyObjectResolver
 from .motor_schemas import ACTION_SCHEMA_MAP, MotorAction, validar_parametros_fisicos
-from .motor_resolution import MotorResolution
+from .motor_resolution import MotorDiagnosis, MotorResolution
 from .perception_models import PerceptionSnapshot, normalize_perception
 from .spatial_reasoner import SpatialReasoner
 
@@ -65,14 +65,10 @@ class MotorEngine:
             percepcion=percepcion,
             herramientas_disponibles=herramientas_disponibles,
         )
-        if diagnostico["estado"] != "lista":
+        if not diagnostico.ready:
             return None
 
-        return self.procesar_comando_motor(
-            str(diagnostico["accion"]),
-            diagnostico["parametros"],
-            percepcion,
-        )
+        return self.procesar_diagnostico_motor(diagnostico)
 
     def diagnosticar_comando_usuario(
         self,
@@ -81,19 +77,19 @@ class MotorEngine:
         herramientas_disponibles: Iterable[str] | None = None,
         intent: str = "MOTOR_SIMPLE",
         contexto_motor: dict[str, Any] | None = None,
-    ) -> Dict[str, Any]:
+    ) -> MotorDiagnosis:
         """
         Clasifica un comando motor sin llamar al LLM.
         Permite distinguir entre "no es motor" y "es motor, pero falta objetivo".
         """
         accion = self._inferir_accion(mensaje)
         if accion is None:
-            return {"estado": "sin_intencion", "accion": None, "parametros": None}
+            return MotorDiagnosis(estado="sin_intencion")
 
         permitidas = set(herramientas_disponibles or self.ACCIONES_MOTORAS)
         if accion not in permitidas:
             logger.info("Motor determinista omitido: %s no esta permitida.", accion)
-            return {"estado": "no_permitida", "accion": accion, "parametros": None}
+            return MotorDiagnosis(estado="no_permitida", accion=accion)
 
         if accion in self.ACCIONES_CON_OBJETO:
             return self._diagnosticar_accion_con_objeto(
@@ -106,9 +102,13 @@ class MotorEngine:
 
         parametros = self._construir_parametros_desde_texto(accion, mensaje, percepcion)
         if parametros is None:
-            return {"estado": "ambigua", "accion": accion, "parametros": None}
+            return MotorDiagnosis(estado="ambigua", accion=accion)
 
-        return {"estado": "lista", "accion": accion, "parametros": parametros}
+        return MotorDiagnosis(
+            estado="lista",
+            accion=accion,
+            parametros=parametros,
+        )
 
     def procesar_comando_motor(
         self,
@@ -148,11 +148,95 @@ class MotorEngine:
                 metadata=metadata,
             )
 
+        return self._materializar_accion_motor(
+            accion,
+            parametros_limpios,
+            metadata,
+        )
+
+    def procesar_diagnostico_motor(
+        self,
+        diagnostico: MotorDiagnosis,
+    ) -> Dict[str, Any]:
+        """Materializa un diagnostico sin volver a seleccionar su objetivo."""
+        if not isinstance(diagnostico, MotorDiagnosis):
+            raise TypeError("diagnostico must be MotorDiagnosis")
+
+        metadata = dict(diagnostico.metadata)
+        if not diagnostico.ready:
+            return self._none(
+                f"Diagnostico motor '{diagnostico.estado}' no es ejecutable.",
+                metadata=metadata,
+            )
+
+        accion = str(diagnostico.accion or "").strip()
+        parametros = dict(diagnostico.parametros or {})
+        if accion not in ACTION_SCHEMA_MAP:
+            return self._none("Diagnostico motor con accion desconocida.", metadata=metadata)
+
+        resolucion = diagnostico.resolucion_motor
+        if resolucion is not None:
+            if not self._postcondiciones_resolucion_preservadas(
+                accion,
+                parametros,
+                resolucion,
+            ):
+                return self._none(
+                    "Diagnostico motor inconsistente. Accion bloqueada por Capa 1.",
+                    metadata=metadata,
+                )
+
+        return self._materializar_accion_motor(accion, parametros, metadata)
+
+    @staticmethod
+    def _postcondiciones_resolucion_preservadas(
+        accion: str,
+        parametros: Dict[str, Any],
+        resolucion: MotorResolution,
+    ) -> bool:
+        """Revalida coherencia/affordance sin ejecutar otra resolucion de target."""
+        if not resolucion.ready or (resolucion.action and resolucion.action != accion):
+            return False
+
+        if accion in MotorEngine.ACCIONES_CON_OBJETO:
+            target = (
+                resolucion.legacy_nombre_objeto
+                or resolucion.target_display_name
+                or resolucion.target_id
+                or ""
+            )
+            if not target or str(parametros.get("nombre_objeto", "")).strip() != target:
+                return False
+
+            selected = next(
+                (
+                    candidate
+                    for candidate in resolucion.candidates
+                    if candidate.target_id == resolucion.target_id
+                ),
+                None,
+            )
+            if selected is not None and selected.affordance_decision.get("allowed") is False:
+                return False
+
+        return True
+
+    @staticmethod
+    def _materializar_accion_motor(
+        accion: str,
+        parametros: Dict[str, Any],
+        metadata: dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Aplica schema/numeric contract y crea MotorAction, sin resolver targets."""
+
         try:
-            parametros_validados = validar_parametros_fisicos(accion, parametros_limpios)
+            parametros_validados = validar_parametros_fisicos(accion, parametros)
         except ValidationError as e:
             logger.warning("Parametros invalidos para '%s': %s", accion, e.errors())
-            return self._none("Parametros invalidos. Accion bloqueada por Capa 1.", metadata=metadata)
+            return MotorEngine._none(
+                "Parametros invalidos. Accion bloqueada por Capa 1.",
+                metadata=metadata,
+            )
 
         motor_action = MotorAction(
             accion=accion,
@@ -243,7 +327,7 @@ class MotorEngine:
         percepcion: Dict[str, Any],
         intent: str,
         contexto_motor: dict[str, Any],
-    ) -> Dict[str, Any]:
+    ) -> MotorDiagnosis:
         resolucion = self._resolver_objetivo_fuzzy(
             query=mensaje,
             accion=accion,
@@ -256,27 +340,31 @@ class MotorEngine:
             self._adjuntar_contexto_alias(metadata, contexto_motor, accion)
             if resolucion.status == "ready":
                 parametros = self._parametros_desde_resolucion(accion, mensaje, resolucion)
-                return {
-                    "estado": "lista",
-                    "accion": accion,
-                    "parametros": parametros,
-                    "metadata": metadata,
-                }
+                return MotorDiagnosis(
+                    estado="lista",
+                    accion=accion,
+                    parametros=parametros,
+                    metadata=metadata,
+                    resolucion_motor=resolucion,
+                )
 
-            return {
-                "estado": resolucion.status,
-                "accion": accion,
-                "parametros": None,
-                "metadata": metadata,
-                "resolucion_motor": resolucion.to_dict(),
-            }
+            return MotorDiagnosis(
+                estado=resolucion.status,
+                accion=accion,
+                metadata=metadata,
+                resolucion_motor=resolucion,
+            )
 
         parametros = self._construir_parametros_legacy_con_objeto(accion, mensaje, percepcion)
         if parametros is None:
             logger.info("Motor determinista no encontro objeto objetivo en: %s", mensaje)
-            return {"estado": "falta_objetivo", "accion": accion, "parametros": None}
+            return MotorDiagnosis(estado="falta_objetivo", accion=accion)
 
-        return {"estado": "lista", "accion": accion, "parametros": parametros, "metadata": {}}
+        return MotorDiagnosis(
+            estado="lista",
+            accion=accion,
+            parametros=parametros,
+        )
 
     def _construir_parametros_legacy_con_objeto(
         self,

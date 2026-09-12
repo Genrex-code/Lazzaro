@@ -2655,12 +2655,8 @@ class Orchestrator:
             contexto_motor=contexto_motor,
         )
         if diagnostico_motor["estado"] == "lista":
-            accion_motora = self.motor_engine.procesar_comando_motor(
-                str(diagnostico_motor["accion"]),
-                diagnostico_motor["parametros"],
-                percepcion=percepcion,
-                intent=intent,
-                contexto_motor=contexto_motor,
+            accion_motora = self.motor_engine.procesar_diagnostico_motor(
+                diagnostico_motor
             )
             return self._action_response_desde_motor(
                 accion_motora,
