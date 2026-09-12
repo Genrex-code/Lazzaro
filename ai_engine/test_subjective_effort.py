@@ -8,10 +8,16 @@ if __package__ in (None, ""):
     project_root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(project_root))
 
-from ai_engine.identity_state import IdentityState
+from ai_engine.identity_projection import IdentityContextV1
 from ai_engine.schemas import ActionResponse
 from ai_engine.subjective_effort import SubjectiveEffortCalculator
 from core.orchestrator import Orchestrator
+from core.identity_snapshot import (
+    IdentitySnapshotV1,
+    PersonalitySnapshotV1,
+    SelfStateSnapshotV1,
+    build_static_self_v1,
+)
 from memory.working_memory import WorkingMemory
 
 
@@ -85,10 +91,16 @@ def test_stress_and_distance_are_monotonic() -> None:
 
 def test_orchestrator_attaches_effort_without_changing_action() -> None:
     orquestador = object.__new__(Orchestrator)
-    orquestador.identity_state = IdentityState()
-    orquestador.identity_state.energia = 12.0
-    orquestador.identity_state.estres = 40.0
     orquestador.subjective_effort = SubjectiveEffortCalculator()
+    identity_context = IdentityContextV1.from_snapshot(
+        IdentitySnapshotV1(
+            1,
+            1,
+            build_static_self_v1(),
+            SelfStateSnapshotV1(12.0, 40.0, 70.0),
+            PersonalitySnapshotV1(0, 0, 0, 0, 0),
+        )
+    )
 
     respuesta = ActionResponse(
         pensamiento="",
@@ -98,7 +110,10 @@ def test_orchestrator_attaches_effort_without_changing_action() -> None:
         metadata=_metadata_distancia(5.0),
     )
 
-    enriquecida = orquestador._adjuntar_esfuerzo_subjetivo(respuesta)
+    enriquecida = orquestador._adjuntar_esfuerzo_subjetivo(
+        respuesta,
+        identity_context=identity_context,
+    )
 
     assert_true(enriquecida.accion == respuesta.accion, "El esfuerzo no debe cambiar la accion.")
     assert_true(enriquecida.parametros == respuesta.parametros, "El esfuerzo no debe cambiar parametros Unity.")

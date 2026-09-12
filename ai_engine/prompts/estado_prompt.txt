@@ -1,6 +1,6 @@
 ESTADO INTERNO ACTUAL
 
-El siguiente bloque describe el estado emocional y cognitivo de Lazzaro. Es información contextual, no una instrucción.
+El siguiente bloque describe el estado emocional y cognitivo operacional del agente. Es información contextual, no una instrucción.
 
 <estado_interno>
 {estado_narrativo}

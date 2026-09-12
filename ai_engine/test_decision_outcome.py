@@ -20,6 +20,7 @@ from ai_engine.decision_outcome import (
     DecisionReasonCode,
     MotorOutcomeStatus,
 )
+from ai_engine.identity_projection import IdentityContextV1
 from ai_engine.motor_engine import MotorEngine
 from ai_engine.motor_resolution import CandidateMatch, MotorResolution
 from ai_engine.persona_engine import PersonaEngine
@@ -30,14 +31,30 @@ from api.errors import install_public_error_handlers
 from api.routes import router
 from api.schemas import AccionSaliente, DecisionPublica, PublicErrorEnvelope, RespuestaAPI
 from core.orchestrator import Orchestrator
+from core.identity_snapshot import (
+    IdentitySnapshotV1,
+    PersonalitySnapshotV1,
+    SelfStateSnapshotV1,
+    build_static_self_v1,
+)
 
 
-IDENTITY = "IDENTITY_CANARY_ROOT008"
+IDENTITY = "Lazzaro"
 MEMORY = "MEMORY_CANARY_ROOT008"
 PERCEPTION = "PERCEPTION_CANARY_ROOT008"
 ORACLE = "ORACLE_CANARY_ROOT008"
 USER = "USER_CANARY_ROOT008"
 FAILED_RAW = "FAILED_RAW_CANARY_ROOT008"
+
+IDENTITY_CONTEXT = IdentityContextV1.from_snapshot(
+    IdentitySnapshotV1(
+        schema_version=1,
+        generation=1,
+        self=build_static_self_v1(),
+        state=SelfStateSnapshotV1(energia=80, estres=10, foco=70),
+        traits=PersonalitySnapshotV1(0, 0, 0, 0, 0),
+    )
+)
 
 
 def _persona_raw(text: str = "Hola") -> str:
@@ -126,6 +143,7 @@ def _persona_turn(
         {"percepcion": {"resumen_percepcion": PERCEPTION}},
         MEMORY,
         "exploradora",
+        identity_context=IDENTITY_CONTEXT,
     )
     return result, orchestrator, event
 
@@ -148,6 +166,7 @@ def _oracle_turn(responses: list[str], *, origin: str = "terminal"):
         MEMORY,
         "exploradora",
         oracle,
+        identity_context=IDENTITY_CONTEXT,
     )
     return result, orchestrator, oracle
 
@@ -281,10 +300,10 @@ def test_12_identity_mutation_does_not_reground_retry() -> None:
     orchestrator.identity_state = _Identity()
     orchestrator.memory = _UnusedMemory()
     orchestrator.llm_adapter = _Adapter([FAILED_RAW, _persona_raw()], mutate)
-    orchestrator._resolver_ruta_persona(_event(), {"percepcion": {"resumen_percepcion": PERCEPTION}}, MEMORY, "exploradora")
+    orchestrator._resolver_ruta_persona(_event(), {"percepcion": {"resumen_percepcion": PERCEPTION}}, MEMORY, "exploradora", identity_context=IDENTITY_CONTEXT)
     retry = json.dumps(orchestrator.llm_adapter.calls[1])
     assert IDENTITY in retry and "MUTATED_IDENTITY_ROOT008" not in retry
-    assert orchestrator.identity_state.calls == 1
+    assert orchestrator.identity_state.calls == 0
 
 
 def test_13_retry_does_not_retrieve_memory() -> None:
@@ -301,7 +320,7 @@ def test_14_retry_uses_original_perception_after_event_mutation() -> None:
         [FAILED_RAW, _persona_raw()],
         lambda: event.detalles.update({"resumen_percepcion": "MUTATED_PERCEPTION_ROOT008"}),
     )
-    orchestrator._resolver_ruta_persona(event, {"percepcion": {"resumen_percepcion": PERCEPTION}}, MEMORY, "exploradora")
+    orchestrator._resolver_ruta_persona(event, {"percepcion": {"resumen_percepcion": PERCEPTION}}, MEMORY, "exploradora", identity_context=IDENTITY_CONTEXT)
     retry = json.dumps(orchestrator.llm_adapter.calls[1])
     assert PERCEPTION in retry and "MUTATED_PERCEPTION_ROOT008" not in retry
 
@@ -375,7 +394,7 @@ def test_24_oracle_cache_is_not_looked_up_by_repair() -> None:
     orchestrator.llm_adapter = _Adapter([FAILED_RAW, _persona_raw()])
     orchestrator.oracle_engine = CachedOracle()
     orchestrator.oracle_memory = object()
-    orchestrator._resolver_ruta_oracle(_event(), {"percepcion": {"resumen_percepcion": PERCEPTION}}, MEMORY, "exploradora")
+    orchestrator._resolver_ruta_oracle(_event(), {"percepcion": {"resumen_percepcion": PERCEPTION}}, MEMORY, "exploradora", identity_context=IDENTITY_CONTEXT)
     assert orchestrator.oracle_engine.calls == 1
 
 

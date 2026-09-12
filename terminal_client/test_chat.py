@@ -19,12 +19,14 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(project_root))
 
 from ai_engine.schemas import ActionResponse
+from ai_engine.identity_projection import IdentityContextV1
 from ai_engine.identity_state import IdentityState
 from ai_engine.persona_engine import PersonaEngine
 from api.routes import router
 from api.schemas import AccionSaliente, EventoEntrante
 from core.action_ledger import TurnAbortedError, TurnProcessingError
 from core.orchestrator import Orchestrator
+from core.identity_snapshot import IdentitySnapshotProvider, build_static_self_v1
 from core.state_engine import StateEngine
 from core.tool_policy import ToolPolicy
 from memory.memory_manager import ManualConversationSaveResult
@@ -490,24 +492,70 @@ class _TrackingStateEngine(StateEngine):
 
 
 class _TrackingIdentity(IdentityState):
-    def __init__(self, state_engine: StateEngine):
-        super().__init__(state_engine=state_engine)
-        self.eventos: list[dict] = []
+    def __init__(self, behavior):
+        super().__init__(behavior)
+        self.eventos = behavior.eventos
 
     def registrar_evento(self, **kwargs) -> None:
-        self.eventos.append(dict(kwargs))
         super().registrar_evento(**kwargs)
 
 
 class _FakeBehavior:
     def __init__(self, state_engine: StateEngine | None = None):
-        self.state_engine = state_engine
+        self.state_engine = state_engine or StateEngine()
+        self.eventos: list[dict] = []
+
+    def capture_identity_components(self):
+        state = self.state_engine.obtener_estado_biologico()
+        return (
+            {key: state[key] for key in ("energia", "estres", "foco")},
+            {
+                "resiliencia": 0.0,
+                "impulsividad": 0.0,
+                "paciencia": 0.0,
+                "sociabilidad": 0.0,
+                "metodico": 0.0,
+            },
+        )
+
+    def registrar_impacto_identidad(self, **kwargs) -> None:
+        self.eventos.append(dict(kwargs))
+        intensidad = float(kwargs.get("intensidad", 1.0))
+        route = str(kwargs.get("route", ""))
+        success = kwargs.get("success")
+        if kwargs.get("es_descanso"):
+            self.state_engine.aplicar_cambios_biologicos(
+                delta_energia=40.0,
+                delta_estres=-30.0,
+                foco_absoluto=100.0,
+            )
+            return
+        delta_e = -5.0 * intensidad if route == "motor" else (-3.0 * intensidad if route == "oracle" else (-1.0 * intensidad if route == "persona" else 0.0))
+        delta_s = 2.0 * intensidad if route == "oracle" else 0.0
+        delta_f = -2.0 * intensidad if route == "motor" else (3.0 * intensidad if route == "persona" else 0.0)
+        if success is False:
+            delta_s += 15.0 * intensidad
+            delta_f -= 10.0 * intensidad
+        self.state_engine.aplicar_cambios_biologicos(
+            delta_energia=delta_e,
+            delta_estres=delta_s,
+            delta_foco=delta_f,
+        )
+
+    def iniciar_descanso_biologico(self):
+        return self.state_engine.iniciar_descanso()
+
+    def finalizar_descanso_biologico(self):
+        return self.state_engine.finalizar_descanso()
+
+    @property
+    def descansando(self):
+        return self.state_engine.descansando
 
     def procesar_evento(self, tipo_evento: str, detalles: dict) -> dict:
         estado = {}
-        if self.state_engine is not None:
-            self.state_engine.aplicar_evento(tipo_evento, contexto=detalles)
-            estado = self.state_engine.obtener_estado()
+        self.state_engine.aplicar_evento(tipo_evento, contexto=detalles)
+        estado = self.state_engine.obtener_estado()
         return {
             "estado": estado,
             "narrativa": "",
@@ -650,9 +698,10 @@ def _orquestador_aislado(
     orchestrator.tool_registry = _FakeRegistry()
     orchestrator.triage_router = _FakeTriage(route, intent=intent)
     orchestrator.tool_policy = ToolPolicy()
-    orchestrator.identity_state = (
-        _TrackingIdentity(state_engine) if state_engine is not None else _FakeIdentity()
+    orchestrator.identity_provider = IdentitySnapshotProvider(
+        build_static_self_v1(), orchestrator.behavior
     )
+    orchestrator.identity_state = _TrackingIdentity(orchestrator.behavior)
     orchestrator._transacciones_procesadas = OrderedDict()
     orchestrator._guardados_conversacionales_pendientes = OrderedDict()
     orchestrator._alias_candidates_pendientes = OrderedDict()
@@ -906,7 +955,7 @@ def test_descanso_parcial_relaja_sin_decaer_foco_ni_aplicar_fatiga_activa() -> N
 def test_identity_state_y_state_engine_comparten_reserva_biologica() -> None:
     reloj = _FakeClock()
     estado = StateEngine(clock=reloj)
-    identidad = IdentityState(state_engine=estado)
+    identidad = IdentityState(_FakeBehavior(estado))
     estado.energia = 50.0
 
     identidad.registrar_evento(route="persona", success=True)
@@ -1287,7 +1336,8 @@ def test_guardado_manual_con_palabras_de_sueno_no_arma_descanso() -> None:
 def test_terminal_no_usa_descanso_inmediato_y_unity_lo_conserva() -> None:
     orchestrator = object.__new__(Orchestrator)
     orchestrator.memory = _FakeMemory()
-    orchestrator.identity_state = _FakeIdentity()
+    orchestrator.behavior = _FakeBehavior()
+    orchestrator.identity_state = _TrackingIdentity(orchestrator.behavior)
     respuesta = ActionResponse(
         pensamiento="",
         accion="hablar",
@@ -1573,9 +1623,13 @@ def test_retries_simultaneos_comparten_una_sola_transaccion() -> None:
 def test_persona_recibe_la_restriccion_de_canal_terminal() -> None:
     evento = _evento_terminal("ve al cubo")
     restriccion = Orchestrator._restriccion_canal_persona(evento)
+    behavior = _FakeBehavior()
+    identity_context = IdentityContextV1.from_snapshot(
+        IdentitySnapshotProvider(build_static_self_v1(), behavior).capture()
+    )
     mensajes = PersonaEngine().preparar_interaccion(
         mensaje_usuario="ve al cubo",
-        estado_biologico=_FakeIdentity(),
+        identity_context=identity_context,
         restriccion_canal=restriccion,
     )
     system_prompt = mensajes[0]["content"]

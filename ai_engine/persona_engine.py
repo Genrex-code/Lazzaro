@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, StrictStr, ValidationError
 
 from core.logger import get_logger
 
-from .identity_state import IdentityState
+from .identity_projection import IdentityContextV1
 from .persona_prompt_buider import PersonaPromptBuilder
 from .schemas import OracleResult
 from .structured_parse_types import (
@@ -103,7 +103,7 @@ class PersonaEngine:
     def preparar_interaccion(
         self,
         mensaje_usuario: str,
-        estado_biologico: IdentityState,
+        identity_context: IdentityContextV1,
         percepcion: Optional[Dict[str, Any]] = None,
         recuerdos: str = "",
         restriccion_canal: str = "",
@@ -114,10 +114,8 @@ class PersonaEngine:
         percepcion = percepcion or {}
         percepcion_texto = percepcion.get("resumen_percepcion", "")
 
-        estado_inyectado = estado_biologico.inyectar_en_prompt()
-
         system_prompt = self.prompt_builder.build_system_prompt(
-            estado_inyectado=estado_inyectado,
+            identity_context=identity_context,
             percepcion_texto=percepcion_texto,
             recuerdos=recuerdos,
         ) or ""
@@ -150,7 +148,7 @@ class PersonaEngine:
     def preparar_verbalizacion_oraculo(
         self,
         mensaje_usuario: str,
-        estado_biologico: IdentityState,
+        identity_context: IdentityContextV1,
         datos_oraculo: OracleResult,
         percepcion: Optional[Dict[str, Any]] = None,
         recuerdos: str = "",
@@ -162,10 +160,8 @@ class PersonaEngine:
         """
         percepcion = percepcion or {}
         percepcion_texto = percepcion.get("resumen_percepcion", "")
-        estado_inyectado = estado_biologico.inyectar_en_prompt()
-
         system_prompt = self.prompt_builder.build_system_prompt(
-            estado_inyectado=estado_inyectado,
+            identity_context=identity_context,
             percepcion_texto=percepcion_texto,
             recuerdos=recuerdos,
         ) or ""

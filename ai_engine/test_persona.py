@@ -9,10 +9,12 @@ if __package__ in (None, ""):
     project_root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(project_root))
 
-from ai_engine.identity_state import IdentityState
+from ai_engine.identity_projection import IdentityContextV1
 from ai_engine.persona_engine import PersonaEngine
 from api.schemas import EventoEntrante
 from core.orchestrator import Orchestrator
+from core.behavior_core import BehaviorCore
+from core.identity_snapshot import IdentitySnapshotProvider, build_static_self_v1
 
 
 def assert_true(condicion: bool, mensaje: str) -> None:
@@ -24,13 +26,14 @@ def main() -> None:
     print("=== INICIANDO PRUEBA DE LA CAPA SOCIAL (FASE 3) ===\n")
 
     # 1. Instanciar y alterar el estado biologico de Lazzaro.
-    estado = IdentityState()
+    behavior = BehaviorCore()
+    estado = behavior
 
     print("[!] Simulando que Lazzaro camino mucho y fallo una tarea...")
-    estado.registrar_evento(route="motor", success=True, intensidad=9)
-    estado.registrar_evento(route="motor", success=False, intensidad=2)
+    estado.registrar_impacto_identidad(route="motor", success=True, intensidad=9)
+    estado.registrar_impacto_identidad(route="motor", success=False, intensidad=2)
 
-    estado_actual = estado.obtener_estado_completo()
+    estado_actual = estado.state_engine.obtener_estado_biologico(proyectar_descanso=False)
     print("\n=== ESTADO BIOLOGICO SIMULADO ===")
     print(json.dumps(estado_actual, indent=2, ensure_ascii=False))
 
@@ -39,6 +42,8 @@ def main() -> None:
 
     # 2. Instanciar el motor social.
     motor_social = PersonaEngine()
+    identity_provider = IdentitySnapshotProvider(build_static_self_v1(), behavior)
+    identity_context = IdentityContextV1.from_snapshot(identity_provider.capture())
 
     # 3. Falsificar una percepcion de Unity.
     percepcion_falsa = {
@@ -48,7 +53,7 @@ def main() -> None:
     # 4. Preparar la interaccion.
     mensajes = motor_social.preparar_interaccion(
         mensaje_usuario="hola nina, puedes ver la esfera?",
-        estado_biologico=estado,
+        identity_context=identity_context,
         percepcion=percepcion_falsa,
     )
 
@@ -136,7 +141,7 @@ Claro, aqui tienes la respuesta en formato JSON como pediste:
 
     orquestador = object.__new__(Orchestrator)
     orquestador.persona_engine = motor_social
-    orquestador.identity_state = estado
+    orquestador.identity_provider = identity_provider
     orquestador.llm_adapter = FakeLLMAdapter()
 
     evento_social = EventoEntrante(
@@ -150,6 +155,7 @@ Claro, aqui tienes la respuesta en formato JSON como pediste:
         contexto_llm={},
         memoria_texto="",
         politica="exploradora",
+        identity_context=identity_context,
     )
     assert_true(
         len(orquestador.llm_adapter.calls) == 2,

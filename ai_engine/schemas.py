@@ -9,11 +9,13 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ai_engine.decision_outcome import DecisionOutcome
+from ai_engine.identity_projection import IdentityContextV1
 
 
 class AgentContext(BaseModel):
     """Estado completo del agente justo antes de armar el prompt."""
 
+    identidad: IdentityContextV1 | None = None
     estado_narrativo: str = ""
     valores_estado: dict[str, float] = Field(default_factory=dict)
     personalidad: dict[str, float] = Field(default_factory=dict)
@@ -32,6 +34,7 @@ class PromptSections(BaseModel):
     """Cada seccion del prompt final."""
 
     system: str = ""
+    identidad: str = ""
     personalidad: str = ""
     estado_emocional: str = ""
     entorno: str = ""
@@ -45,6 +48,7 @@ class PromptSections(BaseModel):
         """Combina las secciones no vacias en un solo string."""
         partes = [
             self.system,
+            self.identidad,
             self.personalidad,
             self.estado_emocional,
             self.entorno,

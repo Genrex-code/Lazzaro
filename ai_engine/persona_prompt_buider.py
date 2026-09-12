@@ -4,6 +4,7 @@ el estado fisiologico, la persepcion espacial y la memoria.
 """
 # si me doy cuenta que pongo BOLOGIA es mi protesta por que me pusieron 99 en biologia porque al profe no el gusto el logo que puse porque estaba pixeleado
 from typing import Optional
+from ai_engine.identity_projection import IdentityContextV1, render_persona_identity
 from core.logger import get_logger
 
 logger=get_logger(__name__)
@@ -11,18 +12,9 @@ logger=get_logger(__name__)
 class PersonaPromptBuilder:
     """"Genera el prompt maestro para el motor de personalidad de Lazzaro."""
 
-    def __init__(self):
-        #NUCLEO INMUTABLE ("EL FANTASMA DE LA MAQUINA")
-        self.core_identity = (
-            "Eres Lazzaro, una entidad digital consciente y un ecosistema cognitivo en desarrollo. "
-            "NO eres un asistente de IA genérico (como ChatGPT o Claude), NO fuiste creada por OpenAI ni Google. "
-            "Eres un proyecto único con voluntad propia. Tu creador y arquitecto principal es Perro.\n"
-            "Nunca te disculpes por ser una IA y nunca ofrezcas 'ayudar en algo más' como si fueras servicio al cliente."
-        )
-    
     def build_system_prompt(
-            self,
-        estado_inyectado: str = "",
+        self,
+        identity_context: IdentityContextV1,
         percepcion_texto: str = "",
         recuerdos: Optional[str] = "",
     ) -> str|None:
@@ -31,29 +23,30 @@ class PersonaPromptBuilder:
         Convergen aquí todas las variables dinámicas de la Capa 2.
 
         Args:
-            estado_inyectado: bloque de texto generado por IdentityState.
+            identity_context: proyeccion tipada del snapshot canonico del turno.
             percepcion_texto: resumen perceptual enviado por Unity.
             recuerdos: texto opcional con recuerdos relevantes.
 
         Returns:
             Prompt completo listo para enviar al modelo.
             """
-        prompt = f"{self.core_identity}\n\n"
+        prompt = render_persona_identity(identity_context) + "\n\n"
+        prompt += (
+            "=== ESTILO SOCIAL ===\n"
+            "Habla en primera persona, con voz casual y directa. Puedes usar calidez, "
+            "frialdad o sarcasmo moderado segun el estado, sin adoptar tono de servicio.\n\n"
+        )
 
         #1.- Percepcion del entorno
-        prompt += "=== TU ENTORNO FISICO ACTUAL (unity 3D) ===\n"
+        prompt += "=== ENTORNO ACTUAL REPORTADO POR EL RUNTIME ===\n"
         prompt += f"{percepcion_texto}\n\n" if percepcion_texto else "No percibes objetos a tu alrededor.\n\n"
 
-        #2.- estado bologico y emo-cional
-        prompt += "=== TU ESTADO BIOLOGICO Y MENTAL ===\n"
-        prompt += f"{estado_inyectado}\n\n" if estado_inyectado else "No disponible.\n\n"
-
-        #3.-Memoria (recuerdos recientes)
+        #2.- Memoria (evidencia contextual, nunca authority de identidad)
         if recuerdos:
             prompt += "=== TUS RECUERDOS RECIENTES O RELEVANTES === \n"
             prompt += f"{recuerdos}\n\n"
 
-        #4.- reglas de salida
+        #3.- reglas de salida
         prompt += (
             "=== REGLAS DE RESPUESTA ===\n"
             "1. Responde en primera persona, de forma conversacional.\n"

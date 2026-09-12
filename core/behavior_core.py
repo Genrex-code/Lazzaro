@@ -135,6 +135,85 @@ class BehaviorCore:
                     self._restaurar_checkpoint_operacional_locked(checkpoint)
                     raise
 
+    def capture_identity_components(self) -> tuple[dict[str, float], dict[str, float]]:
+        """Captura estado biologico y traits bajo la frontera transversal del owner."""
+        with self._owner_lock:
+            with self.state_engine.atomic():
+                state = self.state_engine.obtener_estado_biologico()
+                traits = self.personality.obtener_rasgos()
+                return (
+                    {
+                        "energia": state["energia"],
+                        "estres": state["estres"],
+                        "foco": state["foco"],
+                    },
+                    {
+                        "resiliencia": traits["resiliencia"],
+                        "impulsividad": traits["impulsividad"],
+                        "paciencia": traits["paciencia"],
+                        "sociabilidad": traits["sociabilidad"],
+                        "metodico": traits["metodico"],
+                    },
+                )
+
+    def registrar_impacto_identidad(
+        self,
+        *,
+        route: str = "",
+        success: bool | None = None,
+        es_descanso: bool = False,
+        intensidad: float = 1.0,
+    ) -> None:
+        """Aplica el coste biologico legacy sin ceder authority fuera del owner."""
+        if success is not None and type(success) is not bool:
+            raise TypeError("success exige bool estricto o None")
+        with self._owner_lock:
+            with self.state_engine.atomic():
+                if es_descanso:
+                    self.state_engine.aplicar_cambios_biologicos(
+                        delta_energia=40.0,
+                        delta_estres=-30.0,
+                        foco_absoluto=100.0,
+                    )
+                    logger.info("[BIOLOGIA] Descanso biologico inmediato aplicado.")
+                    return
+                delta_energia = 0.0
+                delta_estres = 0.0
+                delta_foco = 0.0
+                if route == "motor":
+                    delta_energia -= 5.0 * intensidad
+                    delta_foco -= 2.0 * intensidad
+                elif route == "persona":
+                    delta_energia -= 1.0 * intensidad
+                    delta_foco += 3.0 * intensidad
+                elif route == "oracle":
+                    delta_energia -= 3.0 * intensidad
+                    delta_estres += 2.0 * intensidad
+                if success is False:
+                    delta_estres += 15.0 * intensidad
+                    delta_foco -= 10.0 * intensidad
+                    logger.info("[BIOLOGIA] Aumento de estres por fallo en tarea.")
+                self.state_engine.aplicar_cambios_biologicos(
+                    delta_energia=delta_energia,
+                    delta_estres=delta_estres,
+                    delta_foco=delta_foco,
+                )
+
+    def iniciar_descanso_biologico(self) -> bool:
+        with self._owner_lock:
+            with self.state_engine.atomic():
+                return self.state_engine.iniciar_descanso()
+
+    def finalizar_descanso_biologico(self) -> dict[str, float | bool]:
+        with self._owner_lock:
+            with self.state_engine.atomic():
+                return self.state_engine.finalizar_descanso()
+
+    @property
+    def descansando(self) -> bool:
+        with self._owner_lock:
+            return self.state_engine.descansando
+
     def _crear_checkpoint_operacional_locked(self) -> dict[str, Any]:
         """Snapshot local pequeño; no serializa prompts, modelos ni memoria externa."""
         return {
@@ -916,6 +995,3 @@ class BehaviorCore:
         if constelacion.obtener_nodo(origen) is None or constelacion.obtener_nodo(destino) is None:
             return
         constelacion.conectar(origen, destino, relacion, peso=peso)
-
-
-behavior_core = BehaviorCore()

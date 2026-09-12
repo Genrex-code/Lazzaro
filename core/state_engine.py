@@ -468,6 +468,3 @@ class StateEngine:
             if self.motivacion > 50:
                 base *= 1.05
             return round(base, 2)
-
-
-estado_actual = StateEngine()

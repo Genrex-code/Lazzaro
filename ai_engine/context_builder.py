@@ -5,6 +5,7 @@ context_builder.py - Construye el contexto estructurado que alimenta el prompt d
 from typing import Optional
 
 from ai_engine.schemas import AgentContext
+from ai_engine.identity_projection import IdentityContextV1
 from core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -25,6 +26,7 @@ class ContextBuilder:
         politica: str = "exploradora",
         tarea: Optional[dict] = None,
         proveedor: str = "ollama", 
+        identity_context: IdentityContextV1 | None = None,
     ) -> AgentContext:
         estado_narrativo = contexto_llm.get("estado_narrativo", "")
         valores = contexto_llm.get("valores", {})
@@ -50,6 +52,7 @@ class ContextBuilder:
             }
 
         agent_context = AgentContext(
+            identidad=identity_context,
             estado_narrativo=estado_narrativo,
             valores_estado=valores,
             personalidad=personalidad,

@@ -19,6 +19,7 @@ from ai_engine.llm_policies import LLMPolicyManager
 from ai_engine.prompt_builder import PromptBuilder
 from ai_engine.response_parser import ResponseParser
 from ai_engine.schemas import ActionResponse
+from ai_engine.identity_projection import IdentityContextV1
 from ai_engine.tool_router import ToolRouter
 from ai_engine.structured_parse_types import StructuredParseStatus
 from core.logger import get_logger
@@ -49,6 +50,7 @@ class ReasoningEngine:
         politica: str = "exploradora",
         tarea: Optional[dict] = None,
         audit_observation: dict[str, object] | None = None,
+        identity_context: IdentityContextV1 | None = None,
     ) -> ActionResponse:
         try:
             if herramientas is None:
@@ -82,6 +84,7 @@ class ReasoningEngine:
                 politica=politica,
                 tarea=tarea,
                 proveedor=proveedor,
+                identity_context=identity_context,
             )
 
             policy_config = self.policy_manager.ajustar_parametros(

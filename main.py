@@ -17,6 +17,7 @@ from api.errors import install_public_error_handlers
 from api.routes import router
 from config.settings import Settings
 from core.behavior_core import BehaviorCore
+from core.identity_snapshot import IdentitySnapshotProvider, build_static_self_v1
 from core.logger import get_logger
 from core.orchestrator import Orchestrator
 from core.safe_error_logging import log_safe_boundary_failure
@@ -51,6 +52,8 @@ async def lifespan(app: FastAPI):
 
         logger.info("Inicializando BehaviorCore...")
         behavior_core = BehaviorCore()
+        static_self = build_static_self_v1()
+        identity_provider = IdentitySnapshotProvider(static_self, behavior_core)
 
         logger.info("Inicializando ChromaDB en '%s'...", settings.CHROMA_DB_PATH)
         chroma_client = ChromaClient(db_path=settings.CHROMA_DB_PATH)
@@ -88,6 +91,7 @@ async def lifespan(app: FastAPI):
             memory_manager=memory_manager,
             reasoning_engine=reasoning_engine,
             tool_registry=ToolRegistry,
+            identity_provider=identity_provider,
             action_ledger_path=settings.ACTION_LEDGER_PATH,
         )
 

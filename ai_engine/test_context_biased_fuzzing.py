@@ -9,7 +9,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(project_root))
 
 from ai_engine.fuzzy_object_resolver import CONTEXT_BONUS_LIMIT, FuzzyObjectResolver
-from ai_engine.identity_state import IdentityState
+from core.identity_snapshot import SelfStateSnapshotV1
 from ai_engine.perception_models import PerceivedObject, PerceptionSnapshot, normalize_perception
 from core.orchestrator import Orchestrator
 
@@ -93,12 +93,13 @@ def test_fatigue_does_not_override_explicit_target() -> None:
 
 def test_orchestrator_builds_state_context_for_motor() -> None:
     orchestrator = object.__new__(Orchestrator)
-    identity_state = IdentityState()
-    identity_state.energia = 20.0
-    identity_state.estres = 80.0
-    orchestrator.identity_state = identity_state
+    identity_state = SelfStateSnapshotV1(energia=20.0, estres=80.0, foco=70.0)
 
-    context = orchestrator._contexto_motor_estado("camina al arbol", {"curiosidad": 90.0})
+    context = orchestrator._contexto_motor_estado(
+        "camina al arbol",
+        {"curiosidad": 90.0},
+        identity_state,
+    )
 
     assert_true(context["fatiga"] == 0.8, "Energia baja debe derivar fatiga normalizada.")
     assert_true(context["estres"] == 0.8, "Estres debe viajar normalizado.")

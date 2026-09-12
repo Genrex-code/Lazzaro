@@ -585,8 +585,8 @@ def test_42_behavior_detectors_do_not_recurse() -> None:
 
 
 def test_43_identity_none_is_neutral_relative_to_success() -> None:
-    neutral = IdentityState()
-    successful = IdentityState()
+    neutral = IdentityState(BehaviorCore())
+    successful = IdentityState(BehaviorCore())
     neutral.registrar_evento(route="motor", success=None)
     successful.registrar_evento(route="motor", success=True)
     assert_true(neutral.obtener_estado_completo() == successful.obtener_estado_completo(), "None no se transforma en failure biológico.")
@@ -659,7 +659,9 @@ def test_46_identity_changes_only_on_accepted_terminal_outcome() -> None:
     ledger = ActionLedger(":memory:")
     orchestrator.action_ledger = ledger
     calls = []
-    orchestrator.identity_state.registrar_evento = lambda *args, **kwargs: calls.append(kwargs.get("success"))
+    orchestrator.behavior.registrar_impacto_identidad = (
+        lambda *args, **kwargs: calls.append(kwargs.get("success"))
+    )
     action = orchestrator.procesar_evento(
         EventoEntrante(
             origen="unity",

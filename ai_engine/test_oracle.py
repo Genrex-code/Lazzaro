@@ -9,12 +9,13 @@ if __package__ in (None, ""):
     project_root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(project_root))
 
-from ai_engine.identity_state import IdentityState
 from ai_engine.oracle_engine import OracleEngine
 from ai_engine.persona_engine import PersonaEngine
 from ai_engine.schemas import ActionResponse, OracleResult
 from api.schemas import EventoEntrante
 from core.orchestrator import Orchestrator
+from core.behavior_core import BehaviorCore
+from core.identity_snapshot import IdentitySnapshotProvider, build_static_self_v1
 
 
 def assert_true(condicion: bool, mensaje: str) -> None:
@@ -113,7 +114,10 @@ def _orquestador_para_oracle(
     orquestador.oracle_client = oracle_client
     orquestador.llm_adapter = llm_adapter
     orquestador.persona_engine = PersonaEngine()
-    orquestador.identity_state = IdentityState()
+    behavior = BehaviorCore()
+    orquestador.identity_provider = IdentitySnapshotProvider(
+        build_static_self_v1(), behavior
+    )
     return orquestador
 
 

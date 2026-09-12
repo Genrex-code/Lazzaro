@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from ai_engine.schemas import AgentContext, PromptSections
+from ai_engine.identity_projection import render_reasoning_identity
 from core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -46,6 +47,8 @@ class PromptBuilder:
     def build(self, context: AgentContext) -> str:
         secciones = PromptSections()
         secciones.system = self._construir_system(context)
+        if context.identidad is not None:
+            secciones.identidad = render_reasoning_identity(context.identidad)
         secciones.personalidad = self._construir_personalidad(context.personalidad)
         secciones.estado_emocional = self._construir_estado_emocional(context.estado_narrativo)
         secciones.entorno = self._construir_entorno(
@@ -70,7 +73,10 @@ class PromptBuilder:
         local = self.templates.get("local_system_prompt.txt", "")
         if context.proveedor.lower() != "ollama" or not local:
             return base
-        local = local.replace("{nombre}", "Lazzaro")
+        local = local.replace(
+            "{nombre}",
+            context.identidad.canonical_name if context.identidad is not None else "el agente",
+        )
         return "\n\n".join(parte for parte in [base, local] if parte)
 
     def _construir_personalidad(self, rasgos: dict[str, float]) -> str:

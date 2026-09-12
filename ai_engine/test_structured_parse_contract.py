@@ -9,7 +9,8 @@ import logging
 from dataclasses import fields
 from unittest.mock import patch
 
-from ai_engine.identity_state import IdentityState
+from core.behavior_core import BehaviorCore
+from core.identity_snapshot import IdentitySnapshotProvider, build_static_self_v1
 from ai_engine.oracle_engine import OracleEngine
 from ai_engine.persona_engine import PersonaEngine
 from ai_engine.response_parser import ResponseParser
@@ -250,7 +251,9 @@ def test_24_persona_fallback_is_marked_as_policy_fallback() -> None:
 def test_25_persona_retry_count_remains_one() -> None:
     orchestrator = object.__new__(Orchestrator)
     orchestrator.persona_engine = PersonaEngine()
-    orchestrator.identity_state = IdentityState()
+    orchestrator.identity_provider = IdentitySnapshotProvider(
+        build_static_self_v1(), BehaviorCore()
+    )
     orchestrator.llm_adapter = _Adapter(["", _persona()])
     event = EventoEntrante(
         origen="unity",
@@ -487,7 +490,9 @@ def test_48_legacy_wrapper_parses_only_once() -> None:
 def test_49_canonical_persona_adds_no_llm_call() -> None:
     orchestrator = object.__new__(Orchestrator)
     orchestrator.persona_engine = PersonaEngine()
-    orchestrator.identity_state = IdentityState()
+    orchestrator.identity_provider = IdentitySnapshotProvider(
+        build_static_self_v1(), BehaviorCore()
+    )
     orchestrator.llm_adapter = _Adapter([_persona()])
     event = EventoEntrante(
         origen="unity",

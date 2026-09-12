@@ -134,7 +134,3 @@ class PersonalityTraits:
             "sociabilidad": round(self.sociabilidad, 4),
             "metodico": round(self.metodico, 4),
         }
-
-
-# Instancia global para ser usada por el behavior_core
-personalidad = PersonalityTraits()

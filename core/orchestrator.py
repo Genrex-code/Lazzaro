@@ -11,8 +11,8 @@ import time
 from typing import List, Optional
 import uuid
 
-from ai_engine.identity_state import IdentityState
 from ai_engine.ai_client import LLMCallAudit
+from ai_engine.identity_projection import IdentityContextV1
 from ai_engine.decision_outcome import (
     DecisionAttempt,
     DecisionDisposition,
@@ -59,6 +59,7 @@ from core.action_ledger import (
 from core.audit_trace import AuditTrace, safe_preview
 from core.audit_writer import AuditTraceJSONLWriter
 from core.logger import get_logger
+from core.identity_snapshot import IdentitySnapshotProvider
 from core.safe_error_logging import log_safe_boundary_failure
 from core.material_attestation import (
     canonical_material_attestation,
@@ -87,6 +88,7 @@ class Orchestrator:
         memory_manager,
         reasoning_engine,
         tool_registry,
+        identity_provider: IdentitySnapshotProvider,
         audit_writer: AuditTraceJSONLWriter | None = None,
         action_ledger_path: str | None = None,
     ):
@@ -98,9 +100,9 @@ class Orchestrator:
         self.tool_policy = ToolPolicy()
         self.motor_engine = MotorEngine()
         self._conectar_aliases_aprendidos()
-        self.identity_state = IdentityState(
-            state_engine=getattr(self.behavior, "state_engine", None)
-        )
+        if not isinstance(identity_provider, IdentitySnapshotProvider):
+            raise TypeError("Orchestrator exige IdentitySnapshotProvider")
+        self.identity_provider = identity_provider
         self.subjective_effort = SubjectiveEffortCalculator()
         self.persona_engine = PersonaEngine()
         self.llm_adapter = LLMGenerationAdapter(
@@ -1013,6 +1015,7 @@ class Orchestrator:
 
         decision_layer = "none"
         decision_observation: dict[str, object] = {}
+        identity_context: IdentityContextV1 | None = None
         self._iniciar_efecto_uow(
             evento.id_transaccion,
             "decision:layer",
@@ -1021,6 +1024,15 @@ class Orchestrator:
             required=True,
         )
         try:
+            if (
+                solicita_decision
+                and not solicita_guardado_conversacional
+                and not self._triage_debe_cortar_flujo(triage_decision)
+                and not self._es_resultado_hablar(evento)
+            ):
+                identity_context = IdentityContextV1.from_snapshot(
+                    self.identity_provider.capture()
+                )
             if es_interrupcion_critica:
                 action_response = self._resolver_interrupcion_critica(evento)
             elif self._usuario_pide_cancelar_tarea(evento):
@@ -1067,6 +1079,7 @@ class Orchestrator:
                     tarea=tarea,
                     estado_actual=estado_actual,
                     audit_observation=decision_observation,
+                    identity_context=identity_context,
                 )
             elif self._triage_es_persona(triage_decision):
                 decision_layer = "persona"
@@ -1076,6 +1089,7 @@ class Orchestrator:
                     memoria_texto=memoria_texto_completa,
                     politica=politica,
                     audit_observation=decision_observation,
+                    identity_context=identity_context,
                 )
             elif self._triage_es_oracle(triage_decision):
                 decision_layer = "oracle"
@@ -1085,6 +1099,7 @@ class Orchestrator:
                     memoria_texto=memoria_texto_completa,
                     politica=politica,
                     audit_observation=decision_observation,
+                    identity_context=identity_context,
                 )
             else:
                 decision_layer = "reasoning"
@@ -1096,6 +1111,7 @@ class Orchestrator:
                     politica=politica,
                     tarea=tarea,
                     audit_observation=decision_observation,
+                    identity_context=identity_context,
                 )
         except Exception as e:
             decision_observation["fallback_used"] = True
@@ -1138,7 +1154,10 @@ class Orchestrator:
                 str(decision_observation.get("decision_error_type") or "InvalidDecision"),
             )
         action_response = self._blindar_salida_terminal(evento, action_response)
-        action_response = self._adjuntar_esfuerzo_subjetivo(action_response)
+        action_response = self._adjuntar_esfuerzo_subjetivo(
+            action_response,
+            identity_context=identity_context,
+        )
         self._cerrar_efecto_uow(
             evento.id_transaccion,
             "decision:layer",
@@ -2100,6 +2119,7 @@ class Orchestrator:
         memoria_texto: str,
         politica: str,
         audit_observation: dict[str, object] | None = None,
+        identity_context: IdentityContextV1 | None = None,
     ) -> ActionResponse:
         """Usa Capa 2 para conversacion social, sin herramientas fisicas."""
         mensaje_usuario = str(evento.detalles.get("mensaje", "")).strip()
@@ -2108,7 +2128,7 @@ class Orchestrator:
         try:
             mensajes = self.persona_engine.preparar_interaccion(
                 mensaje_usuario=mensaje_usuario,
-                estado_biologico=self.identity_state,
+                identity_context=self._exigir_identity_context(identity_context),
                 percepcion=percepcion,
                 recuerdos=memoria_texto,
                 restriccion_canal=self._restriccion_canal_persona(evento),
@@ -2170,6 +2190,17 @@ class Orchestrator:
                     time.perf_counter_ns(),
                 )
             raise
+
+    def _exigir_identity_context(
+        self,
+        identity_context: IdentityContextV1 | None,
+    ) -> IdentityContextV1:
+        if isinstance(identity_context, IdentityContextV1):
+            return identity_context
+        provider = getattr(self, "identity_provider", None)
+        if not isinstance(provider, IdentitySnapshotProvider):
+            raise TypeError("La decision cognitiva exige IdentityContextV1")
+        return IdentityContextV1.from_snapshot(provider.capture())
 
     @staticmethod
     def _observar_fallback_persona(
@@ -2382,6 +2413,7 @@ class Orchestrator:
         memoria_texto: str,
         politica: str,
         audit_observation: dict[str, object] | None = None,
+        identity_context: IdentityContextV1 | None = None,
     ) -> ActionResponse:
         """Usa Capa 3 para conocimiento frio y delega la voz publica a Persona."""
         mensaje_usuario = str(evento.detalles.get("mensaje", "")).strip()
@@ -2413,6 +2445,7 @@ class Orchestrator:
                 politica=politica,
                 oracle_result=oracle_result,
                 audit_observation=audit_observation,
+                identity_context=identity_context,
             )
 
         errores: list[str] = []
@@ -2529,6 +2562,7 @@ class Orchestrator:
             politica=politica,
             oracle_result=oracle_result,
             audit_observation=audit_observation,
+            identity_context=identity_context,
         )
 
     def _verbalizar_resultado_oracle(
@@ -2539,6 +2573,7 @@ class Orchestrator:
         politica: str,
         oracle_result: OracleResult,
         audit_observation: dict[str, object] | None = None,
+        identity_context: IdentityContextV1 | None = None,
     ) -> ActionResponse:
         """Pasa conocimiento frio del Oraculo por Persona antes de responder a Unity."""
         mensaje_usuario = str(evento.detalles.get("mensaje", "")).strip()
@@ -2547,7 +2582,7 @@ class Orchestrator:
         try:
             mensajes = self.persona_engine.preparar_verbalizacion_oraculo(
                 mensaje_usuario=mensaje_usuario,
-                estado_biologico=self.identity_state,
+                identity_context=self._exigir_identity_context(identity_context),
                 datos_oraculo=oracle_result,
                 percepcion=percepcion,
                 recuerdos=memoria_texto,
@@ -2639,13 +2674,18 @@ class Orchestrator:
         triage_decision: dict | None = None,
         estado_actual: dict | None = None,
         audit_observation: dict[str, object] | None = None,
+        identity_context: IdentityContextV1 | None = None,
     ) -> ActionResponse:
         """Usa Capa 1 para resolver/validar acciones fisicas."""
         percepcion = self._extraer_percepcion_motor(evento, contexto_llm)
         mensaje = str(evento.detalles.get("mensaje", ""))
         triage_info = triage_decision if isinstance(triage_decision, dict) else {}
         intent = str(triage_info.get("intent") or "MOTOR_SIMPLE")
-        contexto_motor = self._contexto_motor_estado(mensaje, estado_actual)
+        contexto_motor = self._contexto_motor_estado(
+            mensaje,
+            estado_actual,
+            identity_context.state if identity_context is not None else None,
+        )
 
         diagnostico_motor = self.motor_engine.diagnosticar_comando_usuario(
             mensaje,
@@ -2676,6 +2716,7 @@ class Orchestrator:
                 politica=politica,
                 tarea=tarea,
                 audit_observation=audit_observation,
+                identity_context=identity_context,
             )
         except Exception as e:
             logger.error("Error en ReasoningEngine para ruta motor: %s", e, exc_info=True)
@@ -2745,19 +2786,19 @@ class Orchestrator:
                 percepcion[clave] = evento.detalles[clave]
         return percepcion
 
-    def _contexto_motor_estado(self, mensaje: str, estado_actual: dict | None = None) -> dict:
+    def _contexto_motor_estado(
+        self,
+        mensaje: str,
+        estado_actual: dict | None = None,
+        identity_state: object | None = None,
+    ) -> dict:
         contexto: dict[str, float | str | dict] = {"user_query": mensaje}
         estado: dict = dict(estado_actual) if isinstance(estado_actual, dict) else {}
-
-        identity_state = getattr(self, "identity_state", None)
-        obtener_estado = getattr(identity_state, "obtener_estado_completo", None)
-        if callable(obtener_estado):
-            try:
-                estado_identity = obtener_estado()
-                if isinstance(estado_identity, dict):
-                    estado.update({k: v for k, v in estado_identity.items() if k not in estado})
-            except Exception as e:
-                logger.debug("No se pudo leer IdentityState para contexto motor: %s", e)
+        if identity_state is not None:
+            for key in ("energia", "estres", "foco"):
+                value = getattr(identity_state, key, None)
+                if value is not None:
+                    estado[key] = value
 
         energia = self._leer_ratio_estado(estado, "energia")
         if energia is not None:
@@ -3080,13 +3121,9 @@ class Orchestrator:
             self._descanso_terminal_lock = lock
         return lock
 
-    def _obtener_state_engine_biologico(self):
-        """Devuelve la reserva biologica canonica compartida por Capa 1 y Persona."""
-        identity_state = getattr(self, "identity_state", None)
-        state_engine = getattr(identity_state, "state_engine", None)
-        if state_engine is not None:
-            return state_engine
-        return getattr(getattr(self, "behavior", None), "state_engine", None)
+    def _obtener_behavior_owner(self):
+        """Devuelve el owner canonico que serializa mutaciones biologicas."""
+        return getattr(self, "behavior", None)
 
     @classmethod
     def _es_comando_terminal(cls, evento: EventoEntrante) -> bool:
@@ -3110,8 +3147,8 @@ class Orchestrator:
             if transaction_id == str(pendiente.get("transaction_id", "")):
                 return None
 
-            state_engine = self._obtener_state_engine_biologico()
-            finalizar = getattr(state_engine, "finalizar_descanso", None)
+            state_owner = self._obtener_behavior_owner()
+            finalizar = getattr(state_owner, "finalizar_descanso_biologico", None)
             if not callable(finalizar):
                 logger.error(
                     "event=terminal_rest_wake transaction_id=%s status=error error_type=missing_state_engine",
@@ -3161,8 +3198,8 @@ class Orchestrator:
                 )
                 return None
 
-            state_engine = self._obtener_state_engine_biologico()
-            iniciar = getattr(state_engine, "iniciar_descanso", None)
+            state_owner = self._obtener_behavior_owner()
+            iniciar = getattr(state_owner, "iniciar_descanso_biologico", None)
             if not callable(iniciar):
                 logger.error(
                     "event=terminal_rest_arm transaction_id=%s status=error error_type=missing_state_engine",
@@ -3181,7 +3218,7 @@ class Orchestrator:
                 )
                 return False
 
-            if not iniciado and not bool(getattr(state_engine, "descansando", False)):
+            if not iniciado and not bool(getattr(state_owner, "descansando", False)):
                 logger.warning(
                     "event=terminal_rest_arm transaction_id=%s status=not_started",
                     transaction_id,
@@ -3206,11 +3243,9 @@ class Orchestrator:
         """Actualiza energia, estres y enfoque despues de procesar el evento."""
         try:
             route = str(triage_decision.get("route", "")).strip().lower()
-            intent = str(triage_decision.get("intent", "")).strip()
 
             if evento.tipo_evento == "alerta_dolor_fisico":
                 route = "motor"
-                intent = intent or "INTERRUPCION_CRITICA"
 
             es_descanso = self._evento_es_descanso(evento, action_response)
             if es_descanso:
@@ -3219,8 +3254,7 @@ class Orchestrator:
                 except Exception as e:
                     logger.error("Error consolidando memorias durante descanso: %s", e, exc_info=True)
 
-            self.identity_state.registrar_evento(
-                intent=intent,
+            self.behavior.registrar_impacto_identidad(
                 route=route,
                 success=execution_success,
                 es_descanso=es_descanso,
@@ -3519,7 +3553,7 @@ class Orchestrator:
             tool_result.exito is True,
             details,
         )
-        self.identity_state.registrar_evento(
+        self.behavior.registrar_impacto_identidad(
             route="motor",
             success=tool_result.exito is True,
             intensidad=0.2,
@@ -4005,7 +4039,12 @@ class Orchestrator:
             motor_status=None,
         )
 
-    def _adjuntar_esfuerzo_subjetivo(self, action_response: ActionResponse) -> ActionResponse:
+    def _adjuntar_esfuerzo_subjetivo(
+        self,
+        action_response: ActionResponse,
+        *,
+        identity_context: IdentityContextV1 | None = None,
+    ) -> ActionResponse:
         """Agrega contexto subjetivo sin afectar la validacion fisica."""
         if action_response.accion == "none":
             return action_response
@@ -4016,7 +4055,9 @@ class Orchestrator:
                 action_response.accion,
                 action_response.parametros,
                 metadata=action_response.metadata,
-                identity_state=getattr(self, "identity_state", None),
+                identity_state=(
+                    identity_context.state if identity_context is not None else None
+                ),
             )
             if effort is None:
                 return action_response
