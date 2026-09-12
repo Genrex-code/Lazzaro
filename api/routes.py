@@ -12,6 +12,7 @@ from api.errors import (
     public_error_response,
 )
 from api.schemas import (
+    DecisionPublica,
     EventoEntrante,
     RespuestaAPI,
     EstadoAgente,
@@ -70,6 +71,11 @@ async def procesar_evento(
     try:
         # Delegar al orquestador central (devuelve una AccionSaliente o None)
         accion = await run_in_threadpool(orchestrator.procesar_evento, evento)
+        decision = (
+            DecisionPublica.from_outcome(accion.decision_outcome)
+            if accion is not None
+            else None
+        )
 
         # Si no hay acción, devolvemos estado ok sin acción
         if accion is None or accion.nombre == "none":
@@ -77,7 +83,8 @@ async def procesar_evento(
                 status="ok",
                 mensaje="Evento procesado, pero el agente no requiere acción inmediata.",
                 id_transaccion=evento.id_transaccion,
-                accion = None
+                accion=None,
+                decision=decision,
             )
 
         # El status API describe el request; el estado durable vive en la acción.
@@ -93,6 +100,7 @@ async def procesar_evento(
             ),
             id_transaccion=evento.id_transaccion,
             accion=accion,
+            decision=decision,
         )
 
     except ActionLedgerError as error:

@@ -6,6 +6,14 @@ from typing import Optional
 
 from pydantic import ValidationError
 
+from ai_engine.decision_outcome import (
+    DecisionAttempt,
+    DecisionDisposition,
+    DecisionLayer,
+    DecisionOutcome,
+    DecisionQuality,
+    DecisionReasonCode,
+)
 from ai_engine.schemas import ActionResponse, LLMResponse
 from ai_engine.structured_parse_types import (
     StructuredParseIssueCode,
@@ -109,6 +117,24 @@ class ResponseParser:
                 parametros=respuesta.parametros,
                 razon=respuesta.razon,
                 valido=True,
+                outcome=DecisionOutcome(
+                    disposition=(
+                        DecisionDisposition.NO_ACTION
+                        if accion_normalizada == "none"
+                        else DecisionDisposition.ACTION
+                    ),
+                    quality=DecisionQuality.VALIDATED,
+                    attempt=DecisionAttempt.FIRST,
+                    layer=DecisionLayer.REASONING,
+                    reason_codes=(
+                        DecisionReasonCode.PASSIVE_NO_ACTION
+                        if accion_normalizada == "none"
+                        else DecisionReasonCode.PRIMARY_VALID,
+                    ),
+                    retry_count=0,
+                    primary_parse_status=StructuredParseStatus.VALID,
+                    final_parse_status=StructuredParseStatus.VALID,
+                ),
             ),
             salvage=None,
             reason_codes=(),
@@ -141,6 +167,20 @@ class ResponseParser:
                     item.value for item in result.normalizations
                 ),
             },
+            outcome=DecisionOutcome(
+                disposition=DecisionDisposition.INVALID,
+                quality=DecisionQuality.REJECTED,
+                attempt=DecisionAttempt.FIRST,
+                layer=DecisionLayer.REASONING,
+                reason_codes=(
+                    DecisionReasonCode.PARSE_DEGRADED
+                    if result.status is StructuredParseStatus.DEGRADED
+                    else DecisionReasonCode.PARSE_ERROR,
+                ),
+                retry_count=0,
+                primary_parse_status=result.status,
+                final_parse_status=result.status,
+            ),
         )
 
     @staticmethod

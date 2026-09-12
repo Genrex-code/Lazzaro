@@ -13,6 +13,15 @@ import uuid
 
 from ai_engine.identity_state import IdentityState
 from ai_engine.ai_client import LLMCallAudit
+from ai_engine.decision_outcome import (
+    DecisionAttempt,
+    DecisionDisposition,
+    DecisionLayer,
+    DecisionOutcome,
+    DecisionQuality,
+    DecisionReasonCode,
+    MotorOutcomeStatus,
+)
 from ai_engine.learned_alias_candidates import build_learned_alias_candidate
 from ai_engine.llm_generation_adapter import LLMGenerationAdapter
 from ai_engine.motor_engine import MotorEngine
@@ -1106,6 +1115,10 @@ class Orchestrator:
             )
             raise TurnProcessingError(decision_layer or "decision", type(e).__name__) from e
 
+        action_response = self._asegurar_decision_outcome(
+            action_response,
+            decision_layer=decision_layer,
+        )
         action_response = self._sanitizar_action_response(action_response)
         if self._es_error_guardado_conversacional(action_response):
             self._cerrar_efecto_uow(
@@ -1920,6 +1933,14 @@ class Orchestrator:
             parametros={},
             razon=razon or "Evento tratado como telemetria pasiva.",
             valido=True,
+            outcome=DecisionOutcome(
+                disposition=DecisionDisposition.NO_ACTION,
+                quality=DecisionQuality.VALIDATED,
+                attempt=DecisionAttempt.FIRST,
+                layer=DecisionLayer.CORE,
+                reason_codes=(DecisionReasonCode.PASSIVE_NO_ACTION,),
+                retry_count=0,
+            ),
         )
 
     def _evaluar_triage(self, evento: EventoEntrante, estado_actual: dict) -> dict:
@@ -2025,6 +2046,18 @@ class Orchestrator:
             valido=True,
             error=action_response.error,
             metadata=metadata,
+            outcome=action_response.outcome.evolve(
+                disposition=DecisionDisposition.BLOCKED,
+                reason_codes=(
+                    DecisionReasonCode.CHANNEL_BLOCKED,
+                    *tuple(
+                        code
+                        for code in action_response.outcome.reason_codes
+                        if code is not DecisionReasonCode.CHANNEL_BLOCKED
+                    ),
+                ),
+                motor_status=None,
+            ),
         )
 
     @staticmethod
@@ -2090,13 +2123,15 @@ class Orchestrator:
             )
             parse_result = self.persona_engine.parsear_resultado(raw_response)
             datos = self.persona_engine.proyectar_resultado(parse_result)
+            parse_result_final = parse_result
+            hubo_reintento = False
             self._observar_fallback_persona(datos, audit_observation)
             if datos.get("requiere_reintento"):
+                hubo_reintento = True
                 logger.info("Capa Social solicita reintento breve por salida LLM irrecuperable.")
                 mensajes_reintento = self.persona_engine.preparar_reintento_json(
-                    mensaje_usuario=mensaje_usuario,
+                    mensajes_originales=mensajes,
                     respuesta_fallida=raw_response or "",
-                    restriccion_canal=self._restriccion_canal_persona(evento),
                 )
                 raw_response_reintento = self.llm_adapter.ejecutar_texto(
                     mensajes_reintento,
@@ -2109,12 +2144,21 @@ class Orchestrator:
                 parse_result_reintento = self.persona_engine.parsear_resultado(
                     raw_response_reintento
                 )
+                parse_result_final = parse_result_reintento
                 datos_reintento = self.persona_engine.proyectar_resultado(
                     parse_result_reintento
                 )
                 self._observar_fallback_persona(datos_reintento, audit_observation)
                 datos = datos_reintento
-            return self._action_response_desde_persona(datos)
+            return self._action_response_desde_persona(
+                datos,
+                outcome=self._outcome_persona(
+                    primary_status=parse_result.status,
+                    final_status=parse_result_final.status,
+                    retried=hubo_reintento,
+                    layer=DecisionLayer.PERSONA,
+                ),
+            )
         except Exception as e:
             logger.error("Error en PersonaEngine: %s", e, exc_info=True)
             if isinstance(audit_observation, dict):
@@ -2178,7 +2222,17 @@ class Orchestrator:
             status=resultado.status,
             turn_count=resultado.turn_count,
         )
-        action_response = self._action_response_desde_persona(datos_persona)
+        action_response = self._action_response_desde_persona(
+            datos_persona,
+            outcome=DecisionOutcome(
+                disposition=DecisionDisposition.ACTION,
+                quality=DecisionQuality.VALIDATED,
+                attempt=DecisionAttempt.FIRST,
+                layer=DecisionLayer.PERSONA,
+                reason_codes=(DecisionReasonCode.PRIMARY_VALID,),
+                retry_count=0,
+            ),
+        )
         metadata = dict(action_response.metadata or {})
         metadata.update(
             {
@@ -2196,6 +2250,18 @@ class Orchestrator:
             update={
                 "metadata": metadata,
                 "error": resultado.error if resultado.status == "error" else None,
+                "outcome": (
+                    DecisionOutcome(
+                        disposition=DecisionDisposition.ERROR,
+                        quality=DecisionQuality.FAILED,
+                        attempt=DecisionAttempt.FIRST,
+                        layer=DecisionLayer.PERSONA,
+                        reason_codes=(DecisionReasonCode.PIPELINE_ERROR,),
+                        retry_count=0,
+                    )
+                    if resultado.status == "error"
+                    else action_response.outcome
+                ),
             }
         )
 
@@ -2238,7 +2304,10 @@ class Orchestrator:
         return accion_saliente
 
     @staticmethod
-    def _action_response_desde_persona(datos: dict) -> ActionResponse:
+    def _action_response_desde_persona(
+        datos: dict,
+        outcome: DecisionOutcome | None = None,
+    ) -> ActionResponse:
         if not isinstance(datos, dict):
             datos = {}
 
@@ -2268,7 +2337,42 @@ class Orchestrator:
             parametros=parametros,
             razon=str(datos.get("razon", "Respuesta social de Capa 2.")),
             valido=True,
+            error=(str(datos.get("error")) if datos.get("error") else None),
             metadata=metadata,
+            outcome=outcome or DecisionOutcome.legacy_for_action("hablar"),
+        )
+
+    @staticmethod
+    def _outcome_persona(
+        *,
+        primary_status: StructuredParseStatus,
+        final_status: StructuredParseStatus,
+        retried: bool,
+        layer: DecisionLayer,
+    ) -> DecisionOutcome:
+        if final_status is StructuredParseStatus.VALID:
+            quality = DecisionQuality.VALIDATED
+            reason = (
+                DecisionReasonCode.RETRY_REPAIRED
+                if retried
+                else DecisionReasonCode.PRIMARY_VALID
+            )
+        elif final_status is StructuredParseStatus.DEGRADED:
+            quality = DecisionQuality.SALVAGED
+            reason = DecisionReasonCode.SAFE_SALVAGE
+        else:
+            quality = DecisionQuality.DETERMINISTIC_FALLBACK
+            reason = DecisionReasonCode.DETERMINISTIC_FALLBACK
+
+        return DecisionOutcome(
+            disposition=DecisionDisposition.ACTION,
+            quality=quality,
+            attempt=DecisionAttempt.REPAIR if retried else DecisionAttempt.FIRST,
+            layer=layer,
+            reason_codes=(reason,),
+            retry_count=1 if retried else 0,
+            primary_parse_status=primary_status,
+            final_parse_status=final_status,
         )
 
     def _resolver_ruta_oracle(
@@ -2459,13 +2563,15 @@ class Orchestrator:
             )
             parse_result = self.persona_engine.parsear_resultado(raw_response)
             datos = self.persona_engine.proyectar_resultado(parse_result)
+            parse_result_final = parse_result
+            hubo_reintento = False
             self._observar_fallback_persona(datos, audit_observation)
             if datos.get("requiere_reintento"):
+                hubo_reintento = True
                 logger.info("Verbalizacion del Oraculo solicita reintento social breve.")
                 mensajes_reintento = self.persona_engine.preparar_reintento_json(
-                    mensaje_usuario=mensaje_usuario,
+                    mensajes_originales=mensajes,
                     respuesta_fallida=raw_response or "",
-                    restriccion_canal=self._restriccion_canal_persona(evento),
                 )
                 raw_response_reintento = self.llm_adapter.ejecutar_texto(
                     mensajes_reintento,
@@ -2478,12 +2584,34 @@ class Orchestrator:
                 parse_result_reintento = self.persona_engine.parsear_resultado(
                     raw_response_reintento
                 )
+                parse_result_final = parse_result_reintento
                 datos = self.persona_engine.proyectar_resultado(
                     parse_result_reintento
                 )
                 self._observar_fallback_persona(datos, audit_observation)
 
-            action_response = self._action_response_desde_persona(datos)
+            outcome = self._outcome_persona(
+                primary_status=parse_result.status,
+                final_status=parse_result_final.status,
+                retried=hubo_reintento,
+                layer=DecisionLayer.ORACLE_PERSONA,
+            )
+            if oracle_result.fuente == "error" or oracle_result.error:
+                outcome = outcome.evolve(
+                    quality=DecisionQuality.DETERMINISTIC_FALLBACK,
+                    reason_codes=(
+                        DecisionReasonCode.ORACLE_RESULT_UNAVAILABLE,
+                        *tuple(
+                            code
+                            for code in outcome.reason_codes
+                            if code is not DecisionReasonCode.ORACLE_RESULT_UNAVAILABLE
+                        ),
+                    ),
+                )
+            action_response = self._action_response_desde_persona(
+                datos,
+                outcome=outcome,
+            )
             if oracle_result.error:
                 action_response = action_response.model_copy(update={"error": oracle_result.error})
             return action_response
@@ -2570,6 +2698,14 @@ class Orchestrator:
                 razon="",
                 valido=False,
                 error=str(e),
+                outcome=DecisionOutcome(
+                    disposition=DecisionDisposition.ERROR,
+                    quality=DecisionQuality.FAILED,
+                    attempt=DecisionAttempt.FIRST,
+                    layer=DecisionLayer.MOTOR,
+                    reason_codes=(DecisionReasonCode.MOTOR_RESOLUTION_FAILED,),
+                    retry_count=0,
+                ),
             )
 
         if action_response.accion in self.motor_engine.ACCIONES_MOTORAS:
@@ -2673,7 +2809,35 @@ class Orchestrator:
             }
 
         accion = str(motor_action.get("accion", "none"))
-        valido = accion != "none"
+        metadata = motor_action.get("metadata", {}) if isinstance(motor_action.get("metadata"), dict) else {}
+        resolution = metadata.get("motor_resolution") if isinstance(metadata.get("motor_resolution"), dict) else {}
+        status = str(resolution.get("status") or "").strip()
+        known_block = status in {"requires_clarification", "not_found", "not_allowed", "unsafe"}
+        valido = accion != "none" or known_block
+        if accion != "none":
+            disposition = DecisionDisposition.ACTION
+            quality = DecisionQuality.VALIDATED
+            reason = DecisionReasonCode.MOTOR_READY
+            motor_status = MotorOutcomeStatus.READY
+        elif known_block:
+            disposition = (
+                DecisionDisposition.CLARIFICATION
+                if status == "requires_clarification"
+                else DecisionDisposition.BLOCKED
+            )
+            quality = DecisionQuality.VALIDATED
+            reason = {
+                "requires_clarification": DecisionReasonCode.MOTOR_CLARIFICATION,
+                "not_found": DecisionReasonCode.TARGET_NOT_FOUND,
+                "not_allowed": DecisionReasonCode.ACTION_NOT_ALLOWED,
+                "unsafe": DecisionReasonCode.UNSAFE_BLOCK,
+            }[status]
+            motor_status = MotorOutcomeStatus(status)
+        else:
+            disposition = DecisionDisposition.INVALID
+            quality = DecisionQuality.REJECTED
+            reason = DecisionReasonCode.INVALID_PARAMETERS
+            motor_status = None
         return ActionResponse(
             pensamiento=pensamiento,
             accion=accion,
@@ -2681,7 +2845,16 @@ class Orchestrator:
             razon=str(motor_action.get("razon", "")),
             valido=valido,
             error=None if valido else str(motor_action.get("razon", "Accion bloqueada por Capa 1.")),
-            metadata=motor_action.get("metadata", {}) if isinstance(motor_action.get("metadata"), dict) else {},
+            metadata=metadata,
+            outcome=DecisionOutcome(
+                disposition=disposition,
+                quality=quality,
+                attempt=DecisionAttempt.FIRST,
+                layer=DecisionLayer.MOTOR,
+                reason_codes=(reason,),
+                retry_count=0,
+                motor_status=motor_status,
+            ),
         )
 
     @staticmethod
@@ -2701,6 +2874,19 @@ class Orchestrator:
             parametros={"texto_a_comunicar": texto},
             razon="Capa 1 bloqueo un comando motor ambiguo para evitar alucinaciones fisicas.",
             valido=True,
+            outcome=DecisionOutcome(
+                disposition=DecisionDisposition.CLARIFICATION,
+                quality=DecisionQuality.VALIDATED,
+                attempt=DecisionAttempt.FIRST,
+                layer=DecisionLayer.MOTOR,
+                reason_codes=(
+                    DecisionReasonCode.AMBIGUOUS_TARGET
+                    if str(diagnostico_motor.get("estado")) == "ambigua"
+                    else DecisionReasonCode.MISSING_TARGET,
+                ),
+                retry_count=0,
+                motor_status=MotorOutcomeStatus.REQUIRES_CLARIFICATION,
+            ),
         )
 
     @staticmethod
@@ -2737,6 +2923,7 @@ class Orchestrator:
                     razon="Capa 1 propuso una correccion candidata sin ejecutar accion fisica.",
                     valido=True,
                     metadata=metadata,
+                    outcome=Orchestrator._outcome_resolucion_motor(estado, metadata),
                 )
 
             descripciones = [
@@ -2757,6 +2944,7 @@ class Orchestrator:
                 razon=razon,
                 valido=True,
                 metadata=metadata,
+                outcome=Orchestrator._outcome_resolucion_motor(estado, metadata),
             )
 
         if estado == "not_allowed":
@@ -2769,6 +2957,7 @@ class Orchestrator:
                 razon=razon,
                 valido=True,
                 metadata=metadata,
+                outcome=Orchestrator._outcome_resolucion_motor(estado, metadata),
             )
 
         if estado == "not_found":
@@ -2781,6 +2970,7 @@ class Orchestrator:
                 razon=razon,
                 valido=True,
                 metadata=metadata,
+                outcome=Orchestrator._outcome_resolucion_motor(estado, metadata),
             )
 
         return ActionResponse(
@@ -2788,9 +2978,57 @@ class Orchestrator:
             accion="none",
             parametros={},
             razon=f"Resolucion motora '{estado or accion}' bloqueada por seguridad.",
-            valido=False,
-            error="Accion fisica bloqueada por Capa 1.",
+            valido=True,
+            error=None,
             metadata=metadata,
+            outcome=Orchestrator._outcome_resolucion_motor(estado or "unsafe", metadata),
+        )
+
+    @staticmethod
+    def _outcome_resolucion_motor(
+        estado: str,
+        metadata: dict | None = None,
+    ) -> DecisionOutcome:
+        audit = (
+            metadata.get("motor_audit", {})
+            if isinstance(metadata, dict)
+            and isinstance(metadata.get("motor_audit"), dict)
+            else {}
+        )
+        if audit.get("status_reason") == "resolver_exception":
+            return DecisionOutcome(
+                disposition=DecisionDisposition.ERROR,
+                quality=DecisionQuality.DETERMINISTIC_FALLBACK,
+                attempt=DecisionAttempt.FIRST,
+                layer=DecisionLayer.MOTOR,
+                reason_codes=(DecisionReasonCode.MOTOR_RESOLUTION_FAILED,),
+                retry_count=0,
+            )
+        status = {
+            "requires_clarification": MotorOutcomeStatus.REQUIRES_CLARIFICATION,
+            "not_found": MotorOutcomeStatus.NOT_FOUND,
+            "not_allowed": MotorOutcomeStatus.NOT_ALLOWED,
+            "unsafe": MotorOutcomeStatus.UNSAFE,
+        }.get(estado, MotorOutcomeStatus.UNSAFE)
+        disposition = (
+            DecisionDisposition.CLARIFICATION
+            if status is MotorOutcomeStatus.REQUIRES_CLARIFICATION
+            else DecisionDisposition.BLOCKED
+        )
+        reason = {
+            MotorOutcomeStatus.REQUIRES_CLARIFICATION: DecisionReasonCode.MOTOR_CLARIFICATION,
+            MotorOutcomeStatus.NOT_FOUND: DecisionReasonCode.TARGET_NOT_FOUND,
+            MotorOutcomeStatus.NOT_ALLOWED: DecisionReasonCode.ACTION_NOT_ALLOWED,
+            MotorOutcomeStatus.UNSAFE: DecisionReasonCode.UNSAFE_BLOCK,
+        }[status]
+        return DecisionOutcome(
+            disposition=disposition,
+            quality=DecisionQuality.VALIDATED,
+            attempt=DecisionAttempt.FIRST,
+            layer=DecisionLayer.MOTOR,
+            reason_codes=(reason,),
+            retry_count=0,
+            motor_status=status,
         )
 
     @staticmethod
@@ -3417,6 +3655,7 @@ class Orchestrator:
             "requiere_confirmacion": accion.requiere_confirmacion,
             "estado_ejecucion": accion.estado_ejecucion,
             "id_transaccion_origen": accion.id_transaccion_origen,
+            "decision_outcome": accion.decision_outcome.model_dump(mode="json"),
         }
 
     def _restaurar_accion_desde_ledger(
@@ -3440,6 +3679,11 @@ class Orchestrator:
             id_transaccion_origen=(
                 str(payload.get("id_transaccion_origen") or "").strip() or None
             ),
+        )
+        accion.attach_decision_outcome(
+            DecisionOutcome.model_validate(payload["decision_outcome"])
+            if isinstance(payload.get("decision_outcome"), dict)
+            else DecisionOutcome.legacy_for_action(payload.get("nombre"))
         )
         return self._actualizar_snapshot_accion(accion)
 
@@ -3471,7 +3715,7 @@ class Orchestrator:
             requiere_confirmacion=record.requires_confirmation,
             estado_ejecucion=record.action_state.value,
             id_transaccion_origen=record.transaction_id,
-        )
+        ).attach_decision_outcome(DecisionOutcome.legacy_for_action(record.action_name))
 
     def _completar_transaccion_ledger(
         self,
@@ -3648,6 +3892,7 @@ class Orchestrator:
                 valido=False,
                 error=action_response.error or "Respuesta invalida del modelo.",
                 metadata=action_response.metadata,
+                outcome=action_response.outcome,
             )
 
         if action_response.accion in PHYSICAL_NUMERIC_ACTIONS:
@@ -3669,6 +3914,10 @@ class Orchestrator:
                     valido=False,
                     error="Parametros fisicos invalidos. Accion bloqueada.",
                     metadata=action_response.metadata,
+                    outcome=self._outcome_rechazado(
+                        action_response.outcome,
+                        DecisionReasonCode.INVALID_PARAMETERS,
+                    ),
                 )
             action_response = action_response.model_copy(
                 update={"parametros": parametros_validados}
@@ -3689,9 +3938,76 @@ class Orchestrator:
                 valido=False,
                 error=error,
                 metadata=action_response.metadata,
+                outcome=self._outcome_rechazado(
+                    action_response.outcome,
+                    DecisionReasonCode.UNKNOWN_ACTION,
+                ),
             )
 
         return action_response
+
+    @staticmethod
+    def _asegurar_decision_outcome(
+        action_response: ActionResponse,
+        *,
+        decision_layer: str,
+    ) -> ActionResponse:
+        """Clasifica constructores legacy en el boundary sin fingir provenance LLM."""
+        if action_response.outcome.quality is not DecisionQuality.LEGACY_UNKNOWN:
+            return action_response
+
+        layer = {
+            "motor": DecisionLayer.MOTOR,
+            "persona": DecisionLayer.PERSONA,
+            "oracle": DecisionLayer.ORACLE_PERSONA,
+            "reasoning": DecisionLayer.REASONING,
+        }.get(str(decision_layer or "").strip().lower(), DecisionLayer.CORE)
+        if not action_response.valido:
+            disposition = DecisionDisposition.INVALID
+            quality = DecisionQuality.REJECTED
+            reason = DecisionReasonCode.PIPELINE_ERROR
+        elif action_response.accion == "none":
+            disposition = DecisionDisposition.NO_ACTION
+            quality = DecisionQuality.VALIDATED
+            reason = DecisionReasonCode.PASSIVE_NO_ACTION
+        else:
+            disposition = DecisionDisposition.ACTION
+            quality = DecisionQuality.VALIDATED
+            reason = DecisionReasonCode.PRIMARY_VALID
+
+        return action_response.model_copy(
+            update={
+                "outcome": DecisionOutcome(
+                    disposition=disposition,
+                    quality=quality,
+                    attempt=DecisionAttempt.FIRST,
+                    layer=layer,
+                    reason_codes=(reason,),
+                    retry_count=0,
+                )
+            }
+        )
+
+    @staticmethod
+    def _outcome_rechazado(
+        previous: DecisionOutcome,
+        reason: DecisionReasonCode,
+    ) -> DecisionOutcome:
+        if previous.attempt is DecisionAttempt.LEGACY:
+            return DecisionOutcome(
+                disposition=DecisionDisposition.INVALID,
+                quality=DecisionQuality.REJECTED,
+                attempt=DecisionAttempt.FIRST,
+                layer=previous.layer,
+                reason_codes=(reason, DecisionReasonCode.LEGACY_UNTYPED),
+                retry_count=0,
+            )
+        return previous.evolve(
+            disposition=DecisionDisposition.INVALID,
+            quality=DecisionQuality.REJECTED,
+            reason_codes=(reason,),
+            motor_status=None,
+        )
 
     def _adjuntar_esfuerzo_subjetivo(self, action_response: ActionResponse) -> ActionResponse:
         """Agrega contexto subjetivo sin afectar la validacion fisica."""
@@ -3728,7 +4044,7 @@ class Orchestrator:
             nombre=action_response.accion,
             parametros=action_response.parametros,
             requiere_confirmacion=requiere_confirmacion,
-        )
+        ).attach_decision_outcome(action_response.outcome)
 
     @staticmethod
     def _leer_posicion_lazzaro(detalles: dict) -> tuple[float, float, float] | None:

@@ -9,7 +9,17 @@ from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    StrictBool,
+    field_validator,
+    model_validator,
+)
+
+from ai_engine.decision_outcome import DecisionDisposition, DecisionOutcome, DecisionReasonCode
 
 
 class EventoEntrante(BaseModel):
@@ -110,6 +120,20 @@ class ParametroHerramienta(BaseModel):
     obligatorio: bool = True
 
 
+class DecisionPublica(BaseModel):
+    """Proyeccion publica minima del outcome; no contiene provenance interna."""
+
+    version: Literal[1] = 1
+    disposition: DecisionDisposition
+    reason_code: DecisionReasonCode
+
+    model_config = ConfigDict(extra="forbid")
+
+    @classmethod
+    def from_outcome(cls, outcome: DecisionOutcome) -> "DecisionPublica":
+        return cls.model_validate(outcome.public_projection())
+
+
 class AccionSaliente(BaseModel):
     """
     Accion que el agente ha decidido ejecutar.
@@ -155,6 +179,20 @@ class AccionSaliente(BaseModel):
         default_factory=list,
         description="Metadatos opcionales que describen los parametros esperados.",
     )
+    _decision_outcome: DecisionOutcome = PrivateAttr()
+
+    def model_post_init(self, __context: Any) -> None:
+        self._decision_outcome = DecisionOutcome.legacy_for_action(self.nombre)
+
+    @property
+    def decision_outcome(self) -> DecisionOutcome:
+        return self._decision_outcome
+
+    def attach_decision_outcome(self, outcome: DecisionOutcome) -> "AccionSaliente":
+        if not isinstance(outcome, DecisionOutcome):
+            raise TypeError("outcome must be DecisionOutcome")
+        self._decision_outcome = outcome
+        return self
 
     model_config = ConfigDict(
         extra="forbid",
@@ -191,6 +229,12 @@ class RespuestaAPI(BaseModel):
         None,
         description="Accion que el agente desea ejecutar en el frontend.",
     )
+    decision: Optional[DecisionPublica] = Field(
+        None,
+        description=(
+            "Resultado semantico seguro de la decision, independiente de que accion sea null."
+        ),
+    )
     timestamp_servidor: datetime = Field(
         default_factory=datetime.utcnow,
         description="Momento en que el servidor genero la respuesta.",
@@ -202,6 +246,11 @@ class RespuestaAPI(BaseModel):
                 "status": "ok",
                 "mensaje": "Evento procesado y accion generada.",
                 "id_transaccion": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                "decision": {
+                    "version": 1,
+                    "disposition": "action",
+                    "reason_code": "primary_valid",
+                },
                 "accion": {
                     "id_accion": "550e8400-e29b-41d4-a716-446655440000",
                     "nombre": "interactuar_objeto_3d",

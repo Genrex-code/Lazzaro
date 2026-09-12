@@ -337,7 +337,7 @@ def test_13_cache_and_restart_replay_share_the_same_safe_projection() -> None:
         second.close()
 
 
-def test_14_action_ledger_payload_contains_only_operational_projection() -> None:
+def test_14_action_ledger_payload_contains_only_safe_operational_state() -> None:
     internal = _internal_action(
         action="navegar_a_objeto",
         parameters={"nombre_objeto": "Cube"},
@@ -353,8 +353,25 @@ def test_14_action_ledger_payload_contains_only_operational_projection() -> None
             "requiere_confirmacion",
             "estado_ejecucion",
             "id_transaccion_origen",
+            "decision_outcome",
         },
-        "El payload durable debe seguir siendo exclusivamente operacional.",
+        "El payload durable debe contener solo accion y outcome tipado seguro.",
+    )
+    assert_true(
+        set((durable or {})["decision_outcome"])
+        == {
+            "contract_version",
+            "disposition",
+            "quality",
+            "attempt",
+            "layer",
+            "reason_codes",
+            "retry_count",
+            "primary_parse_status",
+            "final_parse_status",
+            "motor_status",
+        },
+        "El snapshot interno no debe incorporar cognicion ni payload libre.",
     )
     _assert_public_action(durable or {})
 

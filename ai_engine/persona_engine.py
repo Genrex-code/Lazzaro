@@ -220,34 +220,31 @@ class PersonaEngine:
 
     def preparar_reintento_json(
         self,
-        mensaje_usuario: str,
+        mensajes_originales: List[Dict[str, str]],
         respuesta_fallida: str,
-        restriccion_canal: str = "",
     ) -> List[Dict[str, str]]:
-        """Construye un prompt minimo para reparar una respuesta social fallida."""
+        """Repara sin reconstruir ni volver a consultar el grounding del turno."""
         salida = self._limitar_texto(respuesta_fallida or "", 1200)
-        restriccion = (
-            f"Restriccion del canal: {restriccion_canal.strip()}\n"
-            if restriccion_canal
-            else ""
-        )
-        return [
+        grounding = [
             {
-                "role": "system",
-                "content": (
-                    "Repara la respuesta de Lazzaro. Devuelve SOLO JSON valido, sin markdown.\n"
-                    "La unica accion permitida es hablar.\n"
-                    f"{restriccion}"
-                    "Formato exacto: "
-                    '{"accion":"hablar","parametros":{"texto_a_comunicar":"..."},"pensamiento_privado":"...","razon":"..."}'
-                ),
+                "role": str(mensaje.get("role", "user")),
+                "content": str(mensaje.get("content", "")),
+            }
+            for mensaje in mensajes_originales
+            if isinstance(mensaje, dict)
+        ]
+        return grounding + [
+            {
+                "role": "assistant",
+                "content": salida,
             },
             {
                 "role": "user",
                 "content": (
-                    f"Mensaje original del usuario: {mensaje_usuario}\n"
-                    f"Salida fallida del modelo: {salida}\n"
-                    "Si no puedes recuperar la idea, responde una frase breve y natural."
+                    "La salida anterior no cumplio el contrato. Repara exclusivamente su formato "
+                    "sin perder el contexto ya proporcionado. Devuelve SOLO un objeto JSON valido, "
+                    "sin markdown; la unica accion permitida es hablar. Si no puedes recuperar la "
+                    "idea, responde una frase breve y natural dentro del formato requerido."
                 ),
             },
         ]

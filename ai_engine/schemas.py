@@ -6,7 +6,9 @@ Centraliza las estructuras que viajan entre el core, la memoria, el LLM y las he
 from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from ai_engine.decision_outcome import DecisionOutcome
 
 
 class AgentContext(BaseModel):
@@ -88,6 +90,17 @@ class ActionResponse(BaseModel):
     valido: bool = True
     error: Optional[str] = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    outcome: DecisionOutcome
+
+    @model_validator(mode="before")
+    @classmethod
+    def legacy_outcome_is_explicit(cls, value: Any) -> Any:
+        """Mantiene constructores legacy sin promoverlos a decisiones primarias."""
+        if not isinstance(value, dict) or value.get("outcome") is not None:
+            return value
+        enriched = dict(value)
+        enriched["outcome"] = DecisionOutcome.legacy_for_action(value.get("accion"))
+        return enriched
 
 
 class OracleResult(BaseModel):

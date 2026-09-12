@@ -7,11 +7,20 @@ from typing import List, Optional
 
 from ai_engine.ai_client import BaseAIClient
 from ai_engine.context_builder import ContextBuilder
+from ai_engine.decision_outcome import (
+    DecisionAttempt,
+    DecisionDisposition,
+    DecisionLayer,
+    DecisionOutcome,
+    DecisionQuality,
+    DecisionReasonCode,
+)
 from ai_engine.llm_policies import LLMPolicyManager
 from ai_engine.prompt_builder import PromptBuilder
 from ai_engine.response_parser import ResponseParser
 from ai_engine.schemas import ActionResponse
 from ai_engine.tool_router import ToolRouter
+from ai_engine.structured_parse_types import StructuredParseStatus
 from core.logger import get_logger
 from core.safe_error_logging import log_safe_boundary_failure
 
@@ -101,6 +110,16 @@ class ReasoningEngine:
                     razon="",
                     valido=False,
                     error="Respuesta vacia del modelo.",
+                    outcome=DecisionOutcome(
+                        disposition=DecisionDisposition.INVALID,
+                        quality=DecisionQuality.REJECTED,
+                        attempt=DecisionAttempt.FIRST,
+                        layer=DecisionLayer.REASONING,
+                        reason_codes=(DecisionReasonCode.PARSE_ERROR,),
+                        retry_count=0,
+                        primary_parse_status=StructuredParseStatus.ERROR,
+                        final_parse_status=StructuredParseStatus.ERROR,
+                    ),
                 )
 
             acciones_permitidas = set(herramientas_filtradas)
@@ -138,6 +157,14 @@ class ReasoningEngine:
                 razon="",
                 valido=False,
                 error=f"Error interno del motor de razonamiento: {e}",
+                outcome=DecisionOutcome(
+                    disposition=DecisionDisposition.ERROR,
+                    quality=DecisionQuality.FAILED,
+                    attempt=DecisionAttempt.FIRST,
+                    layer=DecisionLayer.REASONING,
+                    reason_codes=(DecisionReasonCode.PIPELINE_ERROR,),
+                    retry_count=0,
+                ),
             )
 
     @staticmethod

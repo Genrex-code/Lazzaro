@@ -79,7 +79,12 @@ Se adoptó `extra="forbid"` solo en `AccionSaliente`. Los constructores legitimo
 
 ## 12. Durable replay
 
-`_serializar_accion_durable()` ya almacenaba solo campos operacionales. `_restaurar_accion_desde_ledger()` y `_accion_desde_record()` dejaron de reconstruir campos cognitivos vacios. La respuesta inicial, el cache same-ID y el replay tras restart tienen las mismas claves publicas, identidad, parametros y lifecycle. No hay cambio de schema ni migracion.
+`_serializar_accion_durable()` almacenaba solo campos operacionales. ROOT-008
+agrego posteriormente un `decision_outcome` interno, finito y sin texto libre,
+para conservar la semantica segura del replay; sigue prohibido persistir
+pensamiento, razon, prompt, memoria o contenido Oracle. `_restaurar_accion_desde_ledger()`
+y `_accion_desde_record()` no reconstruyen campos cognitivos. La proyeccion wire
+de `AccionSaliente` mantiene las mismas claves publicas de ROOT-009.
 
 ## 13. Unity DTO
 

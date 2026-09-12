@@ -124,7 +124,12 @@ Archivo fuente: `api/schemas.py`
 | `mensaje` | `str` | Mensaje resumen para el cliente. |
 | `id_transaccion` | `Optional[str]` | Id de transaccion original si existe. |
 | `accion` | `Optional[AccionSaliente]` | Accion normalizada opcional para el cliente. |
+| `decision` | `Optional[DecisionPublica]` | Recibo semantico aditivo e independiente de `accion`: solo `version`, `disposition` y `reason_code`. |
 | `timestamp_servidor` | `datetime` | Hora de respuesta del servidor. |
+
+`accion=null` no significa por si solo que no ocurrio nada. `decision` distingue
+`no_action`, `blocked`, `invalid` y `error` sin mezclar ese estado con el
+lifecycle de ejecucion. Los errores HTTP siguen usando `PublicErrorEnvelope v1`.
 
 ### AccionSaliente
 
@@ -139,9 +144,9 @@ Archivo fuente: `api/schemas.py`, `unity_client/DTOs.cs` y
 | `id_accion` | `str` | Identificador unico de accion. |
 | `nombre` | `str` | Nombre de herramienta o accion: `hablar`, `none`, `navegar_a_objeto`, etc. |
 | `parametros` | `dict` / `JObject` | Payload especifico de la accion. |
-| `razonamiento` | `str` | Explicacion visible/tecnica corta. |
-| `pensamiento_privado` | `str` | Pensamiento interno para depuracion o UI privada. |
 | `requiere_confirmacion` | `bool` | Si debe pedir permiso antes de ejecutar. |
+| `estado_ejecucion` | `str` | Snapshot del lifecycle de ejecucion, separado de `decision`. |
+| `id_transaccion_origen` | `Optional[str]` | Transaccion que creo la identidad de la accion. |
 | `parametros_descripcion` | `list[ParametroHerramienta]` | Descripcion estructurada de parametros, si aplica. |
 
 ### ActionResponse
@@ -157,9 +162,24 @@ Archivo fuente: `ai_engine/schemas.py`
 | `accion` | `str` | Nombre de accion interna. |
 | `parametros` | `dict` | Parametros ya interpretados. |
 | `razon` | `str` | Razon de la decision. |
-| `valido` | `bool` | Si la accion es confiable. |
+| `valido` | `bool` | Si el payload operacional es seguro/utilizable; no implica decision primaria, parse valido ni ejecucion exitosa. |
 | `error` | `Optional[str]` | Error controlado. No debe romper el flujo. |
 | `metadata` | `dict` | Metadata interna opcional, por ejemplo auditoria motora. No debe ser voz publica. |
+| `outcome` | `DecisionOutcome` | Autoridad interna tipada sobre disposition, quality/path, capa, razones, retry, parse y estado Motor. |
+
+### DecisionOutcome v1
+
+`ai_engine/decision_outcome.py` separa dimensiones que antes se comprimian en
+`ActionResponse.valido`. `disposition` expresa `action`, `no_action`,
+`clarification`, `blocked`, `invalid` o `error`; `quality` distingue validacion,
+salvage, fallback determinista, rechazo, fallo y legado desconocido; `attempt`
+distingue primera ejecucion, repair y legado. Los productores LLM pueden adjuntar
+los dos `StructuredParseStatus`; Motor puede adjuntar uno de sus cinco estados.
+
+Las combinaciones contradictorias fallan en runtime. `DecisionOutcome` no guarda
+raw del modelo, prompt, memoria, estado privado, contenido Oracle ni texto de
+excepciones. La metadata legacy de parsing/Motor es una proyeccion compatible,
+nunca una segunda autoridad.
 
 Invariante importante: cualquier salida invalida, accion desconocida o payload
 no ejecutable debe convertirse a una accion segura, normalmente `none` o

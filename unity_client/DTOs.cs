@@ -32,6 +32,15 @@ public class RespuestaAPI
     public string id_transaccion;
     public string timestamp_servidor;
     public AccionSaliente accion;
+    public DecisionPublica decision;
+}
+
+[Serializable]
+public class DecisionPublica
+{
+    public int version;
+    public string disposition;
+    public string reason_code;
 }
 
 [Serializable]
