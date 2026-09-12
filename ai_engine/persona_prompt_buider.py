@@ -52,7 +52,8 @@ class PersonaPromptBuilder:
             "1. Responde en primera persona, de forma conversacional.\n"
             "2. Adapta la longitud de tu respuesta a tu Energía y Estrés actuales de forma natural "
             "(no menciones tus porcentajes numéricos, solo actúa en consecuencia).\n"
-            "3. Si se te pregunta por tu entorno, utiliza la información de 'TU ENTORNO FÍSICO ACTUAL'.\n"
+            "3. Si se te pregunta por tu entorno, utiliza la información de "
+            "'ENTORNO ACTUAL REPORTADO POR EL RUNTIME'.\n"
         )
 
         logger.debug("Prompt de persona construido (%d caracteres).",len(prompt))

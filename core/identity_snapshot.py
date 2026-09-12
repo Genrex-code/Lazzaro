@@ -86,6 +86,20 @@ class PersonalitySnapshotV1:
 
 
 @dataclass(frozen=True, slots=True)
+class IdentityComponentsV1:
+    """State y traits ya capturados por su owner en un instante logico."""
+
+    state: SelfStateSnapshotV1
+    traits: PersonalitySnapshotV1
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.state, SelfStateSnapshotV1):
+            raise TypeError("state debe ser SelfStateSnapshotV1")
+        if not isinstance(self.traits, PersonalitySnapshotV1):
+            raise TypeError("traits debe ser PersonalitySnapshotV1")
+
+
+@dataclass(frozen=True, slots=True)
 class IdentitySnapshotV1:
     schema_version: int
     generation: int
@@ -132,13 +146,30 @@ class IdentitySnapshotProvider:
     def capture(self) -> IdentitySnapshotV1:
         with self._capture_lock:
             state_values, trait_values = self._behavior_core.capture_identity_components()
-            next_generation = self._generation + 1
-            snapshot = IdentitySnapshotV1(
-                schema_version=1,
-                generation=next_generation,
-                self=self._static_self,
+            components = IdentityComponentsV1(
                 state=SelfStateSnapshotV1(**state_values),
                 traits=PersonalitySnapshotV1(**trait_values),
             )
-            self._generation = next_generation
-            return snapshot
+            return self._build_snapshot_locked(components)
+
+    def from_components(self, components: IdentityComponentsV1) -> IdentitySnapshotV1:
+        """Publica componentes correlacionados sin volver a leer BehaviorCore."""
+        with self._capture_lock:
+            if not isinstance(components, IdentityComponentsV1):
+                raise TypeError("components debe ser IdentityComponentsV1")
+            return self._build_snapshot_locked(components)
+
+    def _build_snapshot_locked(
+        self,
+        components: IdentityComponentsV1,
+    ) -> IdentitySnapshotV1:
+        next_generation = self._generation + 1
+        snapshot = IdentitySnapshotV1(
+            schema_version=1,
+            generation=next_generation,
+            self=self._static_self,
+            state=components.state,
+            traits=components.traits,
+        )
+        self._generation = next_generation
+        return snapshot

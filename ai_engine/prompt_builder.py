@@ -49,7 +49,10 @@ class PromptBuilder:
         secciones.system = self._construir_system(context)
         if context.identidad is not None:
             secciones.identidad = render_reasoning_identity(context.identidad)
-        secciones.personalidad = self._construir_personalidad(context.personalidad)
+        else:
+            # Compatibilidad ownerless: con IdentityContext los cinco traits ya
+            # tienen una unica authority en la seccion de identidad canonica.
+            secciones.personalidad = self._construir_personalidad(context.personalidad)
         secciones.estado_emocional = self._construir_estado_emocional(context.estado_narrativo)
         secciones.entorno = self._construir_entorno(
             context.percepcion_texto,

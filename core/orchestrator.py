@@ -59,7 +59,7 @@ from core.action_ledger import (
 from core.audit_trace import AuditTrace, safe_preview
 from core.audit_writer import AuditTraceJSONLWriter
 from core.logger import get_logger
-from core.identity_snapshot import IdentitySnapshotProvider
+from core.identity_snapshot import IdentityComponentsV1, IdentitySnapshotProvider
 from core.safe_error_logging import log_safe_boundary_failure
 from core.material_attestation import (
     canonical_material_attestation,
@@ -854,6 +854,18 @@ class Orchestrator:
                 tipo_evento=evento.tipo_evento,
                 detalles=evento.detalles if evento.detalles else {},
             )
+            turn_identity_components = getattr(
+                respuesta_core,
+                "identity_components",
+                None,
+            )
+            if (
+                turn_identity_components is not None
+                and not isinstance(turn_identity_components, IdentityComponentsV1)
+            ):
+                raise TypeError(
+                    "BehaviorCore devolvio identity_components fuera de contrato"
+                )
         except Exception as e:
             self._cerrar_efecto_uow(
                 evento.id_transaccion,
@@ -1030,8 +1042,8 @@ class Orchestrator:
                 and not self._triage_debe_cortar_flujo(triage_decision)
                 and not self._es_resultado_hablar(evento)
             ):
-                identity_context = IdentityContextV1.from_snapshot(
-                    self.identity_provider.capture()
+                identity_context = self._identity_context_for_turn(
+                    turn_identity_components
                 )
             if es_interrupcion_critica:
                 action_response = self._resolver_interrupcion_critica(evento)
@@ -2201,6 +2213,20 @@ class Orchestrator:
         if not isinstance(provider, IdentitySnapshotProvider):
             raise TypeError("La decision cognitiva exige IdentityContextV1")
         return IdentityContextV1.from_snapshot(provider.capture())
+
+    def _identity_context_for_turn(
+        self,
+        components: IdentityComponentsV1 | None,
+    ) -> IdentityContextV1:
+        """Construye identidad de turno sin releer owners cuando hay carrier."""
+        if isinstance(components, IdentityComponentsV1):
+            snapshot = self.identity_provider.from_components(components)
+        elif components is None:
+            # Compatibilidad para Behavior fakes/legacy sin carrier interno.
+            snapshot = self.identity_provider.capture()
+        else:
+            raise TypeError("components debe ser IdentityComponentsV1 o None")
+        return IdentityContextV1.from_snapshot(snapshot)
 
     @staticmethod
     def _observar_fallback_persona(

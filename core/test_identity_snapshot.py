@@ -12,6 +12,7 @@ import threading
 from ai_engine.identity_state import IdentityState
 from core.behavior_core import BehaviorCore
 from core.identity_snapshot import (
+    IdentityComponentsV1,
     IdentitySnapshotProvider,
     IdentitySnapshotV1,
     PersonalitySnapshotV1,
@@ -369,3 +370,93 @@ def test_48_snapshot_does_not_expose_owner_objects() -> None:
     main_source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
     assert "IdentitySnapshotProvider(static_self, behavior_core)" in main_source
     assert "identity_provider=identity_provider" in main_source
+
+
+def test_95_identity_components_are_typed_frozen_values() -> None:
+    components = IdentityComponentsV1(state=_state(), traits=_traits())
+    assert is_dataclass(components) and not hasattr(components, "__dict__")
+    _raises(FrozenInstanceError, setattr, components, "state", _state(energia=1))
+
+
+def test_96_provider_from_components_never_reads_owner() -> None:
+    behavior = BehaviorCore()
+    provider = IdentitySnapshotProvider(build_static_self_v1(), behavior)
+    behavior.capture_identity_components = lambda: (_ for _ in ()).throw(
+        AssertionError("from_components no debe releer el owner")
+    )
+    snapshot = provider.from_components(
+        IdentityComponentsV1(state=_state(energia=31), traits=_traits(metodico=0.61))
+    )
+    assert snapshot.generation == 1
+    assert snapshot.state.energia == 31 and snapshot.traits.metodico == 0.61
+
+
+def test_97_invalid_components_do_not_consume_generation() -> None:
+    provider = IdentitySnapshotProvider(build_static_self_v1(), BehaviorCore())
+    _raises(TypeError, provider.from_components, object())
+    assert provider.capture().generation == 1
+
+
+def test_98_behavior_result_correlates_components_with_context() -> None:
+    result = BehaviorCore().procesar_evento(
+        "comando_usuario",
+        {"mensaje": "captura correlacionada"},
+    )
+    components = result.identity_components
+    raw_state = result["contexto_llm"]["valores_crudos"]
+    traits = result["contexto_llm"]["personalidad"]
+    assert isinstance(result, dict)
+    assert components.state.energia == raw_state["energia"]
+    assert components.state.estres == raw_state["estres"]
+    assert components.state.foco == raw_state["foco"]
+    assert components.traits.sociabilidad == traits["sociabilidad"]
+    assert components.traits.metodico == traits["metodico"]
+
+
+def test_99_interleaving_preserves_same_turn_identity() -> None:
+    behavior = BehaviorCore()
+    provider = IdentitySnapshotProvider(build_static_self_v1(), behavior)
+    turn_a_captured = threading.Event()
+    turn_b_done = threading.Event()
+    observed: dict[str, object] = {}
+    errors: list[BaseException] = []
+
+    def turn_a() -> None:
+        try:
+            result = behavior.procesar_evento(
+                "comando_usuario",
+                {"mensaje": "turno A", "intensidad": 1.0},
+            )
+            observed["result"] = result
+            turn_a_captured.set()
+            assert turn_b_done.wait(timeout=2)
+            observed["snapshot"] = provider.from_components(result.identity_components)
+        except BaseException as exc:
+            errors.append(exc)
+
+    def turn_b() -> None:
+        try:
+            assert turn_a_captured.wait(timeout=2)
+            behavior.procesar_evento("interaccion_social", {"intensidad": 2.0})
+            behavior.registrar_impacto_identidad(route="motor", success=True)
+            turn_b_done.set()
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=turn_a), threading.Thread(target=turn_b)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+    if errors:
+        raise errors[0]
+
+    result = observed["result"]
+    snapshot = observed["snapshot"]
+    context = result["contexto_llm"]
+    assert snapshot.state.energia == context["valores_crudos"]["energia"]
+    assert snapshot.traits.sociabilidad == context["personalidad"]["sociabilidad"]
+    fresh = provider.capture()
+    assert fresh.state.energia != snapshot.state.energia
+    assert fresh.traits.sociabilidad != snapshot.traits.sociabilidad

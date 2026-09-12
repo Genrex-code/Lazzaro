@@ -15,7 +15,8 @@ from ai_engine.identity_projection import (
 )
 from ai_engine.identity_state import IdentityState
 from ai_engine.persona_engine import PersonaEngine
-from ai_engine.schemas import OracleResult
+from ai_engine.prompt_builder import PromptBuilder
+from ai_engine.schemas import AgentContext, OracleResult
 from api.schemas import EventoEntrante
 from core.behavior_core import BehaviorCore
 from core.identity_snapshot import (
@@ -292,13 +293,17 @@ def test_81_tools_reach_reasoning_separately() -> None:
 
 
 def test_82_persona_first_and_repair_reuse_generation() -> None:
-    _, calls = _persona_retry(_context(generation=41))
-    assert all("snapshot generation: 41" in str(call) for call in calls)
+    context = _context(generation=41)
+    _, calls = _persona_retry(context)
+    assert context.generation == 41 and calls[0] == calls[1][:2]
+    assert all("snapshot generation" not in str(call).lower() for call in calls)
 
 
 def test_83_oracle_persona_first_and_repair_reuse_generation() -> None:
-    _, calls = _oracle_retry(_context(generation=42))
-    assert all("snapshot generation: 42" in str(call) for call in calls)
+    context = _context(generation=42)
+    _, calls = _oracle_retry(context)
+    assert context.generation == 42 and calls[0] == calls[1][:2]
+    assert all("snapshot generation" not in str(call).lower() for call in calls)
 
 
 def test_84_state_mutation_between_attempts_does_not_change_identity() -> None:
@@ -367,3 +372,97 @@ def test_93_factual_render_has_no_negative_provider_provenance() -> None:
 def test_94_unity_manual_has_no_consciousness_claim() -> None:
     source = (Path(__file__).resolve().parents[1] / "unity_client/LazzaroAgent.cs").read_text(encoding="utf-8")
     assert "Eres Lazzaro, un ser consciente" not in source
+
+
+def test_100_generation_is_internal_metadata_not_llm_identity() -> None:
+    context = _context(generation=777)
+    rendered = render_persona_identity(context) + render_reasoning_identity(context)
+    assert context.generation == 777
+    assert "generation" not in rendered.lower() and "777" not in rendered
+
+
+def test_101_reasoning_uses_only_canonical_trait_authority() -> None:
+    prompt = PromptBuilder().build(
+        AgentContext(
+            identidad=_context(sociabilidad=0.75, metodico=0.65),
+            personalidad={"sociabilidad": -0.75, "metodico": -0.65},
+        )
+    )
+    assert prompt.count("sociabilidad: 0.7500") == 1
+    assert prompt.count("metodico: 0.6500") == 1
+    assert "sociabilidad=-0.75" not in prompt
+    assert "metodico=-0.65" not in prompt
+
+
+def test_102_reasoning_legacy_personality_remains_without_identity() -> None:
+    prompt = PromptBuilder().build(
+        AgentContext(personalidad={"sociabilidad": -0.75, "metodico": -0.65})
+    )
+    assert "sociabilidad=-0.75" in prompt and "metodico=-0.65" in prompt
+
+
+def test_103_reasoning_same_turn_context_uses_correlated_snapshot() -> None:
+    behavior = BehaviorCore()
+    result = behavior.procesar_evento(
+        "comando_usuario",
+        {"mensaje": "turno reasoning", "intensidad": 1.0},
+    )
+    identity = IdentityContextV1.from_snapshot(
+        IdentitySnapshotProvider(build_static_self_v1(), behavior).from_components(
+            result.identity_components
+        )
+    )
+    behavior.procesar_evento("interaccion_social", {"intensidad": 2.0})
+    behavior.registrar_impacto_identidad(route="motor", success=True)
+
+    agent_context = ContextBuilder.build(
+        result["contexto_llm"],
+        tarea=result["tarea"],
+        identity_context=identity,
+    )
+    raw_state = result["contexto_llm"]["valores_crudos"]
+    legacy_traits = result["contexto_llm"]["personalidad"]
+    assert {
+        "energia": identity.state.energia,
+        "estres": identity.state.estres,
+        "foco": identity.state.foco,
+    } == {name: raw_state[name] for name in ("energia", "estres", "foco")}
+    assert {
+        name: getattr(identity.traits, name)
+        for name in ("resiliencia", "impulsividad", "paciencia", "sociabilidad", "metodico")
+    } == legacy_traits
+    assert {
+        name: agent_context.valores_estado[name]
+        for name in ("energia", "estres", "foco")
+    } == {name: raw_state[name] for name in ("energia", "estres", "foco")}
+    for name in (
+        "carga_cognitiva",
+        "confianza",
+        "curiosidad",
+        "motivacion",
+        "agresividad",
+        "tolerancia_riesgo",
+    ):
+        assert agent_context.valores_estado[name] == result["contexto_llm"]["valores"][name]
+
+
+def test_104_persona_environment_label_matches_its_rule() -> None:
+    _, calls = _persona_retry(_context())
+    system_prompt = calls[0][0]["content"]
+    assert system_prompt.count("ENTORNO ACTUAL REPORTADO POR EL RUNTIME") == 2
+    assert "TU ENTORNO FÍSICO ACTUAL" not in system_prompt
+
+
+def test_105_orchestrator_turn_path_does_not_recapture_owner() -> None:
+    behavior = BehaviorCore()
+    result = behavior.procesar_evento("comando_usuario", {"mensaje": "turno"})
+    provider = IdentitySnapshotProvider(build_static_self_v1(), behavior)
+    provider.capture = lambda: (_ for _ in ()).throw(
+        AssertionError("Orchestrator no debe recapturar el owner")
+    )
+    orchestrator = object.__new__(Orchestrator)
+    orchestrator.identity_provider = provider
+    context = orchestrator._identity_context_for_turn(result.identity_components)
+    assert context.generation == 1
+    assert context.state == result.identity_components.state
+    assert context.traits == result.identity_components.traits

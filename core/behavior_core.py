@@ -9,6 +9,11 @@ import threading
 from typing import Any
 
 from core.logger import get_logger
+from core.identity_snapshot import (
+    IdentityComponentsV1,
+    PersonalitySnapshotV1,
+    SelfStateSnapshotV1,
+)
 from core.personality import PersonalityTraits
 from core.psychology import PsychologyEngine
 from core.state_engine import StateEngine
@@ -21,6 +26,26 @@ from core.task_context import (
 from telescopio.constelacion_cognitiva import ConstelacionCognitiva
 
 logger = get_logger(__name__)
+
+
+class BehaviorEventResult(dict[str, Any]):
+    """Resultado dict-compatible con identidad correlacionada e inmutable."""
+
+    __slots__ = ("_identity_components",)
+
+    def __init__(
+        self,
+        payload: dict[str, Any],
+        identity_components: IdentityComponentsV1,
+    ) -> None:
+        super().__init__(payload)
+        if not isinstance(identity_components, IdentityComponentsV1):
+            raise TypeError("identity_components debe ser IdentityComponentsV1")
+        self._identity_components = identity_components
+
+    @property
+    def identity_components(self) -> IdentityComponentsV1:
+        return self._identity_components
 
 
 class BehaviorCore:
@@ -130,10 +155,44 @@ class BehaviorCore:
             with self.state_engine.atomic():
                 checkpoint = self._crear_checkpoint_operacional_locked()
                 try:
-                    return self._procesar_evento_locked(tipo_evento, detalles)
+                    respuesta = self._procesar_evento_locked(tipo_evento, detalles)
+                    components = self._identity_components_from_response_locked(respuesta)
+                    return BehaviorEventResult(respuesta, components)
                 except Exception:
                     self._restaurar_checkpoint_operacional_locked(checkpoint)
                     raise
+
+    def _identity_components_from_response_locked(
+        self,
+        respuesta: dict[str, Any],
+    ) -> IdentityComponentsV1:
+        """Deriva identidad de la misma lectura que produjo el contexto del turno."""
+        contexto = respuesta.get("contexto_llm")
+        if isinstance(contexto, dict):
+            state = contexto.get("valores_crudos")
+            traits = contexto.get("personalidad")
+        else:
+            state = None
+            traits = None
+        if not isinstance(state, dict) or not isinstance(traits, dict):
+            # Compatibilidad con subclasses legacy que sustituyen el payload.
+            # Esta lectura sigue dentro de ambos locks del owner.
+            state = self.state_engine.obtener_estado_biologico()
+            traits = self.personality.obtener_rasgos()
+        return IdentityComponentsV1(
+            state=SelfStateSnapshotV1(
+                energia=state["energia"],
+                estres=state["estres"],
+                foco=state["foco"],
+            ),
+            traits=PersonalitySnapshotV1(
+                resiliencia=traits["resiliencia"],
+                impulsividad=traits["impulsividad"],
+                paciencia=traits["paciencia"],
+                sociabilidad=traits["sociabilidad"],
+                metodico=traits["metodico"],
+            ),
+        )
 
     def capture_identity_components(self) -> tuple[dict[str, float], dict[str, float]]:
         """Captura estado biologico y traits bajo la frontera transversal del owner."""

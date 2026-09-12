@@ -29,7 +29,15 @@ class ContextBuilder:
         identity_context: IdentityContextV1 | None = None,
     ) -> AgentContext:
         estado_narrativo = contexto_llm.get("estado_narrativo", "")
-        valores = contexto_llm.get("valores", {})
+        valores = dict(contexto_llm.get("valores", {}))
+        if identity_context is not None:
+            valores.update(
+                {
+                    "energia": identity_context.state.energia,
+                    "estres": identity_context.state.estres,
+                    "foco": identity_context.state.foco,
+                }
+            )
         personalidad = contexto_llm.get("personalidad", {})
         umbrales = contexto_llm.get("umbrales", {})
         percepcion_texto = contexto_llm.get("percepcion_resumida", "")
