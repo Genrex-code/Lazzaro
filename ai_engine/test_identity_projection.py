@@ -431,19 +431,8 @@ def test_103_reasoning_same_turn_context_uses_correlated_snapshot() -> None:
         name: getattr(identity.traits, name)
         for name in ("resiliencia", "impulsividad", "paciencia", "sociabilidad", "metodico")
     } == legacy_traits
-    assert {
-        name: agent_context.valores_estado[name]
-        for name in ("energia", "estres", "foco")
-    } == {name: raw_state[name] for name in ("energia", "estres", "foco")}
-    for name in (
-        "carga_cognitiva",
-        "confianza",
-        "curiosidad",
-        "motivacion",
-        "agresividad",
-        "tolerancia_riesgo",
-    ):
-        assert agent_context.valores_estado[name] == result["contexto_llm"]["valores"][name]
+    assert agent_context.valores_estado == result["contexto_llm"]["valores"]
+    assert agent_context.estado_narrativo == result["contexto_llm"]["estado_narrativo"]
 
 
 def test_104_persona_environment_label_matches_its_rule() -> None:
@@ -466,3 +455,29 @@ def test_105_orchestrator_turn_path_does_not_recapture_owner() -> None:
     assert context.generation == 1
     assert context.state == result.identity_components.state
     assert context.traits == result.identity_components.traits
+
+
+def test_106_policy_offset_preserves_raw_and_effective_views() -> None:
+    behavior = BehaviorCore()
+    behavior.state_engine.establecer_estado_biologico(foco=60)
+    behavior.cambiar_policy("eficiente")
+    result = behavior.procesar_evento(
+        "comando_usuario",
+        {"mensaje": "policy offset canary", "intensidad": 0.0},
+    )
+    identity = IdentityContextV1.from_snapshot(
+        IdentitySnapshotProvider(build_static_self_v1(), behavior).from_components(
+            result.identity_components
+        )
+    )
+    agent_context = ContextBuilder.build(
+        result["contexto_llm"],
+        identity_context=identity,
+    )
+    raw_focus = result["contexto_llm"]["valores_crudos"]["foco"]
+    effective_focus = result["contexto_llm"]["valores"]["foco"]
+    assert raw_focus == 60 and effective_focus == 70
+    assert identity.state.foco == raw_focus
+    assert agent_context.valores_estado["foco"] == effective_focus
+    assert identity.state.foco != agent_context.valores_estado["foco"]
+    assert agent_context.estado_narrativo == result["contexto_llm"]["estado_narrativo"]

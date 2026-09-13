@@ -125,7 +125,7 @@ cambia cuando cambia el runtime.
 ## 22. Captura y locking
 
 El flujo de turno ya no usa una segunda captura. `BehaviorCore.procesar_evento()`
-produce `contexto_llm` y un `IdentityComponentsV1` desde las mismas lecturas,
+produce `contexto_llm` y un `IdentityComponentsV1` desde las mismas lecturas raw,
 mientras todavía posee `_owner_lock` + `StateEngine.atomic()`. Tras liberar esos
 locks, `IdentitySnapshotProvider.from_components()` toma sólo su lock local,
 valida/publica esos componentes y no relee `StateEngine` ni `PersonalityTraits`.
@@ -173,12 +173,13 @@ legacy se conserva únicamente para callers sin identidad tipada.
 
 ## 28. Contexto operacional de Reasoning
 
-La adopción fue aditiva: narrativa, Task, Memory, Perception, constelación,
-tools, policy y flags conservan sus campos y rutas existentes. En
-`valores_estado`, sólo `energia`, `estres` y `foco` se proyectan desde el
-snapshot correlacionado; `carga_cognitiva`, `confianza`, `curiosidad`,
-`motivacion`, `agresividad`, `tolerancia_riesgo` y demás valores operacionales
-permanecen en el contexto original del mismo resultado de Behavior.
+La adopción fue aditiva: `AgentContext.identidad.state` contiene el estado
+canónico raw, mientras `AgentContext.valores_estado` conserva completa la vista
+operacional efectiva de `contexto_llm["valores"]`, incluidos offsets de policy.
+La narrativa, Task, Memory, Perception, constelación, tools, policy y flags
+conservan sus campos y rutas existentes. Ambas vistas nacen del mismo
+`BehaviorEventResult`; correlación same-turn garantiza origen temporal común,
+no igualdad numérica entre raw y una transformación determinista derivada.
 
 ## 29. Retry ROOT-008
 
@@ -223,17 +224,17 @@ No se implementó ese owner futuro.
 
 ## 36. Tests
 
-La matriz focal contiene 105 pruebas: contratos estrictos, bounds/no coercion,
+La matriz focal contiene 106 pruebas: contratos estrictos, bounds/no coercion,
 inmutabilidad, no-live-references, owner/delegación, coherencia de captura,
 generation secuencial/concurrente/restart, contexto operacional, Persona y
 Oracle-Persona repair, refresh entre turnos, interleaving same-turn,
-contradiction canaries y eliminación de claims. Usa `Event`/locks, no sleeps
-como prueba de corrección.
+contradiction canaries, policy-offset canary y eliminación de claims. Usa
+`Event`/locks, no sleeps como prueba de corrección.
 
-El cierre de review obtiene `105/105 PASS` focal, ROOT-008 `61/61`, ROOT-020
+El cierre de review obtiene `106/106 PASS` focal, ROOT-008 `61/61`, ROOT-020
 `55/55`, ROOT-012 `15/15`, ROOT-009 API/Unity `15/15 + 10/10` y ROOT-010
 API/Unity `18/18 + 8/8`. Persona, Reasoning y Motor permanecen verdes. El gate
-aislado global ejecuta `821/821 PASS`, `0 XFAIL`, `0 unexpected` y `0 import
+aislado global ejecuta `822/822 PASS`, `0 XFAIL`, `0 unexpected` y `0 import
 failures`; `compileall`, aislamiento y `git diff --check` también pasan.
 
 ## 37. Riesgos residuales
