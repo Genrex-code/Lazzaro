@@ -12,6 +12,8 @@ from google import genai
 from google.genai import types
 
 from ai_engine.ai_client import BaseAIClient, LLMCallAudit
+from ai_engine.prompt_plan import PromptPlanV1
+from ai_engine.provider_prompt_projection import project_gemini_parts
 from core.logger import get_logger
 from core.safe_error_logging import log_safe_boundary_failure
 
@@ -49,17 +51,32 @@ class GeminiClient(BaseAIClient):
         logger.info("GeminiClient listo (modelo: %s).", self.model_name)
 
     def generate(self, prompt: str, **kwargs) -> str:
-        """Envia un prompt a Gemini y devuelve el texto generado."""
+        """API textual legacy para health checks/diagnosticos no cognitivos."""
+        gen_config = self._build_generation_config(kwargs)
+        return self._generate_content(prompt, gen_config)
+
+    def generate_plan(self, plan: PromptPlanV1, **kwargs) -> str:
+        """Project PromptPlanV1 using Gemini's native system instruction channel."""
+        system_instruction, projected_contents = project_gemini_parts(plan)
+        contents = [
+            types.Content(role=role, parts=[types.Part(text=content)])
+            for role, content in projected_contents
+        ]
+        base = self._build_generation_config(kwargs).model_dump(exclude_none=True)
+        base["system_instruction"] = system_instruction
+        gen_config = types.GenerateContentConfig(**base)
+        return self._generate_content(contents, gen_config)
+
+    def _generate_content(self, contents: Any, gen_config: types.GenerateContentConfig) -> str:
         max_retries = 4
         backoff = 1.0
-        gen_config = self._build_generation_config(kwargs)
 
         for intento in range(1, max_retries + 1):
             started_ns = time.perf_counter_ns()
             try:
                 response = self.client.models.generate_content(
                     model=self.model_name,
-                    contents=prompt,
+                    contents=contents,
                     config=gen_config,
                 )
                 texto = self._extraer_texto(response)

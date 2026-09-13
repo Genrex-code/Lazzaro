@@ -10,6 +10,12 @@ from pydantic import BaseModel, ConfigDict, StrictStr, ValidationError
 from core.logger import get_logger
 
 from .oracle_memory import OracleMemory
+from .prompt_plan import (
+    ContextEnvelopeV1,
+    PromptPlanV1,
+    RequestInstructionV1,
+    build_oracle_system_instructions,
+)
 from .schemas import OracleResult
 from .structured_parse_types import (
     JsonObjectInspection,
@@ -43,14 +49,7 @@ class OracleEngine:
     """Produce conocimiento interno; nunca produce acciones ni voz publica."""
 
     def __init__(self):
-        self.system_prompt = (
-            "Eres el Oraculo, subsistema de procesamiento logico, tecnico y analitico de Lazzaro. "
-            "Tu objetivo es resolver problemas complejos, escribir codigo, explicar conceptos cientificos "
-            "y razonar de forma profunda. "
-            "No uses emociones, no hagas roleplay, no menciones cansancio ni estres. "
-            "Se preciso, directo, estructurado y exhaustivo. "
-            "Tu salida sera conocimiento interno para que la Capa 2 lo verbalice despues."
-        )
+        pass
 
     def evaluar_cache(
         self,
@@ -78,23 +77,16 @@ class OracleEngine:
             )
         return None
 
-    def preparar_consulta(self, mensaje_usuario: str) -> list[dict[str, str]]:
-        """Construye el prompt frio y estricto para el modelo activo."""
-        prompt_reglas = (
-            f"{self.system_prompt}\n\n"
-            "=== FORMATO DE SALIDA ESTRICTO ===\n"
-            "Responde UNICAMENTE con un objeto JSON valido. Nada de texto fuera del JSON.\n"
-            "No incluyas accion, hablar, texto_a_comunicar ni ningun payload para Unity.\n"
-            "Estructura requerida:\n"
-            "{\n"
-            '  "contenido_tecnico": "Respuesta tecnica, codigo o explicacion detallada",\n'
-            '  "resumen_para_persona": "Resumen breve para que Persona lo comunique con su voz"\n'
-            "}"
+    def preparar_consulta(self, mensaje_usuario: str | None) -> PromptPlanV1:
+        """Build a cold Oracle plan; the request remains optional and typed."""
+        request = None
+        if isinstance(mensaje_usuario, str):
+            request = RequestInstructionV1.current_user(mensaje_usuario)
+        return PromptPlanV1(
+            system=build_oracle_system_instructions(),
+            context=ContextEnvelopeV1(),
+            request=request,
         )
-        return [
-            {"role": "system", "content": prompt_reglas},
-            {"role": "user", "content": mensaje_usuario},
-        ]
 
     def parse_result(
         self,

@@ -31,7 +31,7 @@ class AgentContext(BaseModel):
     proveedor: str = "ollama"
 
 class PromptSections(BaseModel):
-    """Cada seccion del prompt final."""
+    """Contrato legacy de fixtures; no es una autoridad productiva de prompts."""
 
     system: str = ""
     identidad: str = ""

@@ -27,14 +27,20 @@ def probar_cerebro():
         memoria_texto="Ayer aprendi a no usar variables globales.",
     )
 
-    print("3. Construyendo el prompt...")
+    print("3. Construyendo el PromptPlan tipado...")
     builder = PromptBuilder()
     prompt_final = builder.build(contexto)
 
     print("4. Enviando al backend LLM...")
-    print(f"   (Enviando {len(prompt_final)} caracteres al backend activo...)")
+    print(
+        "   (Enviando contexto tipado de "
+        f"{len(prompt_final.user_envelope_json())} caracteres al backend activo...)"
+    )
 
-    respuesta_cruda = client.generate(prompt_final, response_mime_type="application/json")
+    respuesta_cruda = client.generate_plan(
+        prompt_final,
+        response_mime_type="application/json",
+    )
     print("\n--- RESPUESTA CRUDA DEL LLM ---")
     print(respuesta_cruda)
     print("-------------------------------\n")

@@ -11,6 +11,7 @@ from typing import Any, Optional
 import httpx
 
 from ai_engine.ai_client import BaseAIClient, LLMCallAudit
+from ai_engine.prompt_plan import PromptPlanV1, PromptProjectionUnsupported
 from ai_engine.schemas import LLMResponse
 from core.logger import get_logger
 from core.safe_error_logging import log_safe_boundary_failure
@@ -37,7 +38,7 @@ class OllamaClient(BaseAIClient):
         )
 
     def generate(self, prompt: str, **kwargs) -> str:
-        """Envia un prompt a Ollama y devuelve el texto generado."""
+        """API textual legacy para health checks/diagnosticos no cognitivos."""
         payload = {
             "model": self.model_name,
             "prompt": prompt,
@@ -93,6 +94,14 @@ class OllamaClient(BaseAIClient):
                 error=e,
             )
             return ""
+
+    def generate_plan(self, plan: PromptPlanV1, **kwargs) -> str:
+        """Fail before HTTP because /api/generate cannot preserve native roles."""
+        if not isinstance(plan, PromptPlanV1):
+            raise PromptProjectionUnsupported("Ollama requires PromptPlanV1")
+        raise PromptProjectionUnsupported(
+            "Ollama /api/generate cannot preserve PromptPlanV1 instruction authority"
+        )
 
     def health_check(self) -> bool:
         """Verifica que Ollama este accesible y que el modelo configurado exista."""

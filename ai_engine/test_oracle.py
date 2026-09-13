@@ -11,6 +11,7 @@ if __package__ in (None, ""):
 
 from ai_engine.oracle_engine import OracleEngine
 from ai_engine.persona_engine import PersonaEngine
+from ai_engine.provider_prompt_projection import project_chat_messages
 from ai_engine.schemas import ActionResponse, OracleResult
 from api.schemas import EventoEntrante
 from core.orchestrator import Orchestrator
@@ -62,7 +63,7 @@ class FakeOracleClient:
     def configurado(self) -> bool:
         return self._configurado
 
-    def consultar_oraculo(self, mensajes):
+    def consultar_plan(self, mensajes):
         self.calls += 1
         return self.respuesta
 
@@ -72,7 +73,7 @@ class FakeLLMAdapter:
         self.respuestas = list(respuestas)
         self.calls = []
 
-    def ejecutar_texto(self, mensajes, **kwargs):
+    def ejecutar_plan(self, mensajes, **kwargs):
         self.calls.append((mensajes, kwargs))
         assert_true(
             "required_provider" not in kwargs,
@@ -134,10 +135,10 @@ def test_oracle_returns_oracle_result() -> None:
     memoria = FakeOracleMemory()
     engine = OracleEngine()
     prompt = engine.preparar_consulta("explicame este bug")
-    prompt_texto = "\n".join(mensaje["content"] for mensaje in prompt)
+    prompt_texto = "\n".join(mensaje.content for mensaje in project_chat_messages(prompt))
 
     assert_true('"contenido_tecnico"' in prompt_texto, "El prompt debe pedir contenido tecnico.")
-    assert_true('"accion": "hablar"' not in prompt_texto, "El Oraculo no debe pedir hablar.")
+    assert_true('"accion":"hablar"' not in prompt_texto, "El Oraculo no debe pedir hablar.")
     assert_true('"parametros"' not in prompt_texto, "El Oraculo no debe pedir payload de Unity.")
 
     resultado = engine.keep_y_save(

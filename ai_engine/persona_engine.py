@@ -8,7 +8,7 @@ garantiza que la unica accion emitida por esta capa sea "hablar".
 import json
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, ConfigDict, StrictStr, ValidationError
 
@@ -16,6 +16,7 @@ from core.logger import get_logger
 
 from .identity_projection import IdentityContextV1
 from .persona_prompt_buider import PersonaPromptBuilder
+from .prompt_plan import PromptPlanV1
 from .schemas import OracleResult
 from .structured_parse_types import (
     JsonObjectInspection,
@@ -102,148 +103,52 @@ class PersonaEngine:
 
     def preparar_interaccion(
         self,
-        mensaje_usuario: str,
+        mensaje_usuario: str | None,
         identity_context: IdentityContextV1,
         percepcion: Optional[Dict[str, Any]] = None,
         recuerdos: str = "",
         restriccion_canal: str = "",
-    ) -> List[Dict[str, str]]:
-        """
-        Prepara la lista de mensajes [system, user] para enviar al LLM local.
-        """
-        percepcion = percepcion or {}
-        percepcion_texto = percepcion.get("resumen_percepcion", "")
-
-        system_prompt = self.prompt_builder.build_system_prompt(
+    ) -> PromptPlanV1:
+        """Build the social PromptPlan for the current-user turn."""
+        return self.prompt_builder.build_plan(
+            mensaje_usuario=mensaje_usuario,
             identity_context=identity_context,
-            percepcion_texto=percepcion_texto,
+            percepcion=percepcion,
             recuerdos=recuerdos,
-        ) or ""
-
-        if restriccion_canal:
-            system_prompt += (
-                "\n=== RESTRICCION DEL CANAL ACTUAL ===\n"
-                f"{restriccion_canal.strip()}\n"
-            )
-
-        system_prompt += (
-            "\n=== FORMATO DE SALIDA ESTRICTO ===\n"
-            "Responde UNICAMENTE con un objeto JSON valido. Nada de texto fuera del JSON.\n"
-            "Estructura requerida:\n"
-            "{\n"
-            '  "accion": "hablar",\n'
-            '  "parametros": {\n'
-            '    "texto_a_comunicar": "Tu respuesta como Lazzaro aqui"\n'
-            "  },\n"
-            '  "pensamiento_privado": "Breve reflexion interna antes de hablar",\n'
-            '  "razon": "Motivo por el que dices esto"\n'
-            "}"
+            terminal_channel=bool(restriccion_canal),
         )
-
-        return [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": mensaje_usuario},
-        ]
 
     def preparar_verbalizacion_oraculo(
         self,
-        mensaje_usuario: str,
+        mensaje_usuario: str | None,
         identity_context: IdentityContextV1,
         datos_oraculo: OracleResult,
         percepcion: Optional[Dict[str, Any]] = None,
         recuerdos: str = "",
         restriccion_canal: str = "",
-    ) -> List[Dict[str, str]]:
+    ) -> PromptPlanV1:
         """
         Prepara una respuesta publica usando conocimiento frio de Capa 3.
         El Oraculo aporta contenido; Persona decide voz, tono e identidad.
         """
-        percepcion = percepcion or {}
-        percepcion_texto = percepcion.get("resumen_percepcion", "")
-        system_prompt = self.prompt_builder.build_system_prompt(
+        return self.prompt_builder.build_plan(
+            mensaje_usuario=mensaje_usuario,
             identity_context=identity_context,
-            percepcion_texto=percepcion_texto,
+            percepcion=percepcion,
             recuerdos=recuerdos,
-        ) or ""
-
-        if restriccion_canal:
-            system_prompt += (
-                "\n=== RESTRICCION DEL CANAL ACTUAL ===\n"
-                f"{restriccion_canal.strip()}\n"
-            )
-
-        contenido_tecnico = self._limitar_texto(datos_oraculo.contenido_tecnico, 3000)
-        resumen_para_persona = self._limitar_texto(datos_oraculo.resumen_para_persona or "", 800)
-        error_oraculo = self._limitar_texto(datos_oraculo.error or "", 500)
-
-        system_prompt += (
-            "\n=== CONOCIMIENTO INTERNO DEL ORACULO ===\n"
-            "Este bloque NO es tu voz publica. Es material interno de Capa 3.\n"
-            f"Pregunta original: {datos_oraculo.pregunta_original}\n"
-            f"Fuente: {datos_oraculo.fuente}\n"
-            f"Cache hit: {datos_oraculo.cache_hit}\n"
-            f"Error interno: {error_oraculo or 'ninguno'}\n"
-            f"Contenido tecnico:\n{contenido_tecnico}\n"
+            terminal_channel=bool(restriccion_canal),
+            oracle_result=datos_oraculo,
         )
-        if resumen_para_persona:
-            system_prompt += f"Resumen sugerido para Persona:\n{resumen_para_persona}\n"
-
-        system_prompt += (
-            "\n=== TU TAREA ===\n"
-            "Responde al usuario con tu propia voz de Lazzaro.\n"
-            "No digas que eres el Oraculo ni que consultaste una capa interna.\n"
-            "No inventes datos fuera del contenido tecnico recibido.\n"
-            "Si el Oraculo fallo, dilo de forma natural y breve.\n"
-            "Mantente social, clara y coherente con tu identidad.\n"
-            "\n=== FORMATO DE SALIDA ESTRICTO ===\n"
-            "Responde UNICAMENTE con un objeto JSON valido. Nada de texto fuera del JSON.\n"
-            "La unica accion permitida es hablar.\n"
-            "Estructura requerida:\n"
-            "{\n"
-            '  "accion": "hablar",\n'
-            '  "parametros": {\n'
-            '    "texto_a_comunicar": "Tu respuesta final como Lazzaro"\n'
-            "  },\n"
-            '  "pensamiento_privado": "Breve reflexion interna antes de hablar",\n'
-            '  "razon": "Como adaptaste el conocimiento tecnico a tu voz"\n'
-            "}"
-        )
-
-        return [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": mensaje_usuario},
-        ]
 
     def preparar_reintento_json(
         self,
-        mensajes_originales: List[Dict[str, str]],
+        mensajes_originales: PromptPlanV1,
         respuesta_fallida: str,
-    ) -> List[Dict[str, str]]:
-        """Repara sin reconstruir ni volver a consultar el grounding del turno."""
-        salida = self._limitar_texto(respuesta_fallida or "", 1200)
-        grounding = [
-            {
-                "role": str(mensaje.get("role", "user")),
-                "content": str(mensaje.get("content", "")),
-            }
-            for mensaje in mensajes_originales
-            if isinstance(mensaje, dict)
-        ]
-        return grounding + [
-            {
-                "role": "assistant",
-                "content": salida,
-            },
-            {
-                "role": "user",
-                "content": (
-                    "La salida anterior no cumplio el contrato. Repara exclusivamente su formato "
-                    "sin perder el contexto ya proporcionado. Devuelve SOLO un objeto JSON valido, "
-                    "sin markdown; la unica accion permitida es hablar. Si no puedes recuperar la "
-                    "idea, responde una frase breve y natural dentro del formato requerido."
-                ),
-            },
-        ]
+    ) -> PromptPlanV1:
+        """Add bounded assistant evidence and a code-owned USER repair request."""
+        if not isinstance(mensajes_originales, PromptPlanV1):
+            raise TypeError("mensajes_originales debe ser PromptPlanV1")
+        return mensajes_originales.with_repair(respuesta_fallida or "")
 
     def parsear_resultado(
         self,

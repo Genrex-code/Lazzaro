@@ -24,11 +24,11 @@ def test_prompt_general_usa_contrato_de_cuatro_campos() -> None:
             proveedor="ollama",
         )
     )
-    prompt_normalizado = prompt.lower()
+    prompt_normalizado = prompt.system.text.lower()
     assert_true("usa exactamente estas cuatro claves" in prompt_normalizado, "Falta el contrato v2.")
     assert_true("emocion_facial" not in prompt_normalizado, "El prompt no debe pedir expresiones faciales.")
     assert_true("fcl_all_" not in prompt_normalizado, "El prompt no debe contener presets VRM.")
-    assert_true('"accion": "none"' in prompt, "La accion pasiva canonica debe ser 'none'.")
+    assert_true('"accion":"none"' in prompt.system.text, "La accion pasiva canonica debe ser 'none'.")
 
 
 def test_parser_y_schema_rechazan_el_contrato_facial_anterior() -> None:

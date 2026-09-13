@@ -51,6 +51,7 @@ class ReasoningEngine:
         tarea: Optional[dict] = None,
         audit_observation: dict[str, object] | None = None,
         identity_context: IdentityContextV1 | None = None,
+        current_request: str | None = None,
     ) -> ActionResponse:
         try:
             if herramientas is None:
@@ -95,10 +96,16 @@ class ReasoningEngine:
             )
             gen_params = policy_config["generation"]
 
-            prompt = self.prompt_builder.build(agent_context)
-            logger.debug("Prompt generado (%d caracteres).", len(prompt))
+            prompt = self.prompt_builder.build(
+                agent_context,
+                current_request=current_request,
+            )
+            logger.debug(
+                "PromptPlan generado (contexto=%d caracteres).",
+                len(prompt.user_envelope_json()),
+            )
 
-            raw_response = self.ai_client.generate(prompt, **gen_params)
+            raw_response = self.ai_client.generate_plan(prompt, **gen_params)
             if not raw_response:
                 logger.warning("El LLM devolvio una respuesta vacia.")
                 self._observe_failure(

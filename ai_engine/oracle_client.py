@@ -6,8 +6,10 @@ para resolver problemas matematicos, logicas y tecnicos complejos.
 import os
 import httpx
 import time
-from typing import List,Dict,Optional,Any
+from typing import Dict,Optional,Any
 from ai_engine.ai_client import LLMAuditBuffer, LLMCallAudit
+from ai_engine.prompt_plan import PromptPlanV1
+from ai_engine.provider_prompt_projection import project_openai_messages
 from core.logger import get_logger
 from core.safe_error_logging import log_safe_boundary_failure
 
@@ -57,18 +59,16 @@ class OracleClient(LLMAuditBuffer):
         """Indica si el cleitne tiene credenciales para funcionar."""
         return bool(self.api_key and self.api_key.strip())
     
-    #Consulta principal
-    def consultar_oraculo ( self,mensajes: List[Dict[str,str]]) -> Optional [str]:
+    # Consulta principal: solo acepta el contrato tipado de confianza.
+    def consultar_plan(self, plan: PromptPlanV1) -> Optional[str]:
         """
-        Envia los mensajes al modelo en la nube y devuelve el texto de la respuesta.
+        Proyecta PromptPlanV1 al formato nativo y devuelve el texto de respuesta.
         Si algo falla, retorna None para que el sistema utilice el fallback del LLM activo.
-        ARGS:
-            mensajes: lista de diccionarios con 'role' y 'content'.
-            
-            Returns: 
-                Contenido textual de la respuesta, o None si hubo error.
-            """
-        
+        """
+        if not isinstance(plan, PromptPlanV1):
+            raise TypeError("consultar_plan requiere PromptPlanV1")
+        mensajes = project_openai_messages(plan)
+
         if not self.configurado:
             logger.warning("OracleClient no esta configurado (API KEY ausente).")
             return None

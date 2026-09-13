@@ -11,6 +11,7 @@ if __package__ in (None, ""):
 
 from ai_engine.identity_projection import IdentityContextV1
 from ai_engine.persona_engine import PersonaEngine
+from ai_engine.provider_prompt_projection import project_chat_messages
 from api.schemas import EventoEntrante
 from core.orchestrator import Orchestrator
 from core.behavior_core import BehaviorCore
@@ -57,14 +58,15 @@ def main() -> None:
         percepcion=percepcion_falsa,
     )
 
-    assert_true(len(mensajes) == 2, "Se esperaban mensajes system y user.")
-    assert_true(mensajes[0]["role"] == "system", "El primer mensaje debe ser system.")
-    assert_true("Sphere" in mensajes[0]["content"], "La percepcion no entro al prompt.")
-    assert_true("FORMATO DE SALIDA ESTRICTO" in mensajes[0]["content"], "Falta regla de JSON estricto.")
-    assert_true('"accion": "hablar"' in mensajes[0]["content"], "El prompt debe forzar accion hablar.")
+    proyectados = project_chat_messages(mensajes)
+    assert_true(len(proyectados) == 2, "Se esperaban mensajes system y user.")
+    assert_true(proyectados[0].role == "system", "El primer mensaje debe ser system.")
+    assert_true("Sphere" in proyectados[1].content, "La percepcion no entro al contexto.")
+    assert_true("UNICAMENTE con JSON" in proyectados[0].content, "Falta regla de JSON estricto.")
+    assert_true('"accion":"hablar"' in proyectados[0].content, "El prompt debe forzar accion hablar.")
 
     print("\n=== PROMPT MAESTRO QUE SE ENVIARIA AL LLM ===")
-    print(mensajes[0]["content"])
+    print(proyectados[0].content)
     print("=================================================\n")
 
     # 5. Prueba de fuego: escudo anti-alucinaciones.
@@ -126,7 +128,7 @@ Claro, aqui tienes la respuesta en formato JSON como pediste:
         def __init__(self):
             self.calls = []
 
-        def ejecutar_texto(self, mensajes, **kwargs):
+        def ejecutar_plan(self, mensajes, **kwargs):
             self.calls.append((mensajes, kwargs))
             if len(self.calls) == 1:
                 return ""

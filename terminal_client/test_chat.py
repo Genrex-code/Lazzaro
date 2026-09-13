@@ -1632,9 +1632,9 @@ def test_persona_recibe_la_restriccion_de_canal_terminal() -> None:
         identity_context=identity_context,
         restriccion_canal=restriccion,
     )
-    system_prompt = mensajes[0]["content"]
+    system_prompt = mensajes.system.text
 
-    assert_true("RESTRICCION DEL CANAL ACTUAL" in system_prompt, "Debe identificar el canal.")
+    assert_true("Canal terminal" in system_prompt, "Debe identificar el canal.")
     assert_true("sin cuerpo disponible" in system_prompt, "Persona debe conocer el limite fisico.")
     assert_true(
         "no afirmes que la ejecutaste" in system_prompt,

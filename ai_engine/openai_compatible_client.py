@@ -14,6 +14,8 @@ from typing import Any, Optional
 import httpx
 
 from ai_engine.ai_client import BaseAIClient, LLMCallAudit
+from ai_engine.prompt_plan import PromptPlanV1
+from ai_engine.provider_prompt_projection import project_openai_messages
 from core.logger import get_logger
 from core.safe_error_logging import log_safe_boundary_failure
 
@@ -57,10 +59,17 @@ class OpenAICompatibleClient(BaseAIClient):
         )
 
     def generate(self, prompt: str, **kwargs) -> str:
-        """Envia un prompt al endpoint /chat/completions y devuelve contenido textual."""
+        """API textual legacy para health checks/diagnosticos no cognitivos."""
+        return self._generate_messages([{"role": "user", "content": prompt}], **kwargs)
+
+    def generate_plan(self, plan: PromptPlanV1, **kwargs) -> str:
+        """Project PromptPlanV1 into native system/user/assistant messages."""
+        return self._generate_messages(project_openai_messages(plan), **kwargs)
+
+    def _generate_messages(self, messages: list[dict[str, str]], **kwargs) -> str:
         payload: dict[str, Any] = {
             "model": self.model_name,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages,
             "temperature": kwargs.get("temperature", 0.7),
             "max_tokens": kwargs.get("max_output_tokens", kwargs.get("max_tokens", 1024)),
         }

@@ -24,6 +24,7 @@ from ai_engine.identity_projection import IdentityContextV1
 from ai_engine.motor_engine import MotorEngine
 from ai_engine.motor_resolution import CandidateMatch, MotorResolution
 from ai_engine.persona_engine import PersonaEngine
+from ai_engine.provider_prompt_projection import project_chat_messages
 from ai_engine.response_parser import ResponseParser
 from ai_engine.schemas import ActionResponse, OracleResult
 from ai_engine.structured_parse_types import StructuredParseStatus
@@ -92,13 +93,17 @@ class _Adapter:
         self.after_first = after_first
         self.calls: list[list[dict[str, str]]] = []
 
-    def ejecutar_texto(self, mensajes, **kwargs) -> str:
+    def ejecutar_plan(self, mensajes, **kwargs) -> str:
         del kwargs
         self.calls.append(deepcopy(mensajes))
         response = self.responses.pop(0)
         if len(self.calls) == 1 and self.after_first is not None:
             self.after_first()
         return response
+
+
+def _serialized_call(plan) -> str:
+    return "\n".join(message.content for message in project_chat_messages(plan))
 
 
 class _UnusedMemory:
@@ -264,27 +269,27 @@ def test_06_failed_retry_becomes_deterministic_fallback() -> None:
 
 def test_07_retry_preserves_user_message() -> None:
     _, orchestrator, _ = _persona_turn([FAILED_RAW, _persona_raw()])
-    assert USER in json.dumps(orchestrator.llm_adapter.calls[1])
+    assert USER in _serialized_call(orchestrator.llm_adapter.calls[1])
 
 
 def test_08_retry_preserves_identity_snapshot() -> None:
     _, orchestrator, _ = _persona_turn([FAILED_RAW, _persona_raw()])
-    assert IDENTITY in json.dumps(orchestrator.llm_adapter.calls[1])
+    assert IDENTITY in _serialized_call(orchestrator.llm_adapter.calls[1])
 
 
 def test_09_retry_preserves_memory_snapshot() -> None:
     _, orchestrator, _ = _persona_turn([FAILED_RAW, _persona_raw()])
-    assert MEMORY in json.dumps(orchestrator.llm_adapter.calls[1])
+    assert MEMORY in _serialized_call(orchestrator.llm_adapter.calls[1])
 
 
 def test_10_retry_preserves_perception_snapshot() -> None:
     _, orchestrator, _ = _persona_turn([FAILED_RAW, _persona_raw()])
-    assert PERCEPTION in json.dumps(orchestrator.llm_adapter.calls[1])
+    assert PERCEPTION in _serialized_call(orchestrator.llm_adapter.calls[1])
 
 
 def test_11_retry_preserves_channel_restriction() -> None:
     _, orchestrator, _ = _persona_turn([FAILED_RAW, _persona_raw()])
-    assert "RESTRICCION DEL CANAL ACTUAL" in json.dumps(orchestrator.llm_adapter.calls[1])
+    assert "Canal terminal" in _serialized_call(orchestrator.llm_adapter.calls[1])
 
 
 def test_12_identity_mutation_does_not_reground_retry() -> None:
@@ -301,7 +306,7 @@ def test_12_identity_mutation_does_not_reground_retry() -> None:
     orchestrator.memory = _UnusedMemory()
     orchestrator.llm_adapter = _Adapter([FAILED_RAW, _persona_raw()], mutate)
     orchestrator._resolver_ruta_persona(_event(), {"percepcion": {"resumen_percepcion": PERCEPTION}}, MEMORY, "exploradora", identity_context=IDENTITY_CONTEXT)
-    retry = json.dumps(orchestrator.llm_adapter.calls[1])
+    retry = _serialized_call(orchestrator.llm_adapter.calls[1])
     assert IDENTITY in retry and "MUTATED_IDENTITY_ROOT008" not in retry
     assert orchestrator.identity_state.calls == 0
 
@@ -321,7 +326,7 @@ def test_14_retry_uses_original_perception_after_event_mutation() -> None:
         lambda: event.detalles.update({"resumen_percepcion": "MUTATED_PERCEPTION_ROOT008"}),
     )
     orchestrator._resolver_ruta_persona(event, {"percepcion": {"resumen_percepcion": PERCEPTION}}, MEMORY, "exploradora", identity_context=IDENTITY_CONTEXT)
-    retry = json.dumps(orchestrator.llm_adapter.calls[1])
+    retry = _serialized_call(orchestrator.llm_adapter.calls[1])
     assert PERCEPTION in retry and "MUTATED_PERCEPTION_ROOT008" not in retry
 
 
@@ -344,27 +349,27 @@ def test_17_malformed_oracle_verbalization_retries_once() -> None:
 
 def test_18_oracle_retry_preserves_exact_result_content() -> None:
     _, orchestrator, _ = _oracle_turn([FAILED_RAW, _persona_raw()])
-    assert ORACLE in json.dumps(orchestrator.llm_adapter.calls[1])
+    assert ORACLE in _serialized_call(orchestrator.llm_adapter.calls[1])
 
 
 def test_19_oracle_retry_preserves_memory() -> None:
     _, orchestrator, _ = _oracle_turn([FAILED_RAW, _persona_raw()])
-    assert MEMORY in json.dumps(orchestrator.llm_adapter.calls[1])
+    assert MEMORY in _serialized_call(orchestrator.llm_adapter.calls[1])
 
 
 def test_20_oracle_retry_preserves_identity() -> None:
     _, orchestrator, _ = _oracle_turn([FAILED_RAW, _persona_raw()])
-    assert IDENTITY in json.dumps(orchestrator.llm_adapter.calls[1])
+    assert IDENTITY in _serialized_call(orchestrator.llm_adapter.calls[1])
 
 
 def test_21_oracle_retry_preserves_perception() -> None:
     _, orchestrator, _ = _oracle_turn([FAILED_RAW, _persona_raw()])
-    assert PERCEPTION in json.dumps(orchestrator.llm_adapter.calls[1])
+    assert PERCEPTION in _serialized_call(orchestrator.llm_adapter.calls[1])
 
 
 def test_22_oracle_retry_preserves_channel_restriction() -> None:
     _, orchestrator, _ = _oracle_turn([FAILED_RAW, _persona_raw()])
-    assert "RESTRICCION DEL CANAL ACTUAL" in json.dumps(orchestrator.llm_adapter.calls[1])
+    assert "Canal terminal" in _serialized_call(orchestrator.llm_adapter.calls[1])
 
 
 def test_23_oracle_repair_does_not_issue_second_query() -> None:

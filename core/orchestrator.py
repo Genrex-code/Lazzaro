@@ -1124,6 +1124,7 @@ class Orchestrator:
                     tarea=tarea,
                     audit_observation=decision_observation,
                     identity_context=identity_context,
+                    current_request=self._current_user_request(evento),
                 )
         except Exception as e:
             decision_observation["fallback_used"] = True
@@ -2134,7 +2135,7 @@ class Orchestrator:
         identity_context: IdentityContextV1 | None = None,
     ) -> ActionResponse:
         """Usa Capa 2 para conversacion social, sin herramientas fisicas."""
-        mensaje_usuario = str(evento.detalles.get("mensaje", "")).strip()
+        mensaje_usuario = self._current_user_request(evento)
         percepcion = self._extraer_percepcion_motor(evento, contexto_llm)
 
         try:
@@ -2145,7 +2146,7 @@ class Orchestrator:
                 recuerdos=memoria_texto,
                 restriccion_canal=self._restriccion_canal_persona(evento),
             )
-            raw_response = self.llm_adapter.ejecutar_texto(
+            raw_response = self.llm_adapter.ejecutar_plan(
                 mensajes,
                 politica=politica,
                 temperature=0.45,
@@ -2165,7 +2166,7 @@ class Orchestrator:
                     mensajes_originales=mensajes,
                     respuesta_fallida=raw_response or "",
                 )
-                raw_response_reintento = self.llm_adapter.ejecutar_texto(
+                raw_response_reintento = self.llm_adapter.ejecutar_plan(
                     mensajes_reintento,
                     politica=politica,
                     temperature=0.2,
@@ -2442,8 +2443,9 @@ class Orchestrator:
         identity_context: IdentityContextV1 | None = None,
     ) -> ActionResponse:
         """Usa Capa 3 para conocimiento frio y delega la voz publica a Persona."""
-        mensaje_usuario = str(evento.detalles.get("mensaje", "")).strip()
-        if not mensaje_usuario:
+        mensaje_usuario = self._current_user_request(evento)
+        mensaje_oracle = (mensaje_usuario or "").strip()
+        if not mensaje_oracle:
             oracle_result = OracleResult(
                 pregunta_original="",
                 contenido_tecnico="La consulta al Oraculo no contiene mensaje de usuario.",
@@ -2478,7 +2480,7 @@ class Orchestrator:
         oracle_parse_result = None
         try:
             oracle_result = self.oracle_engine.evaluar_cache(
-                mensaje_usuario,
+                mensaje_oracle,
                 self.oracle_memory,
             )
         except Exception as e:
@@ -2494,7 +2496,7 @@ class Orchestrator:
 
                 if self.oracle_client.configurado:
                     try:
-                        respuesta_cruda = self.oracle_client.consultar_oraculo(mensajes)
+                        respuesta_cruda = self.oracle_client.consultar_plan(mensajes)
                     except Exception as e:
                         logger.error("Error inesperado en OracleClient: %s", e, exc_info=True)
                         if isinstance(audit_observation, dict):
@@ -2526,7 +2528,7 @@ class Orchestrator:
                     )
 
                 if not respuesta_cruda or not respuesta_cruda.strip():
-                    respuesta_cruda = self.llm_adapter.ejecutar_texto(
+                    respuesta_cruda = self.llm_adapter.ejecutar_plan(
                         mensajes,
                         politica=politica,
                         temperature=0.1,
@@ -2540,7 +2542,7 @@ class Orchestrator:
                 )
                 oracle_result = self.oracle_engine.proyectar_resultado(
                     oracle_parse_result,
-                    mensaje_usuario,
+                    mensaje_oracle,
                     self.oracle_memory,
                     fuente=fuente_oraculo,
                 )
@@ -2602,7 +2604,7 @@ class Orchestrator:
         identity_context: IdentityContextV1 | None = None,
     ) -> ActionResponse:
         """Pasa conocimiento frio del Oraculo por Persona antes de responder a Unity."""
-        mensaje_usuario = str(evento.detalles.get("mensaje", "")).strip()
+        mensaje_usuario = self._current_user_request(evento)
         percepcion = self._extraer_percepcion_motor(evento, contexto_llm)
 
         try:
@@ -2614,7 +2616,7 @@ class Orchestrator:
                 recuerdos=memoria_texto,
                 restriccion_canal=self._restriccion_canal_persona(evento),
             )
-            raw_response = self.llm_adapter.ejecutar_texto(
+            raw_response = self.llm_adapter.ejecutar_plan(
                 mensajes,
                 politica=politica,
                 temperature=0.35,
@@ -2634,7 +2636,7 @@ class Orchestrator:
                     mensajes_originales=mensajes,
                     respuesta_fallida=raw_response or "",
                 )
-                raw_response_reintento = self.llm_adapter.ejecutar_texto(
+                raw_response_reintento = self.llm_adapter.ejecutar_plan(
                     mensajes_reintento,
                     politica=politica,
                     temperature=0.2,
@@ -2743,6 +2745,7 @@ class Orchestrator:
                 tarea=tarea,
                 audit_observation=audit_observation,
                 identity_context=identity_context,
+                current_request=self._current_user_request(evento),
             )
         except Exception as e:
             logger.error("Error en ReasoningEngine para ruta motor: %s", e, exc_info=True)
@@ -4175,6 +4178,16 @@ class Orchestrator:
         if evento.detalles.get("solicita_decision") is True:
             return True
         return evento.tipo_evento == "comando_usuario"
+
+    @staticmethod
+    def _current_user_request(evento: EventoEntrante) -> str | None:
+        """Return only the exact request authored in the current user event."""
+        if evento.tipo_evento != "comando_usuario":
+            return None
+        if "mensaje" not in evento.detalles:
+            return None
+        mensaje = evento.detalles.get("mensaje")
+        return mensaje if isinstance(mensaje, str) else None
 
     @staticmethod
     def _es_resultado_hablar(evento: EventoEntrante) -> bool:

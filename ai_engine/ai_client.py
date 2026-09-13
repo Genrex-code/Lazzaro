@@ -106,10 +106,10 @@ class BaseAIClient(LLMAuditBuffer, ABC):
     @abstractmethod
     def generate(self, prompt: str, **kwargs) -> str:
         """
-        Envía un prompt al modelo y devuelve el texto generado.
+        API textual legacy reservada para health checks y diagnosticos no cognitivos.
 
         Args:
-            prompt: texto completo del prompt.
+            prompt: texto diagnostico sin contexto cognitivo.
             **kwargs: parámetros adicionales específicos del modelo
                       (temperatura, max_tokens, stop_sequences, etc.).
 
@@ -127,6 +127,14 @@ class BaseAIClient(LLMAuditBuffer, ABC):
             True si el servicio está accesible, False en caso contrario.
         """
         ...
+
+    def generate_plan(self, plan: "object", **kwargs) -> str:
+        """Generate from a typed cognitive plan when the provider supports it."""
+        from ai_engine.prompt_plan import PromptProjectionUnsupported
+
+        raise PromptProjectionUnsupported(
+            f"{self.__class__.__name__} does not implement PromptPlanV1 projection"
+        )
 
     def close(self) -> None:
         """Libera recursos del cliente si la implementacion concreta lo requiere."""

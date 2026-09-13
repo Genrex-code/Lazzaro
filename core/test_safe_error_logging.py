@@ -16,6 +16,7 @@ from ai_engine.gemini_client import GeminiClient
 from ai_engine.ollama_client import OllamaClient
 from ai_engine.openai_compatible_client import OpenAICompatibleClient
 from ai_engine.oracle_client import OracleClient
+from ai_engine.oracle_engine import OracleEngine
 from core.audit_trace import serialize_audit_trace
 from core.safe_error_logging import log_safe_boundary_failure
 
@@ -177,7 +178,7 @@ def test_06_oracle_http_body_is_not_logged() -> None:
             raise httpx.HTTPStatusError("CANARY_API_KEY_7E4A", request=request, response=response)
 
     with _captured_logs() as logs, patch("ai_engine.oracle_client.httpx.Client", FakeClient):
-        result = client.consultar_oraculo([{"role": "user", "content": "fixture"}])
+        result = client.consultar_plan(OracleEngine().preparar_consulta("fixture"))
     assert_true(result is None, "Oracle conserva fallback None.")
     _assert_no_canary(logs.getvalue())
     assert_true("http_status=500" in logs.getvalue(), "Debe conservar HTTP seguro.")

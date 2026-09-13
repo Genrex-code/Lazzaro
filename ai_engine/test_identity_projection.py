@@ -77,7 +77,7 @@ class _Adapter:
         self.after_first = after_first
         self.calls = []
 
-    def ejecutar_texto(self, messages, **kwargs):
+    def ejecutar_plan(self, messages, **kwargs):
         del kwargs
         self.calls.append(messages)
         result = self.responses.pop(0)
@@ -295,14 +295,16 @@ def test_81_tools_reach_reasoning_separately() -> None:
 def test_82_persona_first_and_repair_reuse_generation() -> None:
     context = _context(generation=41)
     _, calls = _persona_retry(context)
-    assert context.generation == 41 and calls[0] == calls[1][:2]
+    assert context.generation == 41
+    assert calls[1].system is calls[0].system and calls[1].context is calls[0].context
     assert all("snapshot generation" not in str(call).lower() for call in calls)
 
 
 def test_83_oracle_persona_first_and_repair_reuse_generation() -> None:
     context = _context(generation=42)
     _, calls = _oracle_retry(context)
-    assert context.generation == 42 and calls[0] == calls[1][:2]
+    assert context.generation == 42
+    assert calls[1].system is calls[0].system and calls[1].context is calls[0].context
     assert all("snapshot generation" not in str(call).lower() for call in calls)
 
 
@@ -313,7 +315,8 @@ def test_84_state_mutation_between_attempts_does_not_change_identity() -> None:
         context,
         lambda: behavior.state_engine.establecer_estado_biologico(energia=5),
     )
-    assert all("energia: 80.00" in str(call) and "energia: 5.00" not in str(call) for call in calls)
+    assert all('"energia":80.0' in call.user_envelope_json() for call in calls)
+    assert all('"energia":5.0' not in call.user_envelope_json() for call in calls)
 
 
 def test_85_trait_mutation_between_attempts_does_not_change_identity() -> None:
@@ -323,7 +326,8 @@ def test_85_trait_mutation_between_attempts_does_not_change_identity() -> None:
         context,
         lambda: setattr(behavior.personality, "sociabilidad", 0.9),
     )
-    assert all("sociabilidad: 0.2500" in str(call) and "0.9000" not in str(call) for call in calls)
+    assert all('"sociabilidad":0.25' in call.user_envelope_json() for call in calls)
+    assert all('"sociabilidad":0.9' not in call.user_envelope_json() for call in calls)
 
 
 def test_86_next_decision_observes_new_generation_state_and_traits() -> None:
@@ -388,17 +392,19 @@ def test_101_reasoning_uses_only_canonical_trait_authority() -> None:
             personalidad={"sociabilidad": -0.75, "metodico": -0.65},
         )
     )
-    assert prompt.count("sociabilidad: 0.7500") == 1
-    assert prompt.count("metodico: 0.6500") == 1
-    assert "sociabilidad=-0.75" not in prompt
-    assert "metodico=-0.65" not in prompt
+    serialized = prompt.user_envelope_json()
+    assert serialized.count('"sociabilidad":0.75') == 1
+    assert serialized.count('"metodico":0.65') == 1
+    assert '"sociabilidad":-0.75' not in serialized
+    assert '"metodico":-0.65' not in serialized
 
 
 def test_102_reasoning_legacy_personality_remains_without_identity() -> None:
     prompt = PromptBuilder().build(
         AgentContext(personalidad={"sociabilidad": -0.75, "metodico": -0.65})
     )
-    assert "sociabilidad=-0.75" in prompt and "metodico=-0.65" in prompt
+    serialized = prompt.user_envelope_json()
+    assert '"sociabilidad":-0.75' in serialized and '"metodico":-0.65' in serialized
 
 
 def test_103_reasoning_same_turn_context_uses_correlated_snapshot() -> None:
@@ -437,9 +443,9 @@ def test_103_reasoning_same_turn_context_uses_correlated_snapshot() -> None:
 
 def test_104_persona_environment_label_matches_its_rule() -> None:
     _, calls = _persona_retry(_context())
-    system_prompt = calls[0][0]["content"]
-    assert system_prompt.count("ENTORNO ACTUAL REPORTADO POR EL RUNTIME") == 2
-    assert "TU ENTORNO FÍSICO ACTUAL" not in system_prompt
+    plan = calls[0]
+    assert "ENTORNO ACTUAL REPORTADO POR EL RUNTIME" not in plan.system.text
+    assert "MEMORY" in plan.user_envelope_json()
 
 
 def test_105_orchestrator_turn_path_does_not_recapture_owner() -> None:

@@ -82,7 +82,7 @@ class _Adapter:
         self.responses = list(responses)
         self.calls = 0
 
-    def ejecutar_texto(self, mensajes, **kwargs):
+    def ejecutar_plan(self, mensajes, **kwargs):
         self.calls += 1
         return self.responses.pop(0)
 

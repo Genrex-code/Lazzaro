@@ -1,60 +1,79 @@
-"""persona_prompt_buider.py - Consutructor dinamico de identidad ( Capa 2).
-Ensambla el prompt del sistema combinando la personalidad base,
-el estado fisiologico, la persepcion espacial y la memoria.
-"""
-# si me doy cuenta que pongo BOLOGIA es mi protesta por que me pusieron 99 en biologia porque al profe no el gusto el logo que puse porque estaba pixeleado
-from typing import Optional
-from ai_engine.identity_projection import IdentityContextV1, render_persona_identity
+"""Typed PromptPlan builder for Persona (Capa 2)."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from ai_engine.identity_projection import IdentityContextV1
+from ai_engine.prompt_plan import (
+    ChannelPolicyV1,
+    ContextBlockV1,
+    ContextDataSourceV1,
+    ContextEnvelopeV1,
+    PromptPlanV1,
+    PromptPurposeV1,
+    RequestInstructionV1,
+    build_persona_system_instructions,
+)
+from ai_engine.schemas import OracleResult
 from core.logger import get_logger
 
-logger=get_logger(__name__)
+
+logger = get_logger(__name__)
+
 
 class PersonaPromptBuilder:
-    """"Genera el prompt maestro para el motor de personalidad de Lazzaro."""
+    """Build Persona plans without promoting runtime context to instructions."""
 
-    def build_system_prompt(
-        self,
+    @staticmethod
+    def build_plan(
+        *,
+        mensaje_usuario: str | None,
         identity_context: IdentityContextV1,
-        percepcion_texto: str = "",
-        recuerdos: Optional[str] = "",
-    ) -> str|None:
-        """
-        Construye el prompt maestro que se enviará al LLM local (DeepSeek).
-        Convergen aquí todas las variables dinámicas de la Capa 2.
+        percepcion: dict[str, Any] | None = None,
+        recuerdos: str = "",
+        terminal_channel: bool = False,
+        oracle_result: OracleResult | None = None,
+    ) -> PromptPlanV1:
+        if not isinstance(identity_context, IdentityContextV1):
+            raise TypeError("identity_context debe ser IdentityContextV1")
 
-        Args:
-            identity_context: proyeccion tipada del snapshot canonico del turno.
-            percepcion_texto: resumen perceptual enviado por Unity.
-            recuerdos: texto opcional con recuerdos relevantes.
-
-        Returns:
-            Prompt completo listo para enviar al modelo.
-            """
-        prompt = render_persona_identity(identity_context) + "\n\n"
-        prompt += (
-            "=== ESTILO SOCIAL ===\n"
-            "Habla en primera persona, con voz casual y directa. Puedes usar calidez, "
-            "frialdad o sarcasmo moderado segun el estado, sin adoptar tono de servicio.\n\n"
+        purpose = (
+            PromptPurposeV1.PERSONA_ORACLE_VERBALIZATION
+            if oracle_result is not None
+            else PromptPurposeV1.PERSONA_SOCIAL
         )
-
-        #1.- Percepcion del entorno
-        prompt += "=== ENTORNO ACTUAL REPORTADO POR EL RUNTIME ===\n"
-        prompt += f"{percepcion_texto}\n\n" if percepcion_texto else "No percibes objetos a tu alrededor.\n\n"
-
-        #2.- Memoria (evidencia contextual, nunca authority de identidad)
+        blocks = [ContextBlockV1(ContextDataSourceV1.IDENTITY, identity_context)]
+        if percepcion:
+            blocks.append(ContextBlockV1(ContextDataSourceV1.PERCEPTION, percepcion))
         if recuerdos:
-            prompt += "=== TUS RECUERDOS RECIENTES O RELEVANTES === \n"
-            prompt += f"{recuerdos}\n\n"
+            blocks.append(
+                ContextBlockV1(
+                    ContextDataSourceV1.MEMORY_AGGREGATE,
+                    {"summary": recuerdos},
+                )
+            )
+        if oracle_result is not None:
+            blocks.append(
+                ContextBlockV1(ContextDataSourceV1.ORACLE_RESULT, oracle_result)
+            )
 
-        #3.- reglas de salida
-        prompt += (
-            "=== REGLAS DE RESPUESTA ===\n"
-            "1. Responde en primera persona, de forma conversacional.\n"
-            "2. Adapta la longitud de tu respuesta a tu Energía y Estrés actuales de forma natural "
-            "(no menciones tus porcentajes numéricos, solo actúa en consecuencia).\n"
-            "3. Si se te pregunta por tu entorno, utiliza la información de "
-            "'ENTORNO ACTUAL REPORTADO POR EL RUNTIME'.\n"
+        request = None
+        if isinstance(mensaje_usuario, str):
+            request = RequestInstructionV1.current_user(mensaje_usuario)
+
+        plan = PromptPlanV1(
+            system=build_persona_system_instructions(
+                purpose,
+                ChannelPolicyV1.TERMINAL if terminal_channel else ChannelPolicyV1.DEFAULT,
+            ),
+            context=ContextEnvelopeV1(blocks),
+            request=request,
         )
-
-        logger.debug("Prompt de persona construido (%d caracteres).",len(prompt))
-        return prompt
+        logger.debug(
+            "PromptPlan Persona construido purpose=%s blocks=%d request=%s.",
+            purpose.value,
+            len(plan.context.blocks),
+            plan.request is not None,
+        )
+        return plan

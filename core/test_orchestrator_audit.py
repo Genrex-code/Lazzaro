@@ -1045,6 +1045,12 @@ class _ObservableFakeClient(BaseAIClient):
             raise self.outcome
         return str(self.outcome)
 
+    def generate_plan(self, plan, **kwargs) -> str:
+        self.calls += 1
+        if isinstance(self.outcome, BaseException):
+            raise self.outcome
+        return str(self.outcome)
+
     def health_check(self) -> bool:
         return not isinstance(self.outcome, BaseException) and bool(self.outcome)
 
@@ -1314,7 +1320,7 @@ def test_oracle_invalid_external_response_is_correlated_as_fallback() -> None:
         def __init__(self) -> None:
             self.calls = 0
 
-        def consultar_oraculo(self, mensajes) -> str:
+        def consultar_plan(self, mensajes) -> str:
             self.calls += 1
             self._record_llm_audit(
                 LLMCallAudit(
@@ -1340,9 +1346,9 @@ def test_oracle_invalid_external_response_is_correlated_as_fallback() -> None:
             self.client = client
             self.calls = 0
 
-        def ejecutar_texto(self, mensajes, **kwargs) -> str:
+        def ejecutar_plan(self, mensajes, **kwargs) -> str:
             self.calls += 1
-            return self.client.generate("SECRET_ORACLE_PERSONA_PROMPT")
+            return self.client.generate_plan(mensajes)
 
     external = InvalidExternalOracle()
     persona_provider = _ObservableFakeClient(
@@ -1415,7 +1421,7 @@ def test_persona_invalid_output_and_existing_retry_are_observable() -> None:
         def __init__(self) -> None:
             self.calls = 0
 
-        def ejecutar_texto(self, mensajes, **kwargs) -> str:
+        def ejecutar_plan(self, mensajes, **kwargs) -> str:
             self.calls += 1
             if self.calls == 1:
                 return "SECRET_INVALID_MODEL_OUTPUT"

@@ -14,6 +14,7 @@ import time
 from typing import Any
 
 from ai_engine.ai_client import BaseAIClient, LLMCallAudit
+from ai_engine.prompt_plan import PromptPlanV1, PromptProjectionUnsupported
 from core.logger import get_logger
 from core.safe_error_logging import log_safe_boundary_failure
 
@@ -51,7 +52,22 @@ class FallbackAIClient(BaseAIClient):
         self._provider_local.value = value
 
     def generate(self, prompt: str, **kwargs) -> str:
-        """Intenta generar texto con cada proveedor hasta obtener una respuesta no vacia."""
+        """Cadena textual legacy para health checks/diagnosticos no cognitivos."""
+        return self._generate_with("generate", prompt, allow_unsupported=False, **kwargs)
+
+    def generate_plan(self, plan: PromptPlanV1, **kwargs) -> str:
+        """Pass the same plan to children and skip projection-incompatible providers."""
+        return self._generate_with("generate_plan", plan, allow_unsupported=True, **kwargs)
+
+    def _generate_with(
+        self,
+        method_name: str,
+        value: str | PromptPlanV1,
+        *,
+        allow_unsupported: bool,
+        **kwargs,
+    ) -> str:
+        compatible_provider_seen = False
         for index, client in enumerate(self.clients):
             proveedor = str(getattr(client, "provider_name", client.__class__.__name__))
             model_id = str(getattr(client, "model_name", "")).strip() or None
@@ -68,9 +84,17 @@ class FallbackAIClient(BaseAIClient):
                         type(e).__name__,
                     )
             raised_error: Exception | None = None
+            projection_unsupported = False
             try:
-                texto = client.generate(prompt, **kwargs)
+                texto = getattr(client, method_name)(value, **kwargs)
+                compatible_provider_seen = True
+            except PromptProjectionUnsupported:
+                if not allow_unsupported:
+                    raise
+                projection_unsupported = True
+                texto = ""
             except Exception as e:
+                compatible_provider_seen = True
                 log_safe_boundary_failure(
                     logger,
                     component="llm_fallback.generate",
@@ -97,6 +121,12 @@ class FallbackAIClient(BaseAIClient):
                 for event in child_events
                 if isinstance(event, LLMCallAudit)
             ] if isinstance(child_events, list) else []
+            if projection_unsupported:
+                logger.info(
+                    "Proveedor LLM %s omitido: no soporta la proyeccion PromptPlanV1.",
+                    proveedor,
+                )
+                continue
             fallback_used = index > 0
             if child_events:
                 for event in child_events:
@@ -137,6 +167,10 @@ class FallbackAIClient(BaseAIClient):
             logger.warning("Proveedor LLM %s no produjo texto util; probando fallback.", proveedor)
 
         self.last_provider_used = None
+        if allow_unsupported and not compatible_provider_seen:
+            raise PromptProjectionUnsupported(
+                "Ningun proveedor configurado soporta PromptPlanV1"
+            )
         logger.error("Todos los proveedores LLM fallaron o devolvieron texto vacio.")
         return ""
 
