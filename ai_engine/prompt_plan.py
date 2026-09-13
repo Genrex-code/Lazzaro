@@ -332,18 +332,45 @@ class PromptPlanV1:
     version: int = PROMPT_PLAN_VERSION
 
     def __post_init__(self) -> None:
+        if type(self.version) is not int:
+            raise PromptPlanConstructionError("prompt plan version must be an exact int")
         if self.version != PROMPT_PLAN_VERSION:
             raise PromptPlanConstructionError("unsupported prompt plan version")
         if not isinstance(self.system, SystemInstructionsV1):
             raise PromptPlanConstructionError("system must be SystemInstructionsV1")
         if not isinstance(self.context, ContextEnvelopeV1):
             raise PromptPlanConstructionError("context must be ContextEnvelopeV1")
-        if self.request is not None and self.request.source is not RequestSourceV1.CURRENT_USER:
+        if self.request is not None and not isinstance(
+            self.request,
+            RequestInstructionV1,
+        ):
+            raise PromptPlanConstructionError("request must be RequestInstructionV1")
+        if self.assistant_evidence is not None and not isinstance(
+            self.assistant_evidence,
+            AssistantEvidenceV1,
+        ):
+            raise PromptPlanConstructionError(
+                "assistant evidence must be AssistantEvidenceV1"
+            )
+        if self.repair_request is not None and not isinstance(
+            self.repair_request,
+            RequestInstructionV1,
+        ):
+            raise PromptPlanConstructionError(
+                "repair request must be RequestInstructionV1"
+            )
+        if (
+            self.request is not None
+            and self.request.source is not RequestSourceV1.CURRENT_USER
+        ):
             raise PromptPlanConstructionError("base request must originate from the current user")
         repair_parts = (self.assistant_evidence, self.repair_request)
         if any(part is None for part in repair_parts) != all(part is None for part in repair_parts):
             raise PromptPlanConstructionError("repair evidence and request must be provided together")
-        if self.repair_request is not None and self.repair_request.source is not RequestSourceV1.CODE_OWNED_REPAIR:
+        if (
+            self.repair_request is not None
+            and self.repair_request.source is not RequestSourceV1.CODE_OWNED_REPAIR
+        ):
             raise PromptPlanConstructionError("repair request must be code-owned")
 
     @property

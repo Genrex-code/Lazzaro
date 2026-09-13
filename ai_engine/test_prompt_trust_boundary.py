@@ -1,4 +1,4 @@
-"""ROOT-019: permanent PromptPlan/projection trust-boundary matrix (65 tests)."""
+"""ROOT-019: permanent PromptPlan/projection trust-boundary matrix (81 tests)."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from ai_engine.ollama_client import OllamaClient
 from ai_engine.openai_compatible_client import OpenAICompatibleClient
 from ai_engine.oracle_client import OracleClient
 from ai_engine.prompt_plan import (
+    AssistantEvidenceV1,
     AssistantEvidenceSourceV1,
     BehaviorPolicyV1,
     ChannelPolicyV1,
@@ -579,13 +580,175 @@ def test_65_cognitive_runtime_has_no_legacy_giant_prompt_fallback() -> None:
     assert "ejecutar_texto" not in oracle_source and "consultar_oraculo" not in oracle_source
 
 
+def test_66_simple_namespace_current_user_request_is_rejected() -> None:
+    fake = SimpleNamespace(source=RequestSourceV1.CURRENT_USER, text="ARBITRARY")
+    _raises(
+        PromptPlanConstructionError,
+        PromptPlanV1,
+        system=_system(),
+        context=ContextEnvelopeV1(),
+        request=fake,
+    )
+
+
+def test_67_custom_request_like_object_is_rejected() -> None:
+    class FakeRequest:
+        source = RequestSourceV1.CURRENT_USER
+        text = "ARBITRARY"
+
+    _raises(
+        PromptPlanConstructionError,
+        PromptPlanV1,
+        system=_system(),
+        context=ContextEnvelopeV1(),
+        request=FakeRequest(),
+    )
+
+
+def test_68_fake_assistant_evidence_is_rejected() -> None:
+    fake = SimpleNamespace(
+        source=AssistantEvidenceSourceV1.FAILED_MODEL_OUTPUT,
+        text="ARBITRARY",
+    )
+    _raises(
+        PromptPlanConstructionError,
+        PromptPlanV1,
+        system=_system(),
+        context=ContextEnvelopeV1(),
+        assistant_evidence=fake,
+        repair_request=RequestInstructionV1.code_owned_repair(),
+    )
+
+
+def test_69_fake_repair_is_rejected_before_projection() -> None:
+    projection_reached = []
+
+    class FakeRepair:
+        source = RequestSourceV1.CODE_OWNED_REPAIR
+        text = "ROOT019_FAKE_REPAIR"
+
+    def construct_then_project() -> None:
+        plan = PromptPlanV1(
+            system=_system(),
+            context=ContextEnvelopeV1(),
+            assistant_evidence=AssistantEvidenceV1.failed_model_output("bad"),
+            repair_request=FakeRepair(),
+        )
+        projection_reached.append(plan)
+        project_chat_messages(plan)
+
+    _raises(PromptPlanConstructionError, construct_then_project)
+    assert projection_reached == []
+
+
+def test_70_real_current_user_request_is_accepted() -> None:
+    request = RequestInstructionV1.current_user("exact request")
+    assert PromptPlanV1(
+        system=_system(),
+        context=ContextEnvelopeV1(),
+        request=request,
+    ).request is request
+
+
+def test_71_real_assistant_evidence_is_accepted_in_repair() -> None:
+    evidence = AssistantEvidenceV1.failed_model_output("bad")
+    plan = PromptPlanV1(
+        system=_system(),
+        context=ContextEnvelopeV1(),
+        assistant_evidence=evidence,
+        repair_request=RequestInstructionV1.code_owned_repair(),
+    )
+    assert plan.assistant_evidence is evidence
+
+
+def test_72_real_code_owned_repair_is_position_restricted() -> None:
+    repair = RequestInstructionV1.code_owned_repair()
+    valid = PromptPlanV1(
+        system=_system(),
+        context=ContextEnvelopeV1(),
+        assistant_evidence=AssistantEvidenceV1.failed_model_output("bad"),
+        repair_request=repair,
+    )
+    assert valid.repair_request is repair
+    _raises(
+        PromptPlanConstructionError,
+        PromptPlanV1,
+        system=_system(),
+        context=ContextEnvelopeV1(),
+        request=repair,
+    )
+
+
+def test_73_real_current_user_request_is_rejected_in_repair_position() -> None:
+    _raises(
+        PromptPlanConstructionError,
+        PromptPlanV1,
+        system=_system(),
+        context=ContextEnvelopeV1(),
+        assistant_evidence=AssistantEvidenceV1.failed_model_output("bad"),
+        repair_request=RequestInstructionV1.current_user("mal posicionada"),
+    )
+
+
+def test_74_version_true_is_rejected() -> None:
+    _raises(PromptPlanConstructionError, _plan_with_version, True)
+
+
+def test_75_version_false_is_rejected() -> None:
+    _raises(PromptPlanConstructionError, _plan_with_version, False)
+
+
+def test_76_version_float_is_rejected() -> None:
+    _raises(PromptPlanConstructionError, _plan_with_version, 1.0)
+
+
+def test_77_version_string_is_rejected() -> None:
+    _raises(PromptPlanConstructionError, _plan_with_version, "1")
+
+
+def test_78_unknown_integer_version_is_rejected() -> None:
+    _raises(PromptPlanConstructionError, _plan_with_version, 2)
+
+
+def test_79_exact_integer_version_one_is_accepted() -> None:
+    assert _plan_with_version(1).version == 1
+
+
+def test_80_fake_system_contract_remains_rejected() -> None:
+    fake = SimpleNamespace(purpose=PromptPurposeV1.PERSONA_SOCIAL, text="system")
+    _raises(
+        PromptPlanConstructionError,
+        PromptPlanV1,
+        system=fake,
+        context=ContextEnvelopeV1(),
+    )
+
+
+def test_81_fake_context_contract_remains_rejected() -> None:
+    fake = SimpleNamespace(blocks=())
+    _raises(
+        PromptPlanConstructionError,
+        PromptPlanV1,
+        system=_system(),
+        context=fake,
+    )
+
+
+def _plan_with_version(version: object) -> PromptPlanV1:
+    return PromptPlanV1(
+        system=_system(),
+        context=ContextEnvelopeV1(),
+        version=version,
+    )
+
+
 def main() -> None:
     tests = [
         value
         for name, value in sorted(globals().items())
         if name.startswith("test_") and callable(value)
     ]
-    assert len(tests) == 65
+    assert len(tests) == 81
     for test in tests:
         test()
     print(f"[OK] ROOT-019 prompt trust boundary: {len(tests)}/{len(tests)} PASS.")

@@ -161,7 +161,19 @@ caracterizar un transporte nativo role-aware; `/api/generate` no basta.
 
 ## Validación
 
-La suite permanente `ai_engine/test_prompt_trust_boundary.py` contiene 65 casos:
+Los contratos anidados de `PromptPlanV1` son type-strict en runtime: `request`
+sólo admite `RequestInstructionV1`, `assistant_evidence` sólo admite
+`AssistantEvidenceV1` y `repair_request` sólo admite `RequestInstructionV1`.
+Objetos duck-typed con atributos `source`/`text` coincidentes no pueden reclamar
+provenance de request o evidencia. La posición sigue restringiendo provenance:
+`CURRENT_USER` sólo puede ocupar `request` y `CODE_OWNED_REPAIR` sólo puede
+ocupar `repair_request`.
+
+El campo `version` exige exactamente `type(version) is int` y el valor V1. Los
+alias `bool`, `float` y `str`, además de versiones enteras desconocidas, se
+rechazan sin coerción.
+
+La suite permanente `ai_engine/test_prompt_trust_boundary.py` contiene 81 casos:
 contratos frozen/slots, validación runtime, JSON exacto, corpus adversarial,
 estabilidad de sistema, source/authority/role, request opcional, reparación,
 registry guard, proyecciones con capture fakes, Ollama pre-HTTP, fallback y
@@ -169,12 +181,12 @@ búsqueda estática de rutas legacy. No usa red ni proveedor real.
 
 Resultados de cierre:
 
-- ROOT-019 focal: `65/65 PASS`;
+- ROOT-019 focal: `81/81 PASS`;
 - ROOT-016: `106/106 PASS` (`53` snapshot + `53` projection);
 - ROOT-008: `61/61 PASS`; ROOT-020: `55/55 PASS`; ROOT-012: `15/15 PASS`;
 - ROOT-009: `25/25 PASS`; ROOT-010: `34/34 PASS`;
 - Persona: `1/1 PASS`; Oracle: `4/4 PASS`; Motor/fallback focal: `5/5 PASS`;
-- regresión global aislada: `887/887 PASS`, `0 XFAIL`, `0 unexpected`,
+- regresión global aislada: `903/903 PASS`, `0 XFAIL`, `0 unexpected`,
   `0 import failures`, suite gate e isolation gate `PASS`;
 - `compileall` y `git diff --check`: `PASS`;
 - los diez archivos activos de Chroma conservaron exactamente sus SHA-256;
