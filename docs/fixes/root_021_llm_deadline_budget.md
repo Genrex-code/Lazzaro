@@ -1,6 +1,6 @@
 # ROOT-021 — Deadline y retry budget compartido para LLM
 
-Estado: `IMPLEMENTED / FIELD_PENDING` hasta revisión humana.
+Estado: `IMPLEMENTED / REVIEW_FIX_READY_FOR_HUMAN_REVIEW`.
 
 ## Problema histórico
 
@@ -32,11 +32,23 @@ Settings y el boundary de control rechazan `bool`, NaN, infinito, cero y negativ
 
 `LLMCallExecutorV1` es la única autoridad para orden de proveedores, retry del mismo proveedor, attempt cap, Retry-After, backoff, jitter, sleep, fallback, child cap, deadline y terminal final. `FallbackAIClient` es una fachada: conserva providers/configuración, compatibilidad textual, `last_provider_used`, captura de audit y close lógico, pero no contiene bucles de intentos o proveedores. La factory devuelve esta fachada incluso con un único proveedor.
 
+El contrato productivo es estrictamente async: todo provider debe implementar
+`attempt_async(...)`. `BaseAIClient` falla cerrado con `ProviderConfigurationError`
+si una subclase no lo implementa, y el executor nunca llama como alternativa a
+`generate`, `generate_plan`, `health_check` o `consultar_plan`. Tampoco traslada
+I/O síncrono a threads. Los caminos de clientes síncronos usados por dobles
+históricos de Gemini/OpenAI-compatible fueron retirados; los tests usan transports
+async inyectados.
+
 Cada proveedor concreto proyecta la entrada y ejecuta exactamente un I/O. No reintenta, no duerme, no recorre fallbacks y no crea un budget de ruta. Gemini declara cuatro intentos totales —incluido el inicial— para que el executor reproduzca la política 1/2/4 s; los otros perfiles actuales conservan un intento.
 
 ## Deadline y cancelación
 
 El executor instala un `asyncio.timeout(remaining)` exterior para la ruta y otro límite con el remanente del child de proveedor. Un vencimiento del límite total produce `DEADLINE_EXCEEDED`, detiene retries/fallback y nunca acepta texto tardío. Un timeout de transporte/cap de proveedor antes del deadline se clasifica como `TRANSPORT_TIMEOUT` y puede permitir retry o sibling. Además de la cancelación, una respuesta sólo se acepta si `finished_ns < route.deadline_ns`.
+
+Sólo errores derivados de `Exception` se convierten en fallos de provider.
+`asyncio.CancelledError`, `KeyboardInterrupt`, `SystemExit` y otros controles de
+proceso no se convierten en receipts, no se reintentan y no activan siblings.
 
 La garantía es local: al vencer el deadline, Lazzaro cancela su operación async, propaga la cancelación al transporte, cierra el transporte que posee, no deja worker/task desprendido y no acepta un resultado posterior. Esto no obliga al servidor remoto a detener inmediatamente el cómputo ni promete preempción exacta del sistema operativo en el nanosegundo 45.000000.
 
@@ -79,6 +91,12 @@ El backoff determinista de Gemini es 1, 2 y 4 s antes de intentos 2, 3 y 4. Sól
 - Health usa 45 s totales compartidos por sus providers. ROOT-023 no cambia sus estados de readiness.
 - El `generate(str)` diagnóstico legacy sigue permitido sólo como ruta no cognitiva y ahora siempre recibe el mismo límite total.
 
+Solicitar una reparación no equivale a haberla ejecutado. Persona y la
+verbalización Oracle consumen el resultado tipado de la reparación y sólo marcan
+`DecisionAttempt.REPAIR`/`retry_count=1` cuando existe al menos un receipt de
+provider. Si el deadline compartido expira antes del dispatch, hay cero llamadas,
+cero receipts y `DecisionOutcome` permanece en `FIRST`/`retry_count=0`.
+
 ## Resultado y precedencia
 
 `LLMCallResultV1` contiene terminal, texto final aceptado, proveedor/modelo final, failure final y receipts. Precedencia:
@@ -99,4 +117,4 @@ ROOT-018 podrá consumir el resultado terminal tipado, pero no se inicia aquí: 
 
 ## Verificación
 
-`ai_engine/test_llm_call_control.py` contiene 95 casos sin red ni LLM real: validación, sibling canaries, taxonomy, retry/fallback, Retry-After, privacidad, terminales, dos loops sync, rechazo de loop activo, cancelación/finalización, cero tasks pendientes, path Gemini HTTPX, SDK attempts=1, conversión a ms, factory/fachada y composición Persona/Oracle/health/diagnóstico. Las regresiones ROOT-019/016/008/020/012/009/010 y la suite global siguen siendo gates de cierre.
+`ai_engine/test_llm_call_control.py` contiene 107 casos sin red ni LLM real: validación, sibling canaries, taxonomy, retry/fallback, Retry-After, privacidad, terminales, dos loops sync, rechazo de loop activo, cancelación/finalización, cero tasks pendientes, path Gemini HTTPX, SDK attempts=1, conversión a ms, factory/fachada, contrato async fail-closed, propagación de controles de proceso y verdad del repair Persona/Oracle. Las regresiones ROOT-019/016/008/020/012/009/010 y la suite global siguen siendo gates de cierre.

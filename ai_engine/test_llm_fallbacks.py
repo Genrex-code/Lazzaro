@@ -33,7 +33,8 @@ class FakeClient(BaseAIClient):
         self.respuesta = respuesta
         self.calls = 0
 
-    def generate(self, prompt: str, **kwargs) -> str:
+    async def attempt_async(self, *, operation, value, child_budget, generation) -> str:
+        del operation, value, child_budget, generation
         self.calls += 1
         return self.respuesta
 
@@ -46,7 +47,8 @@ class RaisingClient(FakeClient):
         super().__init__(provider_name, "", model_name=model_name)
         self.error = error
 
-    def generate(self, prompt: str, **kwargs) -> str:
+    async def attempt_async(self, *, operation, value, child_budget, generation) -> str:
+        del operation, value, child_budget, generation
         self.calls += 1
         raise self.error
 
@@ -75,10 +77,11 @@ def test_fallback_audit_is_call_scoped_and_thread_safe() -> None:
     barrier = threading.Barrier(2)
 
     class ConditionalPrimary(FakeClient):
-        def generate(self, prompt: str, **kwargs) -> str:
+        async def attempt_async(self, *, operation, value, child_budget, generation) -> str:
+            del operation, child_budget, generation
             self.calls += 1
             barrier.wait(timeout=2)
-            return "primaria" if prompt == "event-a" else ""
+            return "primaria" if value == "event-a" else ""
 
     shared_primary = ConditionalPrimary("gemini", "", model_name="gemini-concurrent")
     shared_secondary = FakeClient("groq", "secundaria", model_name="groq-concurrent")

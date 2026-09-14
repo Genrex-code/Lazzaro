@@ -10,6 +10,12 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(project_root))
 
 from ai_engine.oracle_engine import OracleEngine
+from ai_engine.fallback_ai_client import FallbackAIClient
+from ai_engine.llm_call_control import (
+    LLMCallResultV1,
+    LLMCallTerminalV1,
+    ProviderAttemptReceiptV1,
+)
 from ai_engine.persona_engine import PersonaEngine
 from ai_engine.provider_prompt_projection import project_chat_messages
 from ai_engine.schemas import ActionResponse, OracleResult
@@ -54,6 +60,9 @@ class FakeOracleMemory:
 
 
 class FakeOracleClient:
+    provider_name = "oracle_fake"
+    model_name = "oracle-fixture"
+
     def __init__(self, configurado: bool, respuesta: str | None = None) -> None:
         self._configurado = configurado
         self.respuesta = respuesta
@@ -63,9 +72,11 @@ class FakeOracleClient:
     def configurado(self) -> bool:
         return self._configurado
 
-    def consultar_plan(self, mensajes):
+    async def attempt_async(self, *, operation, value, child_budget, generation):
+        del value, child_budget, generation
+        assert_true(operation == "plan", "Oracle fake sólo admite plan.")
         self.calls += 1
-        return self.respuesta
+        return self.respuesta or ""
 
 
 class FakeLLMAdapter:
@@ -74,6 +85,38 @@ class FakeLLMAdapter:
         self.calls = []
 
     def ejecutar_plan(self, mensajes, **kwargs):
+        return self._next(mensajes, kwargs)
+
+    def ejecutar_plan_result(self, mensajes, **kwargs):
+        providers = tuple(kwargs.get("providers") or ())
+        if providers:
+            return FallbackAIClient(providers).execute_plan_result(
+                mensajes,
+                budget=kwargs.get("budget"),
+                generation={},
+                providers=providers,
+            )
+        text = self._next(mensajes, kwargs)
+        receipt = ProviderAttemptReceiptV1(
+            provider="persona-fixture",
+            model_id="persona-fixture",
+            failure_class=None,
+            error_type=None,
+            http_status=None,
+            retry_after_seconds=None,
+            started_ns=1,
+            finished_ns=2,
+        )
+        return LLMCallResultV1(
+            terminal=LLMCallTerminalV1.SUCCESS,
+            final_text=text,
+            final_provider="persona-fixture",
+            final_model_id="persona-fixture",
+            final_failure=None,
+            receipts=(receipt,),
+        )
+
+    def _next(self, mensajes, kwargs):
         self.calls.append((mensajes, kwargs))
         assert_true(
             "required_provider" not in kwargs,

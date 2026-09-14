@@ -2163,13 +2163,12 @@ class Orchestrator:
             hubo_reintento = False
             self._observar_fallback_persona(datos, audit_observation)
             if datos.get("requiere_reintento"):
-                hubo_reintento = True
                 logger.info("Capa Social solicita reintento breve por salida LLM irrecuperable.")
                 mensajes_reintento = self.persona_engine.preparar_reintento_json(
                     mensajes_originales=mensajes,
                     respuesta_fallida=raw_response or "",
                 )
-                raw_response_reintento = self.llm_adapter.ejecutar_plan(
+                resultado_reintento = self.llm_adapter.ejecutar_plan_result(
                     mensajes_reintento,
                     politica=politica,
                     temperature=0.2,
@@ -2178,15 +2177,17 @@ class Orchestrator:
                     error_context="Reintento Capa Social",
                     budget=llm_budget,
                 )
-                parse_result_reintento = self.persona_engine.parsear_resultado(
-                    raw_response_reintento
-                )
-                parse_result_final = parse_result_reintento
-                datos_reintento = self.persona_engine.proyectar_resultado(
-                    parse_result_reintento
-                )
-                self._observar_fallback_persona(datos_reintento, audit_observation)
-                datos = datos_reintento
+                hubo_reintento = bool(resultado_reintento.receipts)
+                if hubo_reintento:
+                    parse_result_reintento = self.persona_engine.parsear_resultado(
+                        resultado_reintento.final_text or ""
+                    )
+                    parse_result_final = parse_result_reintento
+                    datos_reintento = self.persona_engine.proyectar_resultado(
+                        parse_result_reintento
+                    )
+                    self._observar_fallback_persona(datos_reintento, audit_observation)
+                    datos = datos_reintento
             return self._action_response_desde_persona(
                 datos,
                 outcome=self._outcome_persona(
@@ -2684,13 +2685,12 @@ class Orchestrator:
             hubo_reintento = False
             self._observar_fallback_persona(datos, audit_observation)
             if datos.get("requiere_reintento"):
-                hubo_reintento = True
                 logger.info("Verbalizacion del Oraculo solicita reintento social breve.")
                 mensajes_reintento = self.persona_engine.preparar_reintento_json(
                     mensajes_originales=mensajes,
                     respuesta_fallida=raw_response or "",
                 )
-                raw_response_reintento = self.llm_adapter.ejecutar_plan(
+                resultado_reintento = self.llm_adapter.ejecutar_plan_result(
                     mensajes_reintento,
                     politica=politica,
                     temperature=0.2,
@@ -2699,14 +2699,16 @@ class Orchestrator:
                     error_context="Reintento verbalizacion Capa Social del Oraculo",
                     budget=llm_budget,
                 )
-                parse_result_reintento = self.persona_engine.parsear_resultado(
-                    raw_response_reintento
-                )
-                parse_result_final = parse_result_reintento
-                datos = self.persona_engine.proyectar_resultado(
-                    parse_result_reintento
-                )
-                self._observar_fallback_persona(datos, audit_observation)
+                hubo_reintento = bool(resultado_reintento.receipts)
+                if hubo_reintento:
+                    parse_result_reintento = self.persona_engine.parsear_resultado(
+                        resultado_reintento.final_text or ""
+                    )
+                    parse_result_final = parse_result_reintento
+                    datos = self.persona_engine.proyectar_resultado(
+                        parse_result_reintento
+                    )
+                    self._observar_fallback_persona(datos, audit_observation)
 
             outcome = self._outcome_persona(
                 primary_status=parse_result.status,

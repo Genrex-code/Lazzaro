@@ -12,6 +12,11 @@ from unittest.mock import patch
 from core.behavior_core import BehaviorCore
 from core.identity_snapshot import IdentitySnapshotProvider, build_static_self_v1
 from ai_engine.oracle_engine import OracleEngine
+from ai_engine.llm_call_control import (
+    LLMCallResultV1,
+    LLMCallTerminalV1,
+    ProviderAttemptReceiptV1,
+)
 from ai_engine.persona_engine import PersonaEngine
 from ai_engine.response_parser import ResponseParser
 from ai_engine.structured_parse_types import (
@@ -83,6 +88,32 @@ class _Adapter:
         self.calls = 0
 
     def ejecutar_plan(self, mensajes, **kwargs):
+        return self._next(mensajes, kwargs)
+
+    def ejecutar_plan_result(self, mensajes, **kwargs):
+        text = self._next(mensajes, kwargs)
+        return LLMCallResultV1(
+            terminal=LLMCallTerminalV1.SUCCESS,
+            final_text=text,
+            final_provider="parse-fixture",
+            final_model_id="parse-fixture",
+            final_failure=None,
+            receipts=(
+                ProviderAttemptReceiptV1(
+                    provider="parse-fixture",
+                    model_id="parse-fixture",
+                    failure_class=None,
+                    error_type=None,
+                    http_status=None,
+                    retry_after_seconds=None,
+                    started_ns=1,
+                    finished_ns=2,
+                ),
+            ),
+        )
+
+    def _next(self, mensajes, kwargs):
+        del mensajes, kwargs
         self.calls += 1
         return self.responses.pop(0)
 

@@ -21,6 +21,12 @@ from ai_engine.decision_outcome import (
     MotorOutcomeStatus,
 )
 from ai_engine.identity_projection import IdentityContextV1
+from ai_engine.llm_call_control import (
+    LLMCallResultV1,
+    LLMCallTerminalV1,
+    LLMFailureClassV1,
+    ProviderAttemptReceiptV1,
+)
 from ai_engine.motor_engine import MotorEngine
 from ai_engine.motor_resolution import CandidateMatch, MotorResolution
 from ai_engine.persona_engine import PersonaEngine
@@ -94,6 +100,35 @@ class _Adapter:
         self.calls: list[list[dict[str, str]]] = []
 
     def ejecutar_plan(self, mensajes, **kwargs) -> str:
+        return self._next(mensajes, kwargs)
+
+    def ejecutar_plan_result(self, mensajes, **kwargs) -> LLMCallResultV1:
+        response = self._next(mensajes, kwargs)
+        failure = None if response.strip() else LLMFailureClassV1.EMPTY_RESPONSE
+        receipt = ProviderAttemptReceiptV1(
+            provider="persona-fixture",
+            model_id="persona-fixture",
+            failure_class=failure,
+            error_type=None if failure is None else "EmptyResponse",
+            http_status=None,
+            retry_after_seconds=None,
+            started_ns=1,
+            finished_ns=2,
+        )
+        return LLMCallResultV1(
+            terminal=(
+                LLMCallTerminalV1.SUCCESS
+                if failure is None
+                else LLMCallTerminalV1.NON_RETRYABLE_FAILURE
+            ),
+            final_text=response or None,
+            final_provider="persona-fixture",
+            final_model_id="persona-fixture",
+            final_failure=failure,
+            receipts=(receipt,),
+        )
+
+    def _next(self, mensajes, kwargs) -> str:
         del kwargs
         self.calls.append(deepcopy(mensajes))
         response = self.responses.pop(0)

@@ -1,4 +1,4 @@
-"""ROOT-021: matriz permanente de deadline, retry, fallback y lifecycle (95 casos)."""
+"""ROOT-021: matriz permanente de deadline, retry, fallback y lifecycle (107 casos)."""
 
 from __future__ import annotations
 
@@ -14,10 +14,11 @@ from unittest.mock import patch
 import httpx
 from google.genai import types
 
-from ai_engine.ai_client import LLMCallAudit
+from ai_engine.ai_client import BaseAIClient, LLMCallAudit
 from ai_engine.client_factory import build_ai_client
 from ai_engine.fallback_ai_client import FallbackAIClient
 from ai_engine.gemini_client import GeminiClient
+from ai_engine.identity_projection import IdentityContextV1
 from ai_engine.llm_call_control import (
     ActiveEventLoopSyncBridgeError,
     LLMCallBudgetV1,
@@ -33,6 +34,7 @@ from ai_engine.llm_call_control import (
 from ai_engine.ollama_client import OllamaClient
 from ai_engine.openai_compatible_client import OpenAICompatibleClient
 from ai_engine.oracle_client import OracleClient
+from ai_engine.persona_engine import PersonaEngine
 from ai_engine.prompt_plan import (
     ContextEnvelopeV1,
     PromptPlanV1,
@@ -41,8 +43,16 @@ from ai_engine.prompt_plan import (
     build_oracle_system_instructions,
 )
 from ai_engine.reasoning_engine import ReasoningEngine
+from ai_engine.decision_outcome import (
+    DecisionAttempt,
+    DecisionReasonCode,
+)
+from ai_engine.schemas import OracleResult
+from api.schemas import EventoEntrante
 from config.settings import Settings
 from core.audit_trace import AuditTrace
+from core.behavior_core import BehaviorCore
+from core.identity_snapshot import IdentitySnapshotProvider, build_static_self_v1
 from core.orchestrator import Orchestrator
 
 
@@ -892,6 +902,205 @@ def test_095_terminal_precedence_contract_is_complete() -> None:
         "SUCCESS", "DEADLINE_EXCEEDED", "NO_COMPATIBLE_PROVIDER",
         "RETRY_EXHAUSTED", "NON_RETRYABLE_FAILURE", "ALL_PROVIDERS_FAILED",
     }
+
+
+class _SyncOnlyProvider(BaseAIClient):
+    provider_name = "sync-only"
+    model_name = "sync-only-fixture"
+    provider_timeout_seconds = 1.0
+
+    def __init__(self) -> None:
+        self.sync_calls = 0
+
+    def generate(self, prompt: str, **kwargs) -> str:
+        del prompt, kwargs
+        self.sync_calls += 1
+        raise AssertionError("SYNC_PATH_MUST_NOT_BE_CALLED")
+
+
+def test_096_sync_only_base_client_fails_closed() -> None:
+    provider = _SyncOnlyProvider()
+    result = _run((provider,), operation="text", value="fixture")
+    assert result.terminal is LLMCallTerminalV1.NON_RETRYABLE_FAILURE
+    assert result.final_failure is LLMFailureClassV1.CONFIGURATION_ERROR
+    assert len(result.receipts) == 1
+
+
+def test_097_sync_generate_is_never_invoked_or_recursed() -> None:
+    provider = _SyncOnlyProvider()
+    result = _run((provider,), operation="text", value="fixture")
+    assert provider.sync_calls == 0
+    assert len(result.receipts) == 1
+
+
+def test_098_executor_source_has_no_sync_provider_fallback() -> None:
+    source = inspect.getsource(LLMCallExecutorV1._invoke_provider)
+    for forbidden in (".generate(", ".generate_plan(", ".health_check(", ".consultar_plan("):
+        assert forbidden not in source
+    assert "attempt_async" in source
+
+
+def test_099_gemini_has_no_legacy_sync_client_path() -> None:
+    source = inspect.getsource(GeminiClient.attempt_async)
+    assert "legacy_client" not in source
+    assert "await aio_client.models.generate_content" in source
+
+
+def test_100_openai_compatible_has_no_legacy_sync_client_path() -> None:
+    source = inspect.getsource(OpenAICompatibleClient.attempt_async)
+    assert "legacy_client" not in source
+    assert "await client.post" in source
+
+
+def test_101_keyboard_interrupt_propagates_without_retry_or_fallback() -> None:
+    primary = ScriptedProvider("primary", [KeyboardInterrupt()])
+    sibling = ScriptedProvider("sibling", ["must-not-run"])
+    events: list[LLMCallAudit] = []
+    _raises(KeyboardInterrupt, _run, (primary, sibling), audit_sink=events.append)
+    assert primary.calls == 1 and sibling.calls == 0 and not events
+
+
+def test_102_system_exit_propagates_without_retry_or_fallback() -> None:
+    primary = ScriptedProvider("primary", [SystemExit(7)])
+    sibling = ScriptedProvider("sibling", ["must-not-run"])
+    events: list[LLMCallAudit] = []
+    error = _raises(SystemExit, _run, (primary, sibling), audit_sink=events.append)
+    assert error.code == 7
+    assert primary.calls == 1 and sibling.calls == 0 and not events
+
+
+def test_103_external_cancellation_propagates_and_cleans() -> None:
+    state = {"calls": 0, "finalized": 0}
+
+    class CancelledProvider(ScriptedProvider):
+        async def attempt_async(self, **kwargs):
+            del kwargs
+            state["calls"] += 1
+            try:
+                raise asyncio.CancelledError()
+            finally:
+                state["finalized"] += 1
+
+    async def scenario():
+        provider = CancelledProvider("cancelled", [""])
+        sibling = ScriptedProvider("sibling", ["must-not-run"])
+        events: list[LLMCallAudit] = []
+        try:
+            await _executor(FakeClock()).execute_async(
+                (provider, sibling),
+                operation="text",
+                value="fixture",
+                budget=_budget(FakeClock()),
+                generation={},
+                audit_sink=events.append,
+            )
+        except asyncio.CancelledError:
+            pending = [
+                task
+                for task in asyncio.all_tasks()
+                if task is not asyncio.current_task() and not task.done()
+            ]
+            return provider, sibling, events, pending
+        raise AssertionError("CancelledError debía propagarse")
+
+    provider, sibling, events, pending = asyncio.run(scenario())
+    assert state == {"calls": 1, "finalized": 1}
+    assert provider.calls == 0 and sibling.calls == 0
+    assert not events and not pending
+
+
+class _ExpiredBeforeRepairAdapter:
+    def __init__(self, clock: FakeClock, budget: LLMCallBudgetV1) -> None:
+        self.clock = clock
+        self.budget = budget
+        self.repair_provider = ScriptedProvider("repair", ["must-not-run"])
+        self.primary_calls = 0
+        self.repair_control_calls = 0
+
+    def ejecutar_plan(self, plan, **kwargs) -> str:
+        assert kwargs["budget"] is self.budget
+        self.primary_calls += 1
+        self.clock.advance(45)
+        return "SECRET_INVALID_PRIMARY_OUTPUT"
+
+    def ejecutar_plan_result(self, plan, **kwargs) -> LLMCallResultV1:
+        assert kwargs["budget"] is self.budget
+        self.repair_control_calls += 1
+        return _executor(self.clock).execute_sync(
+            (self.repair_provider,),
+            operation="plan",
+            value=plan,
+            budget=self.budget,
+            generation={},
+        )
+
+
+def _expired_repair_scenario(*, oracle: bool):
+    clock = FakeClock()
+    budget = _budget(clock)
+    adapter = _ExpiredBeforeRepairAdapter(clock, budget)
+    orchestrator = object.__new__(Orchestrator)
+    orchestrator.persona_engine = PersonaEngine()
+    orchestrator.llm_adapter = adapter
+    orchestrator._nuevo_budget_ruta_llm = lambda: budget
+    identity = IdentityContextV1.from_snapshot(
+        IdentitySnapshotProvider(build_static_self_v1(), BehaviorCore()).capture()
+    )
+    event = EventoEntrante(
+        origen="terminal",
+        tipo_evento="comando_usuario",
+        id_transaccion="root-021-expired-repair",
+        detalles={"mensaje": "hola", "solicita_decision": True},
+    )
+    if oracle:
+        result = orchestrator._verbalizar_resultado_oracle(
+            event,
+            {},
+            "",
+            "exploradora",
+            OracleResult(
+                pregunta_original="hola",
+                contenido_tecnico="resultado tecnico",
+                fuente="api",
+            ),
+            identity_context=identity,
+            llm_budget=budget,
+        )
+    else:
+        result = orchestrator._resolver_ruta_persona(
+            event,
+            {},
+            "",
+            "exploradora",
+            identity_context=identity,
+        )
+    return result, adapter
+
+
+def test_104_persona_expired_before_repair_dispatches_zero_provider_calls() -> None:
+    _, adapter = _expired_repair_scenario(oracle=False)
+    assert adapter.primary_calls == 1 and adapter.repair_control_calls == 1
+    assert adapter.repair_provider.calls == 0
+
+
+def test_105_persona_expired_repair_outcome_remains_first_attempt() -> None:
+    result, _ = _expired_repair_scenario(oracle=False)
+    assert result.outcome.attempt is DecisionAttempt.FIRST
+    assert result.outcome.retry_count == 0
+    assert DecisionReasonCode.RETRY_REPAIRED not in result.outcome.reason_codes
+
+
+def test_106_oracle_expired_before_repair_dispatches_zero_provider_calls() -> None:
+    _, adapter = _expired_repair_scenario(oracle=True)
+    assert adapter.primary_calls == 1 and adapter.repair_control_calls == 1
+    assert adapter.repair_provider.calls == 0
+
+
+def test_107_oracle_expired_repair_outcome_remains_first_attempt() -> None:
+    result, _ = _expired_repair_scenario(oracle=True)
+    assert result.outcome.attempt is DecisionAttempt.FIRST
+    assert result.outcome.retry_count == 0
+    assert DecisionReasonCode.RETRY_REPAIRED not in result.outcome.reason_codes
 
 
 def main() -> None:

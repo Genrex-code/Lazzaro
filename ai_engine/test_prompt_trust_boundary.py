@@ -109,6 +109,12 @@ class _UnsupportedClient(BaseAIClient):
     def health_check(self) -> bool:
         return True
 
+    async def attempt_async(self, *, operation, value, child_budget, generation):
+        del value, child_budget, generation
+        if operation == "plan":
+            raise PromptProjectionUnsupported("fixture incompatible")
+        return "ok"
+
 
 class _CompatibleClient(BaseAIClient):
     provider_name = "compatible"
@@ -127,6 +133,13 @@ class _CompatibleClient(BaseAIClient):
 
     def health_check(self) -> bool:
         return True
+
+    async def attempt_async(self, *, operation, value, child_budget, generation):
+        del child_budget, generation
+        if operation != "plan" or not isinstance(value, PromptPlanV1):
+            raise AssertionError("El fixture sólo acepta PromptPlanV1")
+        self.plans.append(value)
+        return self.response
 
 
 def test_01_plan_version_is_one() -> None:
@@ -470,7 +483,16 @@ def test_59_openai_projection_uses_native_roles() -> None:
             return {"choices": [{"message": {"content": "ok"}}]}
 
     class HTTP:
-        def post(self, url, **kwargs):
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, **kwargs):
             capture["url"] = url
             capture["payload"] = kwargs["json"]
             return Response()
@@ -480,10 +502,10 @@ def test_59_openai_projection_uses_native_roles() -> None:
     client.model_name = "fixture-model"
     client.api_url = "https://example.invalid/chat"
     client.api_key = "fixture-key"
-    client.timeout = 1.0
+    client.provider_timeout_seconds = 1.0
     client.supports_json_format = True
-    client.client = HTTP()
-    assert client.generate_plan(_plan().with_repair("bad")) == "ok"
+    with patch("ai_engine.openai_compatible_client.httpx.AsyncClient", HTTP):
+        assert client.generate_plan(_plan().with_repair("bad")) == "ok"
     assert [message["role"] for message in capture["payload"]["messages"]] == [
         "system", "user", "assistant", "user"
     ]
@@ -523,20 +545,31 @@ def test_60_gemini_projection_maps_assistant_to_model() -> None:
     capture = {}
 
     class Models:
-        def generate_content(self, **kwargs):
+        async def generate_content(self, **kwargs):
             capture.update(kwargs)
             return SimpleNamespace(text="ok")
+
+    class AioClient:
+        models = Models()
+
+        async def aclose(self):
+            return None
+
+    class SDKClient:
+        aio = AioClient()
 
     client = object.__new__(GeminiClient)
     client.provider_name = "gemini"
     client.model_name = "fixture-model"
-    client.client = SimpleNamespace(models=Models())
+    client.api_key = "fixture-key"
+    client.provider_timeout_seconds = 1.0
     client.generation_config = types.GenerateContentConfig(
         temperature=0.1,
         max_output_tokens=100,
     )
     plan = _plan().with_repair("bad")
-    assert client.generate_plan(plan) == "ok"
+    with patch("ai_engine.gemini_client.genai.Client", return_value=SDKClient()):
+        assert client.generate_plan(plan) == "ok"
     assert capture["config"].system_instruction == plan.system.text
     assert [content.role for content in capture["contents"]] == ["user", "model", "user"]
 

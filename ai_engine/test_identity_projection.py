@@ -14,6 +14,11 @@ from ai_engine.identity_projection import (
     render_reasoning_identity,
 )
 from ai_engine.identity_state import IdentityState
+from ai_engine.llm_call_control import (
+    LLMCallResultV1,
+    LLMCallTerminalV1,
+    ProviderAttemptReceiptV1,
+)
 from ai_engine.persona_engine import PersonaEngine
 from ai_engine.prompt_builder import PromptBuilder
 from ai_engine.schemas import AgentContext, OracleResult
@@ -78,6 +83,31 @@ class _Adapter:
         self.calls = []
 
     def ejecutar_plan(self, messages, **kwargs):
+        return self._next(messages, kwargs)
+
+    def ejecutar_plan_result(self, messages, **kwargs):
+        result = self._next(messages, kwargs)
+        return LLMCallResultV1(
+            terminal=LLMCallTerminalV1.SUCCESS,
+            final_text=result,
+            final_provider="identity-fixture",
+            final_model_id="identity-fixture",
+            final_failure=None,
+            receipts=(
+                ProviderAttemptReceiptV1(
+                    provider="identity-fixture",
+                    model_id="identity-fixture",
+                    failure_class=None,
+                    error_type=None,
+                    http_status=None,
+                    retry_after_seconds=None,
+                    started_ns=1,
+                    finished_ns=2,
+                ),
+            ),
+        )
+
+    def _next(self, messages, kwargs):
         del kwargs
         self.calls.append(messages)
         result = self.responses.pop(0)

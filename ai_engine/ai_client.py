@@ -6,9 +6,13 @@ Define el contrato que deben cumplir todas las implementaciones (Gemini, OpenAI,
 from abc import ABC
 from dataclasses import dataclass, replace
 import threading
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from core.logger import get_logger
+
+
+if TYPE_CHECKING:
+    from ai_engine.llm_call_control import LLMCallBudgetV1
 
 
 logger = get_logger(__name__)
@@ -102,6 +106,22 @@ class BaseAIClient(LLMAuditBuffer, ABC):
     Las implementaciones concretas se encargarán de la autenticación,
     la construcción de la petición HTTP y el parseo de la respuesta cruda.
     """
+
+    async def attempt_async(
+        self,
+        *,
+        operation: str,
+        value: object,
+        child_budget: "LLMCallBudgetV1",
+        generation: dict,
+    ) -> str:
+        """Falla cerrado si el proveedor no implementa transporte async acotado."""
+        del operation, value, child_budget, generation
+        from ai_engine.llm_call_control import ProviderConfigurationError
+
+        raise ProviderConfigurationError(
+            "Provider does not implement bounded async attempt"
+        )
 
     def generate(self, prompt: str, **kwargs) -> str:
         """

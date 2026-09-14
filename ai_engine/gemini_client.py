@@ -97,19 +97,6 @@ class GeminiClient(BaseAIClient):
         if timeout_ms < 1:
             raise RouteDeadlineExceeded("Timeout Gemini agotado")
 
-        legacy_client = getattr(self, "client", None)
-        if legacy_client is not None:
-            # Dobles de proyección pre-ROOT-021; sigue siendo una sola tentativa.
-            response = legacy_client.models.generate_content(
-                model=self.model_name,
-                contents=contents,
-                config=config,
-            )
-            text = self._extraer_texto(response)
-            return "ok" if operation == "health" and "ok" in text.lower() else (
-                "" if operation == "health" else text
-            )
-
         # El AsyncClient pertenece al loop actual. Forzar HTTPX evita el retry
         # oculto del path aiohttp instalado. El SDK queda explícitamente en 1 intento.
         http_client = httpx.AsyncClient(timeout=timeout_ms / 1000.0)

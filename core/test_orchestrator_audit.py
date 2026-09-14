@@ -18,6 +18,11 @@ if __package__ in (None, ""):
 
 from ai_engine.ai_client import BaseAIClient, LLMCallAudit
 from ai_engine.fallback_ai_client import FallbackAIClient
+from ai_engine.llm_call_control import (
+    LLMCallResultV1,
+    LLMCallTerminalV1,
+    ProviderAttemptReceiptV1,
+)
 from ai_engine.oracle_engine import OracleEngine
 from ai_engine.persona_engine import PersonaEngine
 from ai_engine.reasoning_engine import ReasoningEngine
@@ -1039,13 +1044,8 @@ class _ObservableFakeClient(BaseAIClient):
         self.outcome = outcome
         self.calls = 0
 
-    def generate(self, prompt: str, **kwargs) -> str:
-        self.calls += 1
-        if isinstance(self.outcome, BaseException):
-            raise self.outcome
-        return str(self.outcome)
-
-    def generate_plan(self, plan, **kwargs) -> str:
+    async def attempt_async(self, *, operation, value, child_budget, generation) -> str:
+        del operation, value, child_budget, generation
         self.calls += 1
         if isinstance(self.outcome, BaseException):
             raise self.outcome
@@ -1320,19 +1320,10 @@ def test_oracle_invalid_external_response_is_correlated_as_fallback() -> None:
         def __init__(self) -> None:
             self.calls = 0
 
-        def consultar_plan(self, mensajes) -> str:
+        async def attempt_async(self, *, operation, value, child_budget, generation) -> str:
+            del value, child_budget, generation
+            assert_true(operation == "plan", "Oracle externo sólo admite plan.")
             self.calls += 1
-            self._record_llm_audit(
-                LLMCallAudit(
-                    provider=self.provider_name,
-                    model_id=self.model_name,
-                    fallback_used=False,
-                    status="ok",
-                    error_type=None,
-                    duration_ms=1.0,
-                    started_ns=1,
-                )
-            )
             return '{"contenido_tecnico": ""}'
 
         def generate(self, prompt: str, **kwargs) -> str:
@@ -1349,6 +1340,16 @@ def test_oracle_invalid_external_response_is_correlated_as_fallback() -> None:
         def ejecutar_plan(self, mensajes, **kwargs) -> str:
             self.calls += 1
             return self.client.generate_plan(mensajes)
+
+        def ejecutar_plan_result(self, mensajes, **kwargs) -> LLMCallResultV1:
+            providers = tuple(kwargs.get("providers") or ())
+            if not providers:
+                self.calls += 1
+            return self.client.execute_plan_result(
+                mensajes,
+                budget=kwargs.get("budget"),
+                providers=providers or None,
+            )
 
     external = InvalidExternalOracle()
     persona_provider = _ObservableFakeClient(
@@ -1423,15 +1424,36 @@ def test_persona_invalid_output_and_existing_retry_are_observable() -> None:
 
         def ejecutar_plan(self, mensajes, **kwargs) -> str:
             self.calls += 1
-            if self.calls == 1:
-                return "SECRET_INVALID_MODEL_OUTPUT"
-            return json.dumps(
+            return "SECRET_INVALID_MODEL_OUTPUT"
+
+        def ejecutar_plan_result(self, mensajes, **kwargs) -> LLMCallResultV1:
+            self.calls += 1
+            text = json.dumps(
                 {
                     "accion": "hablar",
                     "parametros": {"texto_a_comunicar": "Respuesta reparada."},
                     "pensamiento_privado": "",
                     "razon": "",
                 }
+            )
+            return LLMCallResultV1(
+                terminal=LLMCallTerminalV1.SUCCESS,
+                final_text=text,
+                final_provider="persona-fixture",
+                final_model_id="persona-fixture",
+                final_failure=None,
+                receipts=(
+                    ProviderAttemptReceiptV1(
+                        provider="persona-fixture",
+                        model_id="persona-fixture",
+                        failure_class=None,
+                        error_type=None,
+                        http_status=None,
+                        retry_after_seconds=None,
+                        started_ns=1,
+                        finished_ns=2,
+                    ),
+                ),
             )
 
     adapter = RetryAdapter()

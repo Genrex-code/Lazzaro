@@ -101,24 +101,13 @@ class OpenAICompatibleClient(BaseAIClient):
         timeout = child_budget.remaining_seconds()
         if timeout <= 0:
             raise TimeoutError("Provider child budget exhausted")
-        legacy_client = getattr(self, "client", None)
-        if legacy_client is not None:
-            # Compatibilidad de dobles síncronos históricos. Los objetos creados
-            # normalmente nunca poseen este atributo ni transporte persistente.
-            response = legacy_client.post(self.api_url, headers=headers, json=payload)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(self.api_url, headers=headers, json=payload)
             response.raise_for_status()
             try:
                 data = response.json()
             except (ValueError, TypeError) as error:
                 raise ProviderMalformedResponse("Invalid provider JSON envelope") from error
-        else:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(self.api_url, headers=headers, json=payload)
-                response.raise_for_status()
-                try:
-                    data = response.json()
-                except (ValueError, TypeError) as error:
-                    raise ProviderMalformedResponse("Invalid provider JSON envelope") from error
         text = self._extraer_texto_estricto(data)
         if operation == "health":
             return "ok" if "ok" in text.lower() else ""

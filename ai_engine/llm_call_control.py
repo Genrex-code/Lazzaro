@@ -311,7 +311,7 @@ class LLMCallExecutorV1:
                     started_ns=started_ns,
                     fallback_used=provider_index > 0,
                 )
-                error: BaseException | None = None
+                error: Exception | None = None
                 text = ""
                 try:
                     attempt_remaining = provider_budget.remaining_seconds(self._clock)
@@ -333,7 +333,7 @@ class LLMCallExecutorV1:
                     break
                 except asyncio.CancelledError:
                     raise
-                except BaseException as caught:
+                except Exception as caught:
                     error = caught
 
                 finished_ns = int(self._clock())
@@ -467,34 +467,16 @@ class LLMCallExecutorV1:
         generation: dict[str, Any],
     ) -> _AttemptValue:
         attempt = getattr(provider, "attempt_async", None)
-        if callable(attempt):
-            result = await attempt(
-                operation=operation,
-                value=value,
-                child_budget=child_budget,
-                generation=generation,
+        if not callable(attempt):
+            raise ProviderConfigurationError(
+                "Provider does not implement bounded async attempt"
             )
-        elif operation == "plan":
-            from ai_engine.ai_client import BaseAIClient
-
-            generate_plan = getattr(provider, "generate_plan", None)
-            oracle_plan = getattr(provider, "consultar_plan", None)
-            if callable(generate_plan) and (
-                getattr(generate_plan, "__func__", None) is not BaseAIClient.generate_plan
-            ):
-                result = generate_plan(value, **generation)
-            elif callable(oracle_plan):
-                # Superficie legacy acotada: la invocación sigue ocurriendo dentro
-                # del único executor y cuenta como un solo intento.
-                result = oracle_plan(value)
-            else:
-                raise PromptProjectionUnsupported(
-                    f"{provider.__class__.__name__} no implementa proyeccion PromptPlanV1"
-                )
-        elif operation == "health":
-            result = "ok" if provider.health_check() else ""  # type: ignore[attr-defined]
-        else:
-            result = provider.generate(value, **generation)  # type: ignore[attr-defined]
+        result = await attempt(
+            operation=operation,
+            value=value,
+            child_budget=child_budget,
+            generation=generation,
+        )
         if isinstance(result, bool):
             return _AttemptValue("ok" if result else "")
         return _AttemptValue(result if isinstance(result, str) else "")

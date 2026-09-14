@@ -10,6 +10,11 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(project_root))
 
 from ai_engine.identity_projection import IdentityContextV1
+from ai_engine.llm_call_control import (
+    LLMCallResultV1,
+    LLMCallTerminalV1,
+    ProviderAttemptReceiptV1,
+)
 from ai_engine.persona_engine import PersonaEngine
 from ai_engine.provider_prompt_projection import project_chat_messages
 from api.schemas import EventoEntrante
@@ -130,15 +135,35 @@ Claro, aqui tienes la respuesta en formato JSON como pediste:
 
         def ejecutar_plan(self, mensajes, **kwargs):
             self.calls.append((mensajes, kwargs))
-            if len(self.calls) == 1:
-                return ""
-            return json.dumps(
+            return ""
+
+        def ejecutar_plan_result(self, mensajes, **kwargs):
+            self.calls.append((mensajes, kwargs))
+            text = json.dumps(
                 {
                     "accion": "hablar",
                     "parametros": {"texto_a_comunicar": "Ya volvi, se me cruzo un cable."},
                     "pensamiento_privado": "Reintento social exitoso.",
                     "razon": "Reparacion de salida vacia.",
                 }
+            )
+            receipt = ProviderAttemptReceiptV1(
+                provider="persona-fixture",
+                model_id="persona-fixture",
+                failure_class=None,
+                error_type=None,
+                http_status=None,
+                retry_after_seconds=None,
+                started_ns=1,
+                finished_ns=2,
+            )
+            return LLMCallResultV1(
+                terminal=LLMCallTerminalV1.SUCCESS,
+                final_text=text,
+                final_provider="persona-fixture",
+                final_model_id="persona-fixture",
+                final_failure=None,
+                receipts=(receipt,),
             )
 
     orquestador = object.__new__(Orchestrator)
