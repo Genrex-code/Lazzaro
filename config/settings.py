@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -17,6 +19,7 @@ class Settings(BaseSettings):
         ),
     )
     LLM_FALLBACKS_ENABLED: bool = True
+    LLM_TOTAL_BUDGET_SECONDS: float = 45.0
 
     GEMINI_API_KEY: str | None = Field(default=None, description="API key de Gemini")
     GEMINI_MODEL_NAME: str = "gemini-3.1-flash-lite"
@@ -98,9 +101,23 @@ class Settings(BaseSettings):
         valor = value.strip().rstrip("/")
         return valor or None
 
-    @field_validator("OLLAMA_TIMEOUT_SECONDS", "ORACLE_TIMEOUT", "OPENAI_COMPAT_TIMEOUT")
+    @field_validator(
+        "LLM_TOTAL_BUDGET_SECONDS",
+        "OLLAMA_TIMEOUT_SECONDS",
+        "ORACLE_TIMEOUT",
+        "OPENAI_COMPAT_TIMEOUT",
+        mode="before",
+    )
     @classmethod
-    def timeout_positivo(cls, value: float) -> float:
-        if value <= 0:
-            raise ValueError("Los timeouts deben ser mayores que cero.")
-        return value
+    def timeout_positivo(cls, value: object) -> float:
+        if isinstance(value, bool):
+            raise ValueError("Los budgets/timeouts deben ser numeros finitos mayores que cero.")
+        try:
+            normalized = float(value)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "Los budgets/timeouts deben ser numeros finitos mayores que cero."
+            ) from error
+        if not math.isfinite(normalized) or normalized <= 0:
+            raise ValueError("Los budgets/timeouts deben ser numeros finitos mayores que cero.")
+        return normalized

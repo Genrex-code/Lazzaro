@@ -521,9 +521,9 @@ def test_51_api_dtos_have_no_parse_fields() -> None:
 def test_52_ollama_preserves_parser_evidence() -> None:
     from ai_engine.ollama_client import OllamaClient
 
-    source = inspect.getsource(OllamaClient.generate)
+    source = inspect.getsource(OllamaClient.attempt_async)
     assert "_limpiar_respuesta" not in source
-    assert "respuesta if isinstance(respuesta, str)" in source
+    assert "isinstance(text, str)" in source
 
 
 def test_53_think_normalization_is_structural() -> None:

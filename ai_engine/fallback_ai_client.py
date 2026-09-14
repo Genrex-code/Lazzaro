@@ -1,47 +1,53 @@
-"""
-fallback_ai_client.py - Cadena de respaldo para clientes LLM.
-
-El resto del sistema llama generate() una sola vez. Este wrapper intenta el
-cliente primario y, si no produce texto util, pasa al siguiente proveedor.
-"""
+"""Fachada controlada para acceso productivo a uno o mas proveedores LLM."""
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 import logging
 import threading
-import time
 from typing import Any
 
-from ai_engine.ai_client import BaseAIClient, LLMCallAudit
+from ai_engine.ai_client import BaseAIClient
+from ai_engine.llm_call_control import (
+    LLMCallBudgetV1,
+    LLMCallExecutorV1,
+    LLMCallResultV1,
+    LLMCallTerminalV1,
+)
 from ai_engine.prompt_plan import PromptPlanV1, PromptProjectionUnsupported
 from core.logger import get_logger
 from core.safe_error_logging import log_safe_boundary_failure
+
 
 logger = get_logger(__name__)
 
 
 class FallbackAIClient(BaseAIClient):
-    """Cliente compuesto que prueba varios proveedores en orden."""
+    """Fachada delgada; toda calendarizacion pertenece a LLMCallExecutorV1."""
 
     provider_name = "fallback"
 
-    def __init__(self, clients: Iterable[BaseAIClient], settings: Any | None = None):
+    def __init__(
+        self,
+        clients: Iterable[BaseAIClient],
+        settings: Any | None = None,
+        *,
+        executor: LLMCallExecutorV1 | None = None,
+    ) -> None:
         self.clients = [client for client in clients if client is not None]
         if not self.clients:
             raise ValueError("FallbackAIClient requiere al menos un cliente LLM.")
-
+        self.providers = tuple(self.clients)
         self.settings = settings or getattr(self.clients[0], "settings", None)
+        self.executor = executor or LLMCallExecutorV1()
         self.provider_order = [
             str(getattr(client, "provider_name", client.__class__.__name__)).strip()
             for client in self.clients
         ]
-        # Mantener el nombre del proveedor primario evita activar reglas de politica
-        # de otros fallbacks (por ejemplo Ollama) antes de saber si se usaran.
         self.provider_name = self.provider_order[0]
         self.fallback_chain_name = "fallback:" + "->".join(self.provider_order)
         self._provider_local = threading.local()
-        self.last_provider_used: str | None = None
+        self.last_provider_used = None
 
     @property
     def last_provider_used(self) -> str | None:
@@ -51,146 +57,149 @@ class FallbackAIClient(BaseAIClient):
     def last_provider_used(self, value: str | None) -> None:
         self._provider_local.value = value
 
-    def generate(self, prompt: str, **kwargs) -> str:
-        """Cadena textual legacy para health checks/diagnosticos no cognitivos."""
-        return self._generate_with("generate", prompt, allow_unsupported=False, **kwargs)
+    def new_budget(self) -> LLMCallBudgetV1:
+        total = getattr(self.settings, "LLM_TOTAL_BUDGET_SECONDS", 45.0)
+        return LLMCallBudgetV1.from_seconds(total)
 
-    def generate_plan(self, plan: PromptPlanV1, **kwargs) -> str:
-        """Pass the same plan to children and skip projection-incompatible providers."""
-        return self._generate_with("generate_plan", plan, allow_unsupported=True, **kwargs)
+    def generate(self, prompt: str, **kwargs: Any) -> str:
+        result = self.execute_text_result(prompt, generation=kwargs)
+        return result.final_text or ""
 
-    def _generate_with(
-        self,
-        method_name: str,
-        value: str | PromptPlanV1,
-        *,
-        allow_unsupported: bool,
-        **kwargs,
-    ) -> str:
-        compatible_provider_seen = False
-        for index, client in enumerate(self.clients):
-            proveedor = str(getattr(client, "provider_name", client.__class__.__name__))
-            model_id = str(getattr(client, "model_name", "")).strip() or None
-            started_ns = time.perf_counter_ns()
-            begin_capture = getattr(client, "begin_audit_capture", None)
-            consume_events = getattr(client, "consume_audit_events", None)
-            if callable(begin_capture):
-                try:
-                    begin_capture()
-                except Exception as e:
-                    logger.warning(
-                        "No se pudo iniciar auditoria interna de %s: %s",
-                        proveedor,
-                        type(e).__name__,
-                    )
-            raised_error: Exception | None = None
-            projection_unsupported = False
-            try:
-                texto = getattr(client, method_name)(value, **kwargs)
-                compatible_provider_seen = True
-            except PromptProjectionUnsupported:
-                if not allow_unsupported:
-                    raise
-                projection_unsupported = True
-                texto = ""
-            except Exception as e:
-                compatible_provider_seen = True
-                log_safe_boundary_failure(
-                    logger,
-                    component="llm_fallback.generate",
-                    code="UPSTREAM_PROVIDER_FAILED",
-                    error=e,
-                    level=logging.WARNING,
-                )
-                raised_error = e
-                texto = ""
-
-            finished_ns = time.perf_counter_ns()
-            child_events = []
-            if callable(consume_events):
-                try:
-                    child_events = consume_events()
-                except Exception as e:
-                    logger.warning(
-                        "No se pudo consumir auditoria interna de %s: %s",
-                        proveedor,
-                        type(e).__name__,
-                    )
-            child_events = [
-                event
-                for event in child_events
-                if isinstance(event, LLMCallAudit)
-            ] if isinstance(child_events, list) else []
-            if projection_unsupported:
-                logger.info(
-                    "Proveedor LLM %s omitido: no soporta la proyeccion PromptPlanV1.",
-                    proveedor,
-                )
-                continue
-            fallback_used = index > 0
-            if child_events:
-                for event in child_events:
-                    self._record_llm_audit(event.as_fallback(fallback_used))
-            elif raised_error is not None:
-                error_type = self.stable_error_type(raised_error)
-                self._record_llm_audit(
-                    LLMCallAudit(
-                        provider=proveedor,
-                        model_id=model_id,
-                        fallback_used=fallback_used,
-                        status="timeout" if error_type == "TimeoutError" else "error",
-                        error_type=error_type,
-                        duration_ms=self.elapsed_ms(started_ns, finished_ns),
-                        started_ns=started_ns,
-                    )
-                )
-            else:
-                has_text = isinstance(texto, str) and bool(texto.strip())
-                self._record_llm_audit(
-                    LLMCallAudit(
-                        provider=proveedor,
-                        model_id=model_id,
-                        fallback_used=fallback_used,
-                        status="ok" if has_text else "empty",
-                        error_type=None if has_text else "EmptyResponse",
-                        duration_ms=self.elapsed_ms(started_ns, finished_ns),
-                        started_ns=started_ns,
-                    )
-                )
-
-            if isinstance(texto, str) and texto.strip():
-                self.last_provider_used = proveedor
-                if proveedor != self.provider_order[0]:
-                    logger.warning("Fallback LLM activado. Respuesta obtenida desde %s.", proveedor)
-                return texto
-
-            logger.warning("Proveedor LLM %s no produjo texto util; probando fallback.", proveedor)
-
-        self.last_provider_used = None
-        if allow_unsupported and not compatible_provider_seen:
+    def generate_plan(self, plan: PromptPlanV1, **kwargs: Any) -> str:
+        result = self.execute_plan_result(plan, generation=kwargs)
+        if result.terminal is LLMCallTerminalV1.NO_COMPATIBLE_PROVIDER:
             raise PromptProjectionUnsupported(
                 "Ningun proveedor configurado soporta PromptPlanV1"
             )
-        logger.error("Todos los proveedores LLM fallaron o devolvieron texto vacio.")
-        return ""
+        return result.final_text or ""
+
+    def execute_text_result(
+        self,
+        prompt: str,
+        *,
+        budget: LLMCallBudgetV1 | None = None,
+        generation: dict[str, Any] | None = None,
+        providers: Sequence[object] | None = None,
+    ) -> LLMCallResultV1:
+        return self._execute_sync(
+            "text",
+            prompt,
+            budget=budget,
+            generation=generation,
+            providers=providers,
+        )
+
+    def execute_plan_result(
+        self,
+        plan: PromptPlanV1,
+        *,
+        budget: LLMCallBudgetV1 | None = None,
+        generation: dict[str, Any] | None = None,
+        providers: Sequence[object] | None = None,
+    ) -> LLMCallResultV1:
+        if not isinstance(plan, PromptPlanV1):
+            raise TypeError("execute_plan_result requiere PromptPlanV1")
+        return self._execute_sync(
+            "plan",
+            plan,
+            budget=budget,
+            generation=generation,
+            providers=providers,
+        )
+
+    async def execute_plan_result_async(
+        self,
+        plan: PromptPlanV1,
+        *,
+        budget: LLMCallBudgetV1 | None = None,
+        generation: dict[str, Any] | None = None,
+        providers: Sequence[object] | None = None,
+    ) -> LLMCallResultV1:
+        if not isinstance(plan, PromptPlanV1):
+            raise TypeError("execute_plan_result_async requiere PromptPlanV1")
+        return await self._execute_async(
+            "plan",
+            plan,
+            budget=budget,
+            generation=generation,
+            providers=providers,
+        )
+
+    async def execute_text_result_async(
+        self,
+        prompt: str,
+        *,
+        budget: LLMCallBudgetV1 | None = None,
+        generation: dict[str, Any] | None = None,
+        providers: Sequence[object] | None = None,
+    ) -> LLMCallResultV1:
+        return await self._execute_async(
+            "text",
+            prompt,
+            budget=budget,
+            generation=generation,
+            providers=providers,
+        )
 
     def health_check(self) -> bool:
-        """El sistema se considera operativo si al menos un proveedor responde."""
-        for client in self.clients:
-            proveedor = str(getattr(client, "provider_name", client.__class__.__name__))
-            try:
-                if client.health_check():
-                    logger.info("Health check LLM OK usando %s.", proveedor)
-                    return True
-            except Exception as e:
-                log_safe_boundary_failure(
-                    logger,
-                    component="llm_fallback.health_check",
-                    code="UPSTREAM_PROVIDER_FAILED",
-                    error=e,
-                    level=logging.WARNING,
-                )
-        return False
+        return self._execute_sync("health", "").succeeded
+
+    async def health_check_async(self) -> bool:
+        return (await self._execute_async("health", "")).succeeded
+
+    def _execute_sync(
+        self,
+        operation: str,
+        value: object,
+        *,
+        budget: LLMCallBudgetV1 | None = None,
+        generation: dict[str, Any] | None = None,
+        providers: Sequence[object] | None = None,
+    ) -> LLMCallResultV1:
+        result = self.executor.execute_sync(
+            tuple(providers) if providers is not None else self.providers,
+            operation=operation,
+            value=value,
+            budget=budget or self.new_budget(),
+            generation=generation,
+            audit_sink=self._record_llm_audit,
+        )
+        self._project_result(result)
+        return result
+
+    async def _execute_async(
+        self,
+        operation: str,
+        value: object,
+        *,
+        budget: LLMCallBudgetV1 | None = None,
+        generation: dict[str, Any] | None = None,
+        providers: Sequence[object] | None = None,
+    ) -> LLMCallResultV1:
+        result = await self.executor.execute_async(
+            tuple(providers) if providers is not None else self.providers,
+            operation=operation,
+            value=value,
+            budget=budget or self.new_budget(),
+            generation=generation,
+            audit_sink=self._record_llm_audit,
+        )
+        self._project_result(result)
+        return result
+
+    def _project_result(self, result: LLMCallResultV1) -> None:
+        self.last_provider_used = result.final_provider if result.succeeded else None
+        if result.succeeded and result.final_provider != self.provider_order[0]:
+            logger.warning(
+                "Fallback LLM activado. Respuesta obtenida desde %s.",
+                result.final_provider,
+            )
+        elif not result.succeeded:
+            logger.warning(
+                "Ruta LLM termino sin texto terminal=%s failure=%s.",
+                result.terminal.value,
+                result.final_failure.value if result.final_failure else None,
+            )
 
     def close(self) -> None:
         for client in self.clients:
@@ -198,11 +207,14 @@ class FallbackAIClient(BaseAIClient):
             if callable(close):
                 try:
                     close()
-                except Exception as e:
+                except Exception as error:
                     log_safe_boundary_failure(
                         logger,
                         component="llm_fallback.close",
                         code="UPSTREAM_PROVIDER_FAILED",
-                        error=e,
+                        error=error,
                         level=logging.WARNING,
                     )
+
+
+__all__ = ["FallbackAIClient"]

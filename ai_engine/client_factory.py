@@ -39,11 +39,8 @@ def build_ai_client(settings) -> BaseAIClient:
             "No hay proveedores LLM configurados. Revisa AI_PROVIDER, AI_FALLBACK_ORDER y API keys."
         )
 
-    if len(clientes) == 1:
-        return clientes[0]
-
     logger.info(
-        "Cadena de fallback LLM activa: %s",
+        "Acceso LLM controlado: %s",
         " -> ".join(str(getattr(cliente, "provider_name", "?")) for cliente in clientes),
     )
     return FallbackAIClient(clientes, settings=settings)

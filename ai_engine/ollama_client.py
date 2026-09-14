@@ -1,27 +1,31 @@
-"""
-ollama_client.py - Cliente BaseAIClient para modelos locales servidos por Ollama.
-"""
+"""Proveedor Ollama async para diagnostico/health; PromptPlan sigue bloqueado."""
 
 from __future__ import annotations
 
-import logging
-import time
 from typing import Any, Optional
 
 import httpx
 
-from ai_engine.ai_client import BaseAIClient, LLMCallAudit
+from ai_engine.ai_client import BaseAIClient
+from ai_engine.llm_call_control import (
+    LLMCallBudgetV1,
+    ProviderConfigurationError,
+    ProviderMalformedResponse,
+    require_finite_positive,
+)
 from ai_engine.prompt_plan import PromptPlanV1, PromptProjectionUnsupported
 from ai_engine.schemas import LLMResponse
 from core.logger import get_logger
-from core.safe_error_logging import log_safe_boundary_failure
+
 
 logger = get_logger(__name__)
 
 
 class OllamaClient(BaseAIClient):
-    """Cliente sincronico para usar DeepSeek R1 u otros modelos locales via Ollama."""
+    """Un intento por invocación, con transporte propiedad del loop actual."""
+
     provider_name = "ollama"
+    llm_max_attempts = 1
 
     def __init__(self, settings: Optional[Any] = None):
         from config.settings import Settings
@@ -29,123 +33,77 @@ class OllamaClient(BaseAIClient):
         self.settings = settings or Settings()
         self.base_url = self._resolver_base_url(self.settings)
         self.model_name = self._resolver_modelo(self.settings)
-        self.timeout_seconds = float(getattr(self.settings, "OLLAMA_TIMEOUT_SECONDS", 120.0))
-        self.client = httpx.Client(base_url=self.base_url, timeout=self.timeout_seconds)
-
-        logger.info(
-            "OllamaClient listo (modelo: %s).",
-            self.model_name,
+        self.provider_timeout_seconds = require_finite_positive(
+            getattr(self.settings, "OLLAMA_TIMEOUT_SECONDS", 120.0),
+            field_name="OLLAMA_TIMEOUT_SECONDS",
         )
+        self.timeout_seconds = self.provider_timeout_seconds
+        logger.info("OllamaClient listo (modelo: %s).", self.model_name)
 
-    def generate(self, prompt: str, **kwargs) -> str:
-        """API textual legacy para health checks/diagnosticos no cognitivos."""
-        payload = {
-            "model": self.model_name,
-            "prompt": prompt,
-            "stream": False,
-            "options": self._build_options(kwargs),
-        }
-
-        if kwargs.get("response_mime_type") == "application/json":
-            payload["format"] = self._response_format_schema()
-
-        started_ns = time.perf_counter_ns()
-        try:
-            response = self.client.post("/api/generate", json=payload)
+    async def attempt_async(
+        self,
+        *,
+        operation: str,
+        value: object,
+        child_budget: LLMCallBudgetV1,
+        generation: dict[str, Any],
+    ) -> str:
+        if operation == "plan":
+            if not isinstance(value, PromptPlanV1):
+                raise PromptProjectionUnsupported("Ollama requires PromptPlanV1")
+            raise PromptProjectionUnsupported(
+                "Ollama /api/generate cannot preserve PromptPlanV1 instruction authority"
+            )
+        timeout = child_budget.remaining_seconds()
+        if timeout <= 0:
+            raise TimeoutError("Provider child budget exhausted")
+        async with httpx.AsyncClient(base_url=self.base_url, timeout=timeout) as client:
+            if operation == "health":
+                response = await client.get("/api/tags")
+                response.raise_for_status()
+                try:
+                    data = response.json()
+                except (ValueError, TypeError) as error:
+                    raise ProviderMalformedResponse("Invalid Ollama tags envelope") from error
+                if not isinstance(data, dict) or not isinstance(data.get("models"), list):
+                    raise ProviderMalformedResponse("Invalid Ollama tags envelope")
+                names = {
+                    str(model.get("name", "")).strip()
+                    for model in data["models"]
+                    if isinstance(model, dict)
+                }
+                return "ok" if self.model_name in names else ""
+            if operation != "text":
+                raise ProviderConfigurationError("Operacion Ollama no soportada")
+            payload = {
+                "model": self.model_name,
+                "prompt": str(value),
+                "stream": False,
+                "options": self._build_options(generation),
+            }
+            if generation.get("response_mime_type") == "application/json":
+                payload["format"] = self._response_format_schema()
+            response = await client.post("/api/generate", json=payload)
             response.raise_for_status()
-            data = response.json()
-            respuesta = data.get("response", "")
-            texto = respuesta if isinstance(respuesta, str) else ""
-            if texto:
-                logger.debug("Ollama -> %d caracteres.", len(texto))
-            else:
-                logger.warning("Ollama devolvio texto vacio.")
-            finished_ns = time.perf_counter_ns()
-            self._record_llm_audit(
-                LLMCallAudit(
-                    provider=self.provider_name,
-                    model_id=self.model_name,
-                    fallback_used=False,
-                    status="ok" if texto else "empty",
-                    error_type=None if texto else "EmptyResponse",
-                    duration_ms=self.elapsed_ms(started_ns, finished_ns),
-                    started_ns=started_ns,
-                )
-            )
-            return texto
-        except Exception as e:
-            finished_ns = time.perf_counter_ns()
-            error_type = self.stable_error_type(e)
-            self._record_llm_audit(
-                LLMCallAudit(
-                    provider=self.provider_name,
-                    model_id=self.model_name,
-                    fallback_used=False,
-                    status="timeout" if error_type == "TimeoutError" else "error",
-                    error_type=error_type,
-                    duration_ms=self.elapsed_ms(started_ns, finished_ns),
-                    started_ns=started_ns,
-                )
-            )
-            log_safe_boundary_failure(
-                logger,
-                component="ollama.generate",
-                code="UPSTREAM_PROVIDER_FAILED",
-                error=e,
-            )
-            return ""
-
-    def generate_plan(self, plan: PromptPlanV1, **kwargs) -> str:
-        """Fail before HTTP because /api/generate cannot preserve native roles."""
-        if not isinstance(plan, PromptPlanV1):
-            raise PromptProjectionUnsupported("Ollama requires PromptPlanV1")
-        raise PromptProjectionUnsupported(
-            "Ollama /api/generate cannot preserve PromptPlanV1 instruction authority"
-        )
-
-    def health_check(self) -> bool:
-        """Verifica que Ollama este accesible y que el modelo configurado exista."""
-        try:
-            response = self.client.get("/api/tags")
-            response.raise_for_status()
-            data = response.json()
-            modelos = data.get("models", [])
-            nombres = {str(modelo.get("name", "")).strip() for modelo in modelos}
-            return bool(nombres) and self.model_name in nombres
-        except Exception as e:
-            log_safe_boundary_failure(
-                logger,
-                component="ollama.health_check",
-                code="UPSTREAM_PROVIDER_FAILED",
-                error=e,
-            )
-            return False
+            try:
+                data = response.json()
+            except (ValueError, TypeError) as error:
+                raise ProviderMalformedResponse("Invalid Ollama response envelope") from error
+        if not isinstance(data, dict) or "response" not in data:
+            raise ProviderMalformedResponse("Invalid Ollama response envelope")
+        text = data.get("response")
+        if not isinstance(text, str):
+            raise ProviderMalformedResponse("Ollama response is not text")
+        return text.strip()
 
     def close(self) -> None:
-        """Cierra la sesion HTTP persistente."""
-        client = getattr(self, "client", None)
-        if client is None:
-            return
-
-        try:
-            client.close()
-        except Exception as e:
-            log_safe_boundary_failure(
-                logger,
-                component="ollama.close",
-                code="UPSTREAM_PROVIDER_FAILED",
-                error=e,
-                level=logging.WARNING,
-            )
-        finally:
-            self.client = None
+        return None
 
     @staticmethod
     def _resolver_base_url(settings: Any) -> str:
         base_url = getattr(settings, "OLLAMA_BASE_URL", None)
         if isinstance(base_url, str) and base_url.strip():
             return base_url.strip().rstrip("/")
-
         host = str(getattr(settings, "OLLAMA_HOST", "127.0.0.1")).strip()
         port = int(getattr(settings, "OLLAMA_PORT", 11434))
         return f"http://{host}:{port}"
@@ -175,3 +133,6 @@ class OllamaClient(BaseAIClient):
         schema = LLMResponse.model_json_schema()
         schema["additionalProperties"] = False
         return schema
+
+
+__all__ = ["OllamaClient"]

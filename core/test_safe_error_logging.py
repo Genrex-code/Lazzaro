@@ -7,6 +7,7 @@ import io
 import logging
 from pathlib import Path
 from types import SimpleNamespace
+from types import MethodType
 from unittest.mock import patch
 from uuid import UUID
 
@@ -99,20 +100,13 @@ def test_03_openai_http_body_enters_client_but_not_log() -> None:
         model_name="fixture-model",
     )
 
-    class FakeHTTP:
-        @staticmethod
-        def post(*args, **kwargs):
-            del args, kwargs
-            request = httpx.Request("POST", "https://example.invalid/v1/chat/completions")
-            response = httpx.Response(401, text="CANARY_HTTP_BODY_55AA", request=request)
-            raise httpx.HTTPStatusError("CANARY_API_KEY_7E4A", request=request, response=response)
+    async def fail(self, **kwargs):
+        del self, kwargs
+        request = httpx.Request("POST", "https://example.invalid/v1/chat/completions")
+        response = httpx.Response(401, text="CANARY_HTTP_BODY_55AA", request=request)
+        raise httpx.HTTPStatusError("CANARY_API_KEY_7E4A", request=request, response=response)
 
-        @staticmethod
-        def close():
-            return None
-
-    client.client.close()
-    client.client = FakeHTTP()
+    client.attempt_async = MethodType(fail, client)
     with _captured_logs() as logs:
         result = client.generate("synthetic prompt")
     assert_true(result == "", "Provider failure conserva fallback vacio.")
@@ -121,22 +115,24 @@ def test_03_openai_http_body_enters_client_but_not_log() -> None:
     assert_true("http_status=401" in captured, "Debe sobrevivir status seguro.")
 
 
-def test_04_gemini_exception_enters_backoff_but_not_log() -> None:
+def test_04_gemini_exception_enters_executor_but_not_log() -> None:
     client = object.__new__(GeminiClient)
+    client.provider_name = "gemini"
     client.model_name = "fixture-model"
-    client.generation_config = SimpleNamespace(model_dump=lambda **kwargs: {})
-    client._build_generation_config = lambda overrides: {}
+    client.provider_timeout_seconds = 1
+    client.llm_max_attempts = 1
+    client.settings = SimpleNamespace(LLM_TOTAL_BUDGET_SECONDS=1)
 
-    def fail(**kwargs):
-        del kwargs
+    async def fail(self, **kwargs):
+        del self, kwargs
         raise RuntimeError("retry in 0s token=CANARY_API_KEY_7E4A")
 
-    client.client = SimpleNamespace(models=SimpleNamespace(generate_content=fail))
-    with _captured_logs() as logs, patch("ai_engine.gemini_client.time.sleep", return_value=None):
+    client.attempt_async = MethodType(fail, client)
+    with _captured_logs() as logs:
         result = client.generate("synthetic prompt")
-    assert_true(result == "", "Gemini conserva su fallback tras retries.")
+    assert_true(result == "", "Gemini conserva su fallback controlado.")
     _assert_no_canary(logs.getvalue())
-    assert_true("component=gemini.generate" in logs.getvalue(), "Debe conservar component.")
+    assert_true("component=llm_executor.attempt" in logs.getvalue(), "Debe conservar component.")
 
 
 def test_05_ollama_url_userinfo_is_not_logged() -> None:
@@ -163,21 +159,12 @@ def test_06_oracle_http_body_is_not_logged() -> None:
     request = httpx.Request("POST", settings.ORACLE_API_URL)
     response = httpx.Response(500, text="CANARY_HTTP_BODY_55AA", request=request)
 
-    class FakeClient:
-        def __init__(self, *args, **kwargs):
-            del args, kwargs
+    async def fail(self, **kwargs):
+        del self, kwargs
+        raise httpx.HTTPStatusError("CANARY_API_KEY_7E4A", request=request, response=response)
 
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
-        def post(self, *args, **kwargs):
-            del args, kwargs
-            raise httpx.HTTPStatusError("CANARY_API_KEY_7E4A", request=request, response=response)
-
-    with _captured_logs() as logs, patch("ai_engine.oracle_client.httpx.Client", FakeClient):
+    client.attempt_async = MethodType(fail, client)
+    with _captured_logs() as logs:
         result = client.consultar_plan(OracleEngine().preparar_consulta("fixture"))
     assert_true(result is None, "Oracle conserva fallback None.")
     _assert_no_canary(logs.getvalue())

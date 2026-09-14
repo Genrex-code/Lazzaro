@@ -20,6 +20,8 @@ from ai_engine.prompt_builder import PromptBuilder
 from ai_engine.response_parser import ResponseParser
 from ai_engine.schemas import ActionResponse
 from ai_engine.identity_projection import IdentityContextV1
+from ai_engine.fallback_ai_client import FallbackAIClient
+from ai_engine.llm_call_control import LLMCallBudgetV1
 from ai_engine.tool_router import ToolRouter
 from ai_engine.structured_parse_types import StructuredParseStatus
 from core.logger import get_logger
@@ -34,7 +36,11 @@ class ReasoningEngine:
     """
 
     def __init__(self, ai_client: BaseAIClient):
-        self.ai_client = ai_client
+        self.ai_client = (
+            ai_client
+            if isinstance(ai_client, FallbackAIClient)
+            else FallbackAIClient((ai_client,), settings=getattr(ai_client, "settings", None))
+        )
         self.context_builder = ContextBuilder()
         self.prompt_builder = PromptBuilder()
         self.tool_router = ToolRouter()
@@ -52,6 +58,7 @@ class ReasoningEngine:
         audit_observation: dict[str, object] | None = None,
         identity_context: IdentityContextV1 | None = None,
         current_request: str | None = None,
+        llm_budget: LLMCallBudgetV1 | None = None,
     ) -> ActionResponse:
         try:
             if herramientas is None:
@@ -105,12 +112,21 @@ class ReasoningEngine:
                 len(prompt.user_envelope_json()),
             )
 
-            raw_response = self.ai_client.generate_plan(prompt, **gen_params)
+            result = self.ai_client.execute_plan_result(
+                prompt,
+                budget=llm_budget,
+                generation=gen_params,
+            )
+            raw_response = result.final_text or ""
             if not raw_response:
                 logger.warning("El LLM devolvio una respuesta vacia.")
                 self._observe_failure(
                     audit_observation,
-                    error_type="EmptyResponse",
+                    error_type=(
+                        result.final_failure.value
+                        if result.final_failure is not None
+                        else "EmptyResponse"
+                    ),
                     component="llm",
                 )
                 return ActionResponse(

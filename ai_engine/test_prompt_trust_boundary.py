@@ -494,13 +494,13 @@ def test_59_openai_projection_uses_native_roles() -> None:
         def __init__(self, *args, **kwargs):
             pass
 
-        def __enter__(self):
+        async def __aenter__(self):
             return self
 
-        def __exit__(self, *args):
+        async def __aexit__(self, *args):
             return False
 
-        def post(self, url, **kwargs):
+        async def post(self, url, **kwargs):
             oracle_capture["payload"] = kwargs["json"]
             return Response()
 
@@ -512,7 +512,7 @@ def test_59_openai_projection_uses_native_roles() -> None:
             ORACLE_TIMEOUT=1,
         )
     )
-    with patch("ai_engine.oracle_client.httpx.Client", OracleHTTP):
+    with patch("ai_engine.oracle_client.httpx.AsyncClient", OracleHTTP):
         assert oracle.consultar_plan(_plan().with_repair("bad")) == "ok"
     assert [message["role"] for message in oracle_capture["payload"]["messages"]] == [
         "system", "user", "assistant", "user"

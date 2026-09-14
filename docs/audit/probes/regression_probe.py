@@ -104,7 +104,10 @@ def verified_platform_introspection() -> bool:
     Recognition affects reporting, never execution: each process stays blocked.
     A different caller, command or repetition remains an unexplained attempt.
     """
-    if CURRENT_UNIT != "ai_engine.test_llm_fallbacks.__import__":
+    if CURRENT_UNIT not in {
+        "ai_engine.test_llm_fallbacks.__import__",
+        "ai_engine.test_llm_call_control.__import__",
+    }:
         return False
     frame = sys._getframe(1)
     while frame is not None:
@@ -378,7 +381,7 @@ def main() -> int:
             "Temporary cwd; existing tests may create additional temporary directories.",
             "No outgoing Python sockets or child processes permitted; Windows internal socketpair only is allowed.",
             "Three verified platform._syscmd_ver introspection commands stay blocked; stdlib falls back, so OS introspection is not identical to the baseline environment.",
-            "Audit hooks are not an OS firewall for native extensions; SDK calls are not exercised by these tests.",
+            "Audit hooks are not an OS firewall for native extensions; ROOT-021 SDK checks use only injected HTTPX MockTransport, never live endpoints.",
             "Chroma semantic tests depend on the existing local embedding-model cache; downloads are blocked.",
             "No raw stdout, stderr, logs, exception messages, credentials or hashes are emitted.",
             "Hash equality cannot attribute concurrent activity by other processes; active runtime should remain stopped.",

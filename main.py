@@ -69,7 +69,7 @@ async def lifespan(app: FastAPI):
         ai_client = build_ai_client(settings)
         app.state.ai_client = ai_client
 
-        if not ai_client.health_check():
+        if not await ai_client.health_check_async():
             logger.warning(
                 "El health check del backend LLM activo fallo. "
                 "La app arrancara, pero el razonamiento podria responder vacio."

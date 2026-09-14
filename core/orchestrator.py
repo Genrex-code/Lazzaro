@@ -24,6 +24,7 @@ from ai_engine.decision_outcome import (
 )
 from ai_engine.learned_alias_candidates import build_learned_alias_candidate
 from ai_engine.llm_generation_adapter import LLMGenerationAdapter
+from ai_engine.llm_call_control import LLMCallBudgetV1
 from ai_engine.motor_engine import MotorEngine
 from ai_engine.motor_schemas import PHYSICAL_NUMERIC_ACTIONS, validar_parametros_fisicos
 from ai_engine.oracle_client import OracleClient
@@ -2146,6 +2147,7 @@ class Orchestrator:
                 recuerdos=memoria_texto,
                 restriccion_canal=self._restriccion_canal_persona(evento),
             )
+            llm_budget = self._nuevo_budget_ruta_llm()
             raw_response = self.llm_adapter.ejecutar_plan(
                 mensajes,
                 politica=politica,
@@ -2153,6 +2155,7 @@ class Orchestrator:
                 max_output_tokens=768,
                 token_strategy="cap",
                 error_context="Capa Social",
+                budget=llm_budget,
             )
             parse_result = self.persona_engine.parsear_resultado(raw_response)
             datos = self.persona_engine.proyectar_resultado(parse_result)
@@ -2173,6 +2176,7 @@ class Orchestrator:
                     max_output_tokens=256,
                     token_strategy="cap",
                     error_context="Reintento Capa Social",
+                    budget=llm_budget,
                 )
                 parse_result_reintento = self.persona_engine.parsear_resultado(
                     raw_response_reintento
@@ -2203,6 +2207,16 @@ class Orchestrator:
                     time.perf_counter_ns(),
                 )
             raise
+
+    def _nuevo_budget_ruta_llm(self) -> LLMCallBudgetV1:
+        """Crea el único deadline de una ruta justo antes de su primer I/O LLM."""
+        facade = getattr(self.llm_adapter, "ai_client", None)
+        factory = getattr(facade, "new_budget", None)
+        if callable(factory):
+            return factory()
+        settings = getattr(facade, "settings", None)
+        total = getattr(settings, "LLM_TOTAL_BUDGET_SECONDS", 45.0)
+        return LLMCallBudgetV1.from_seconds(total)
 
     def _exigir_identity_context(
         self,
@@ -2477,6 +2491,7 @@ class Orchestrator:
             )
 
         errores: list[str] = []
+        llm_budget: LLMCallBudgetV1 | None = None
         oracle_parse_result = None
         try:
             oracle_result = self.oracle_engine.evaluar_cache(
@@ -2491,43 +2506,68 @@ class Orchestrator:
         if oracle_result is None:
             try:
                 mensajes = self.oracle_engine.preparar_consulta(mensaje_usuario)
-                respuesta_cruda = None
-                fuente_oraculo = "api"
-
-                if self.oracle_client.configurado:
-                    try:
-                        respuesta_cruda = self.oracle_client.consultar_plan(mensajes)
-                    except Exception as e:
-                        logger.error("Error inesperado en OracleClient: %s", e, exc_info=True)
-                        if isinstance(audit_observation, dict):
-                            audit_observation["fallback_used"] = True
-                            audit_observation.setdefault(
-                                "decision_error_type",
-                                type(e).__name__,
-                            )
-                            audit_observation.setdefault(
-                                "decision_error_component",
-                                "oracle_client",
-                            )
-                            audit_observation.setdefault(
-                                "decision_error_observed_ns",
-                                time.perf_counter_ns(),
-                            )
-                        errores.append("OracleClient externo fallo; se intento fallback activo.")
-                        respuesta_cruda = None
-
-                    if not respuesta_cruda or not respuesta_cruda.strip():
-                        fuente_oraculo = "fallback"
-                        logger.warning(
-                            "El Oraculo externo no respondio; se usara el cliente LLM activo como fallback."
-                        )
-                else:
-                    fuente_oraculo = "fallback"
-                    logger.info(
-                        "OracleClient sin API key; se usara el cliente LLM activo como Oraculo."
+                llm_budget = self._nuevo_budget_ruta_llm()
+                active_facade = getattr(self.llm_adapter, "ai_client", None)
+                if active_facade is None:
+                    active_facade = getattr(getattr(self, "reasoning", None), "ai_client", None)
+                active_providers = tuple(getattr(active_facade, "providers", ()))
+                providers = (
+                    (self.oracle_client, *active_providers)
+                    if self.oracle_client.configurado
+                    else active_providers
+                )
+                execute_result = getattr(self.llm_adapter, "ejecutar_plan_result", None)
+                if callable(execute_result) and providers:
+                    technical_result = execute_result(
+                        mensajes,
+                        politica=politica,
+                        temperature=0.1,
+                        max_output_tokens=2048,
+                        token_strategy="floor",
+                        error_context="Oraculo externo y fallback activo",
+                        budget=llm_budget,
+                        providers=providers,
                     )
+                    respuesta_cruda = technical_result.final_text or ""
+                    final_provider = str(technical_result.final_provider or "").strip()
+                elif callable(getattr(active_facade, "execute_plan_result", None)) and providers:
+                    technical_result = active_facade.execute_plan_result(
+                        mensajes,
+                        budget=llm_budget,
+                        generation={
+                            "temperature": 0.1,
+                            "max_output_tokens": 2048,
+                            "response_mime_type": "application/json",
+                        },
+                        providers=providers,
+                    )
+                    respuesta_cruda = technical_result.final_text or ""
+                    final_provider = str(technical_result.final_provider or "").strip()
+                elif self.oracle_client.configurado:
+                    # Compatibilidad de dobles aislados: incluso aquí el Oracle
+                    # atraviesa el mismo executor, nunca una llamada productiva cruda.
+                    from ai_engine.fallback_ai_client import FallbackAIClient
 
-                if not respuesta_cruda or not respuesta_cruda.strip():
+                    controlled_oracle = FallbackAIClient((self.oracle_client,))
+                    technical_result = controlled_oracle.execute_plan_result(
+                        mensajes,
+                        budget=llm_budget,
+                        generation={"temperature": 0.1},
+                    )
+                    respuesta_cruda = technical_result.final_text or ""
+                    final_provider = str(technical_result.final_provider or "").strip()
+                    if not respuesta_cruda:
+                        respuesta_cruda = self.llm_adapter.ejecutar_plan(
+                            mensajes,
+                            politica=politica,
+                            temperature=0.1,
+                            max_output_tokens=2048,
+                            token_strategy="floor",
+                            error_context="fallback activo del Oraculo",
+                            budget=llm_budget,
+                        )
+                        final_provider = "active_legacy"
+                else:
                     respuesta_cruda = self.llm_adapter.ejecutar_plan(
                         mensajes,
                         politica=politica,
@@ -2535,7 +2575,15 @@ class Orchestrator:
                         max_output_tokens=2048,
                         token_strategy="floor",
                         error_context="fallback activo del Oraculo",
+                        budget=llm_budget,
                     )
+                    final_provider = "active_legacy"
+                oracle_provider_name = str(
+                    getattr(self.oracle_client, "provider_name", self.oracle_client.__class__.__name__)
+                ).strip()
+                fuente_oraculo = (
+                    "api" if final_provider == oracle_provider_name else "fallback"
+                )
 
                 oracle_parse_result = self.oracle_engine.parse_result(
                     respuesta_cruda or ""
@@ -2591,6 +2639,7 @@ class Orchestrator:
             oracle_result=oracle_result,
             audit_observation=audit_observation,
             identity_context=identity_context,
+            llm_budget=llm_budget,
         )
 
     def _verbalizar_resultado_oracle(
@@ -2602,6 +2651,7 @@ class Orchestrator:
         oracle_result: OracleResult,
         audit_observation: dict[str, object] | None = None,
         identity_context: IdentityContextV1 | None = None,
+        llm_budget: LLMCallBudgetV1 | None = None,
     ) -> ActionResponse:
         """Pasa conocimiento frio del Oraculo por Persona antes de responder a Unity."""
         mensaje_usuario = self._current_user_request(evento)
@@ -2616,6 +2666,9 @@ class Orchestrator:
                 recuerdos=memoria_texto,
                 restriccion_canal=self._restriccion_canal_persona(evento),
             )
+            if llm_budget is None:
+                # Cache hit: no hubo etapa técnica, así que el budget nace aquí.
+                llm_budget = self._nuevo_budget_ruta_llm()
             raw_response = self.llm_adapter.ejecutar_plan(
                 mensajes,
                 politica=politica,
@@ -2623,6 +2676,7 @@ class Orchestrator:
                 max_output_tokens=768,
                 token_strategy="cap",
                 error_context="Verbalizacion Capa Social del Oraculo",
+                budget=llm_budget,
             )
             parse_result = self.persona_engine.parsear_resultado(raw_response)
             datos = self.persona_engine.proyectar_resultado(parse_result)
@@ -2643,6 +2697,7 @@ class Orchestrator:
                     max_output_tokens=256,
                     token_strategy="cap",
                     error_context="Reintento verbalizacion Capa Social del Oraculo",
+                    budget=llm_budget,
                 )
                 parse_result_reintento = self.persona_engine.parsear_resultado(
                     raw_response_reintento

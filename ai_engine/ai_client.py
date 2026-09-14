@@ -3,7 +3,7 @@ ai_client.py - Interfaz abstracta para clientes de modelos de lenguaje.
 Define el contrato que deben cumplir todas las implementaciones (Gemini, OpenAI, etc.).
 """
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from dataclasses import dataclass, replace
 import threading
 from typing import Literal
@@ -103,7 +103,6 @@ class BaseAIClient(LLMAuditBuffer, ABC):
     la construcción de la petición HTTP y el parseo de la respuesta cruda.
     """
 
-    @abstractmethod
     def generate(self, prompt: str, **kwargs) -> str:
         """
         API textual legacy reservada para health checks y diagnosticos no cognitivos.
@@ -116,9 +115,9 @@ class BaseAIClient(LLMAuditBuffer, ABC):
         Returns:
             Respuesta textual del modelo (sin procesar).
         """
-        ...
+        result = self._execute_self("text", prompt, kwargs)
+        return result.final_text or ""
 
-    @abstractmethod
     def health_check(self) -> bool:
         """
         Verifica rápidamente si el cliente puede comunicarse con el servicio.
@@ -126,14 +125,51 @@ class BaseAIClient(LLMAuditBuffer, ABC):
         Returns:
             True si el servicio está accesible, False en caso contrario.
         """
-        ...
+        return self._execute_self("health", "", {}).succeeded
+
+    async def health_check_async(self) -> bool:
+        """Ruta de health para lifespans que ya poseen event loop."""
+        result = await self._execute_self_async("health", "", {})
+        return result.succeeded
 
     def generate_plan(self, plan: "object", **kwargs) -> str:
-        """Generate from a typed cognitive plan when the provider supports it."""
+        """Genera cognitivamente pasando incluso el acceso directo por el executor."""
+        from ai_engine.llm_call_control import LLMCallTerminalV1
         from ai_engine.prompt_plan import PromptProjectionUnsupported
 
-        raise PromptProjectionUnsupported(
-            f"{self.__class__.__name__} does not implement PromptPlanV1 projection"
+        result = self._execute_self("plan", plan, kwargs)
+        if result.terminal is LLMCallTerminalV1.NO_COMPATIBLE_PROVIDER:
+            raise PromptProjectionUnsupported(
+                f"{self.__class__.__name__} no soporta PromptPlanV1"
+            )
+        return result.final_text or ""
+
+    def _execute_self(self, operation: str, value: object, generation: dict):
+        from ai_engine.llm_call_control import LLMCallBudgetV1, LLMCallExecutorV1
+
+        total = getattr(getattr(self, "settings", None), "LLM_TOTAL_BUDGET_SECONDS", 45.0)
+        budget = LLMCallBudgetV1.from_seconds(total)
+        return LLMCallExecutorV1().execute_sync(
+            (self,),
+            operation=operation,
+            value=value,
+            budget=budget,
+            generation=generation,
+            audit_sink=self._record_llm_audit,
+        )
+
+    async def _execute_self_async(self, operation: str, value: object, generation: dict):
+        from ai_engine.llm_call_control import LLMCallBudgetV1, LLMCallExecutorV1
+
+        total = getattr(getattr(self, "settings", None), "LLM_TOTAL_BUDGET_SECONDS", 45.0)
+        budget = LLMCallBudgetV1.from_seconds(total)
+        return await LLMCallExecutorV1().execute_async(
+            (self,),
+            operation=operation,
+            value=value,
+            budget=budget,
+            generation=generation,
+            audit_sink=self._record_llm_audit,
         )
 
     def close(self) -> None:

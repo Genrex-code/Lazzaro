@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 import sys
 import threading
+from types import MethodType
 from pathlib import Path
 
 import httpx
@@ -109,19 +110,11 @@ def test_openai_compatible_timeout_is_observable_without_message() -> None:
         api_url="https://example.invalid/chat/completions",
         model_name="groq-test",
     )
-    client.client.close()
+    async def timeout_attempt(self, **kwargs):
+        request = httpx.Request("POST", "https://example.invalid/chat/completions")
+        raise httpx.ReadTimeout("SECRET_HTTP_TIMEOUT", request=request)
 
-    class TimeoutHTTPClient:
-        @staticmethod
-        def post(*args, **kwargs):
-            request = httpx.Request("POST", "https://example.invalid/chat/completions")
-            raise httpx.ReadTimeout("SECRET_HTTP_TIMEOUT", request=request)
-
-        @staticmethod
-        def close() -> None:
-            return None
-
-    client.client = TimeoutHTTPClient()
+    client.attempt_async = MethodType(timeout_attempt, client)
     client.begin_audit_capture()
     response = client.generate("SECRET_HTTP_PROMPT")
     events = client.consume_audit_events()
@@ -182,10 +175,14 @@ def test_fallback_chain_and_settings_contract() -> None:
     )
     cliente = build_ai_client(settings_factory)
     assert_true(
-        isinstance(cliente, OpenAICompatibleClient),
-        "Si el primario no tiene key, factory debe saltar al fallback configurado.",
+        isinstance(cliente, FallbackAIClient),
+        "Factory debe devolver la fachada controlada aun con un solo proveedor.",
     )
     assert_true(cliente.provider_name == "kimi", "El fallback construido debe ser Kimi.")
+    assert_true(
+        len(cliente.clients) == 1 and isinstance(cliente.clients[0], OpenAICompatibleClient),
+        "La fachada debe conservar el proveedor Kimi configurado.",
+    )
     cliente.close()
 
     settings_oracle = Settings(
