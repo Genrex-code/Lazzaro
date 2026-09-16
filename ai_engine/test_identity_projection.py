@@ -19,6 +19,11 @@ from ai_engine.llm_call_control import (
     LLMCallTerminalV1,
     ProviderAttemptReceiptV1,
 )
+from ai_engine.knowledge_provenance import (
+    cache_receipt_not_checked,
+    local_deterministic_producer,
+    provenance_for,
+)
 from ai_engine.persona_engine import PersonaEngine
 from ai_engine.prompt_builder import PromptBuilder
 from ai_engine.schemas import AgentContext, OracleResult
@@ -137,7 +142,14 @@ def _oracle_retry(context: IdentityContextV1):
     orchestrator.persona_engine = PersonaEngine()
     orchestrator.llm_adapter = _Adapter(["", _persona_json()])
     orchestrator.identity_provider = _BombProvider()
-    oracle = OracleResult(pregunta_original="q", contenido_tecnico="dato", fuente="api")
+    oracle = OracleResult(
+        pregunta_original="q",
+        contenido_tecnico="dato",
+        provenance=provenance_for(
+            local_deterministic_producer(),
+            cache_receipt_not_checked(),
+        ),
+    )
     response = orchestrator._verbalizar_resultado_oracle(
         _event(), {}, "MEMORY", "exploradora", oracle, identity_context=context
     )

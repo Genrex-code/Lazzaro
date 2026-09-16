@@ -5,7 +5,7 @@ Coordina el flujo completo: evento -> estado interno -> memoria -> IA -> accion.
 
 from collections import OrderedDict, deque
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timezone
 import threading
 import time
 from typing import List, Optional
@@ -24,7 +24,16 @@ from ai_engine.decision_outcome import (
 )
 from ai_engine.learned_alias_candidates import build_learned_alias_candidate
 from ai_engine.llm_generation_adapter import LLMGenerationAdapter
-from ai_engine.llm_call_control import LLMCallBudgetV1
+from ai_engine.llm_call_control import LLMCallBudgetV1, LLMCallResultV1
+from ai_engine.knowledge_provenance import (
+    CacheLookupStatusV1,
+    KnowledgeProducerRouteV1,
+    cache_receipt_for_lookup,
+    cache_receipt_not_checked,
+    local_deterministic_producer,
+    provenance_for,
+    provider_receipt_from_llm,
+)
 from ai_engine.motor_engine import MotorEngine
 from ai_engine.motor_schemas import PHYSICAL_NUMERIC_ACTIONS, validar_parametros_fisicos
 from ai_engine.oracle_client import OracleClient
@@ -2461,12 +2470,17 @@ class Orchestrator:
         mensaje_usuario = self._current_user_request(evento)
         mensaje_oracle = (mensaje_usuario or "").strip()
         if not mensaje_oracle:
+            local_producer = local_deterministic_producer(
+                accepted_at_utc=datetime.now(timezone.utc)
+            )
             oracle_result = OracleResult(
                 pregunta_original="",
                 contenido_tecnico="La consulta al Oraculo no contiene mensaje de usuario.",
                 resumen_para_persona="No habia una consulta clara para procesar.",
-                fuente="error",
-                cache_hit=False,
+                provenance=provenance_for(
+                    local_producer,
+                    cache_receipt_not_checked(),
+                ),
                 error="La consulta al Oraculo no contiene mensaje de usuario.",
             )
             if isinstance(audit_observation, dict):
@@ -2494,18 +2508,28 @@ class Orchestrator:
         errores: list[str] = []
         llm_budget: LLMCallBudgetV1 | None = None
         oracle_parse_result = None
+        cache_receipt = None
         try:
-            oracle_result = self.oracle_engine.evaluar_cache(
+            cache_lookup = self.oracle_engine.evaluar_cache(
                 mensaje_oracle,
                 self.oracle_memory,
             )
+            oracle_result = cache_lookup.cached_result
+            cache_receipt = cache_lookup.cache_receipt
         except Exception as e:
             logger.error("Error consultando OracleMemory: %s", e, exc_info=True)
             errores.append("OracleMemory no pudo consultar el cache semantico.")
             oracle_result = None
+            cache_receipt = cache_receipt_for_lookup(
+                mensaje_oracle,
+                status=CacheLookupStatusV1.ERROR,
+                threshold=OracleMemory.DEFAULT_CACHE_DISTANCE,
+            )
 
         if oracle_result is None:
             try:
+                if cache_receipt is None:
+                    raise RuntimeError("Oracle cache lookup missing typed receipt")
                 mensajes = self.oracle_engine.preparar_consulta(mensaje_usuario)
                 llm_budget = self._nuevo_budget_ruta_llm()
                 active_facade = getattr(self.llm_adapter, "ai_client", None)
@@ -2516,6 +2540,12 @@ class Orchestrator:
                     (self.oracle_client, *active_providers)
                     if self.oracle_client.configurado
                     else active_providers
+                )
+                route_by_provider = self._construir_mapa_rutas_oracle(
+                    oracle_provider=(
+                        self.oracle_client if self.oracle_client.configurado else None
+                    ),
+                    active_providers=active_providers,
                 )
                 execute_result = getattr(self.llm_adapter, "ejecutar_plan_result", None)
                 if callable(execute_result) and providers:
@@ -2529,8 +2559,6 @@ class Orchestrator:
                         budget=llm_budget,
                         providers=providers,
                     )
-                    respuesta_cruda = technical_result.final_text or ""
-                    final_provider = str(technical_result.final_provider or "").strip()
                 elif callable(getattr(active_facade, "execute_plan_result", None)) and providers:
                     technical_result = active_facade.execute_plan_result(
                         mensajes,
@@ -2542,8 +2570,6 @@ class Orchestrator:
                         },
                         providers=providers,
                     )
-                    respuesta_cruda = technical_result.final_text or ""
-                    final_provider = str(technical_result.final_provider or "").strip()
                 elif self.oracle_client.configurado:
                     # Compatibilidad de dobles aislados: incluso aquí el Oracle
                     # atraviesa el mismo executor, nunca una llamada productiva cruda.
@@ -2555,45 +2581,39 @@ class Orchestrator:
                         budget=llm_budget,
                         generation={"temperature": 0.1},
                     )
-                    respuesta_cruda = technical_result.final_text or ""
-                    final_provider = str(technical_result.final_provider or "").strip()
-                    if not respuesta_cruda:
-                        respuesta_cruda = self.llm_adapter.ejecutar_plan(
-                            mensajes,
-                            politica=politica,
-                            temperature=0.1,
-                            max_output_tokens=2048,
-                            token_strategy="floor",
-                            error_context="fallback activo del Oraculo",
-                            budget=llm_budget,
-                        )
-                        final_provider = "active_legacy"
                 else:
-                    respuesta_cruda = self.llm_adapter.ejecutar_plan(
-                        mensajes,
-                        politica=politica,
-                        temperature=0.1,
-                        max_output_tokens=2048,
-                        token_strategy="floor",
-                        error_context="fallback activo del Oraculo",
-                        budget=llm_budget,
+                    raise RuntimeError(
+                        "Oracle route requires a typed ROOT-021 provider result"
                     )
-                    final_provider = "active_legacy"
-                oracle_provider_name = str(
-                    getattr(self.oracle_client, "provider_name", self.oracle_client.__class__.__name__)
-                ).strip()
-                fuente_oraculo = (
-                    "api" if final_provider == oracle_provider_name else "fallback"
-                )
+                if not isinstance(technical_result, LLMCallResultV1):
+                    raise TypeError("Oracle provider route returned an untyped result")
+                respuesta_cruda = technical_result.final_text or ""
 
                 oracle_parse_result = self.oracle_engine.parse_result(
                     respuesta_cruda or ""
                 )
+                if (
+                    technical_result.succeeded
+                    and oracle_parse_result.status is not StructuredParseStatus.ERROR
+                ):
+                    producer = provider_receipt_from_llm(
+                        technical_result,
+                        route_by_provider=route_by_provider,
+                        final_parse_status=oracle_parse_result.status,
+                        accepted_at_utc=datetime.now(timezone.utc),
+                    )
+                else:
+                    producer = local_deterministic_producer(
+                        technical_result=technical_result,
+                        final_parse_status=oracle_parse_result.status,
+                        accepted_at_utc=datetime.now(timezone.utc),
+                    )
                 oracle_result = self.oracle_engine.proyectar_resultado(
                     oracle_parse_result,
                     mensaje_oracle,
                     self.oracle_memory,
-                    fuente=fuente_oraculo,
+                    producer=producer,
+                    cache_receipt=cache_receipt,
                 )
             except Exception as e:
                 logger.error("Error en OracleEngine: %s", e, exc_info=True)
@@ -2642,6 +2662,33 @@ class Orchestrator:
             identity_context=identity_context,
             llm_budget=llm_budget,
         )
+
+    @staticmethod
+    def _construir_mapa_rutas_oracle(
+        *,
+        oracle_provider: object | None,
+        active_providers: tuple[object, ...],
+    ) -> dict[str, KnowledgeProducerRouteV1]:
+        """Mapea slots reales antes de dispatch; IDs vacíos/duplicados fallan."""
+        slots: list[tuple[object, KnowledgeProducerRouteV1]] = []
+        if oracle_provider is not None:
+            slots.append(
+                (oracle_provider, KnowledgeProducerRouteV1.ORACLE_EXTERNAL)
+            )
+        slots.extend(
+            (provider, KnowledgeProducerRouteV1.ACTIVE_PROVIDER_CHAIN)
+            for provider in active_providers
+        )
+
+        route_by_provider: dict[str, KnowledgeProducerRouteV1] = {}
+        for provider, route in slots:
+            provider_id = str(getattr(provider, "provider_name", "")).strip()
+            if not provider_id:
+                raise ValueError("Oracle provider slot has an empty provider identity")
+            if provider_id in route_by_provider:
+                raise ValueError("Oracle provider slots have duplicate provider identities")
+            route_by_provider[provider_id] = route
+        return route_by_provider
 
     def _verbalizar_resultado_oracle(
         self,

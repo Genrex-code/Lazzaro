@@ -31,6 +31,11 @@ from ai_engine.llm_call_control import (
     ProviderMalformedResponse,
     RetryDecisionV1,
 )
+from ai_engine.knowledge_provenance import (
+    cache_receipt_not_checked,
+    local_deterministic_producer,
+    provenance_for,
+)
 from ai_engine.ollama_client import OllamaClient
 from ai_engine.openai_compatible_client import OpenAICompatibleClient
 from ai_engine.oracle_client import OracleClient
@@ -1061,7 +1066,10 @@ def _expired_repair_scenario(*, oracle: bool):
             OracleResult(
                 pregunta_original="hola",
                 contenido_tecnico="resultado tecnico",
-                fuente="api",
+                provenance=provenance_for(
+                    local_deterministic_producer(),
+                    cache_receipt_not_checked(),
+                ),
             ),
             identity_context=identity,
             llm_budget=budget,

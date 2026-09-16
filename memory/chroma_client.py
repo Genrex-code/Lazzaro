@@ -6,6 +6,7 @@ Proporciona una interfaz limpia y tolerante a fallos para el resto del sistema.
 from pathlib import Path
 from typing import Any, ClassVar, TypeAlias, cast
 import gc
+import math
 import threading
 import chromadb
 from chromadb.api import ClientAPI
@@ -22,6 +23,11 @@ from memory.memory_write_types import (
     ExactLookupReceipt,
     ExactLookupStatus,
     ExactMemoryRow,
+)
+from memory.chroma_search_types import (
+    ChromaSearchFailureCodeV1,
+    ChromaSearchResultV1,
+    ChromaSearchStatusV1,
 )
 
 logger = get_logger(__name__)
@@ -351,6 +357,125 @@ class ChromaClient:
                     type(e).__name__,
                 )
                 return None
+
+    @classmethod
+    def _validar_resultado_query_tipado(
+        cls,
+        resultado: object,
+    ) -> QueryResult | None:
+        """Valida el envelope incluido por ``buscar_con_estado`` sin coerciones."""
+        if not isinstance(resultado, dict):
+            return None
+
+        required = ("ids", "documents", "metadatas", "distances")
+        batches: dict[str, list[Any]] = {}
+        for field in required:
+            value = resultado.get(field)
+            if not isinstance(value, list) or not value:
+                return None
+            if any(not isinstance(batch, list) for batch in value):
+                return None
+            batches[field] = value
+
+        batch_count = len(batches["ids"])
+        if batch_count != 1:
+            return None
+        if any(len(value) != batch_count for value in batches.values()):
+            return None
+
+        for batch_index in range(batch_count):
+            row_count = len(batches["ids"][batch_index])
+            if any(
+                len(batches[field][batch_index]) != row_count
+                for field in required[1:]
+            ):
+                return None
+            for row_index in range(row_count):
+                memory_id = batches["ids"][batch_index][row_index]
+                document = batches["documents"][batch_index][row_index]
+                metadata = batches["metadatas"][batch_index][row_index]
+                distance = batches["distances"][batch_index][row_index]
+                if not isinstance(memory_id, str) or not memory_id:
+                    return None
+                if not isinstance(document, str):
+                    return None
+                if metadata is not None and not isinstance(metadata, dict):
+                    return None
+                if (
+                    isinstance(distance, bool)
+                    or not isinstance(distance, (int, float))
+                    or not math.isfinite(float(distance))
+                ):
+                    return None
+
+        return cls._normalizar_resultado_query(cast(QueryResult, resultado))
+
+    def buscar_con_estado(
+        self,
+        consulta: str,
+        n_resultados: int = 5,
+        where: Where | None = None,
+    ) -> ChromaSearchResultV1:
+        """Busca con status tipado; no cambia la semántica legacy de ``buscar``."""
+        collection = self._collection
+        if collection is None:
+            logger.warning(
+                "Typed retrieval unavailable. component=chroma_client "
+                "operation=search reason_code=COLLECTION_UNAVAILABLE"
+            )
+            return ChromaSearchResultV1(
+                contract_version=1,
+                status=ChromaSearchStatusV1.UNAVAILABLE,
+                payload=None,
+                failure_code=ChromaSearchFailureCodeV1.COLLECTION_UNAVAILABLE,
+            )
+
+        with self._lock:
+            try:
+                raw = collection.query(
+                    query_texts=[consulta],
+                    n_results=n_resultados,
+                    where=where,
+                    include=["documents", "metadatas", "distances"],
+                )
+            except Exception as error:
+                logger.error(
+                    "Typed retrieval failed. component=chroma_client "
+                    "operation=search reason_code=BACKEND_FAILURE error_type=%s",
+                    type(error).__name__,
+                )
+                return ChromaSearchResultV1(
+                    contract_version=1,
+                    status=ChromaSearchStatusV1.ERROR,
+                    payload=None,
+                    failure_code=ChromaSearchFailureCodeV1.BACKEND_FAILURE,
+                )
+
+        payload = self._validar_resultado_query_tipado(raw)
+        if payload is None:
+            logger.error(
+                "Typed retrieval rejected malformed response. "
+                "component=chroma_client operation=search "
+                "reason_code=MALFORMED_RESPONSE"
+            )
+            return ChromaSearchResultV1(
+                contract_version=1,
+                status=ChromaSearchStatusV1.ERROR,
+                payload=None,
+                failure_code=ChromaSearchFailureCodeV1.MALFORMED_RESPONSE,
+            )
+
+        row_count = sum(len(batch) for batch in payload["ids"])
+        return ChromaSearchResultV1(
+            contract_version=1,
+            status=(
+                ChromaSearchStatusV1.SUCCESS
+                if row_count > 0
+                else ChromaSearchStatusV1.EMPTY
+            ),
+            payload=payload,
+            failure_code=None,
+        )
 
     def listar(
         self,

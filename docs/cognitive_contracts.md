@@ -659,9 +659,20 @@ Memoria especial para cache semantico del Oraculo.
 
 Contrato:
 
-- Entrada: pregunta del usuario y respuesta ya curada.
-- Salida: respuesta cacheada si la distancia semantica esta bajo umbral.
+- Entrada: pregunta del usuario y conocimiento ya curado con provenance v1.
+- Salida productiva: `OracleCacheLookupResultV1`, que conserva por separado
+  contenido cacheado opcional y `CacheReceiptV1` aun en miss/fallo.
+- Distingue miss limpio, backend no disponible, error, entrada malformada,
+  version incompatible, entrada legacy e hit v1.
+- En un hit semantico conserva Q2 como identidad del lookup y Q1 como identidad
+  de la fila historica; nunca sobrescribe una con la otra.
+- Un hit restaura el productor historico y crea un nuevo receipt de retrieval;
+  no atribuye el contenido a la configuracion actual.
+- Solo conocimiento generado por provider con parse `VALID` se puede escribir.
+  Degraded, fallback local y cache hits no se re-cachean.
 - No reemplaza la memoria episodica normal.
+- Asociacion semantica no certifica verdad factual; ROOT-017 conserva esa
+  responsabilidad. Single-flight de misses sigue separado en ROOT-053.
 
 ## Contrato De Capa 1: Motor / Grounding Fisico / Herramientas
 
@@ -1281,14 +1292,22 @@ Archivos fuente:
 ### Flujo
 
 1. `Orchestrator._resolver_ruta_oracle(...)` recibe la ruta `oracle`.
-2. `OracleEngine.evaluar_cache(mensaje_usuario, oracle_memory)` intenta un cache hit.
-3. Si hay hit, se obtiene `OracleResult(fuente="cache", cache_hit=True)`.
-4. Si no hay hit, `OracleEngine.preparar_consulta(mensaje_usuario)` crea el prompt frio.
-5. El Core intenta `OracleClient.consultar_oraculo(...)` si esta configurado.
-6. Si API externa falla o no existe, el Core usa `LLMGenerationAdapter` como fallback activo.
-7. `OracleEngine.keep_y_save(...)` normaliza la salida cruda, guarda cache y devuelve `OracleResult`.
+2. `OracleEngine.evaluar_cache(...)` realiza una sola consulta y devuelve el
+   resultado cacheado opcional junto con un receipt tipado de lookup.
+3. Un hit v1 restaura el `ProducerReceiptV1` historico y conserva separadas la
+   consulta actual Q2 y la consulta almacenada Q1. Un legacy servido queda
+   explicitamente como `LEGACY_UNKNOWN`.
+4. Para todo no-hit, `OracleEngine.preparar_consulta(...)` crea el prompt frio.
+5. El Core precalcula la ruta de cada slot y ejecuta una unica cadena ROOT-021
+   compuesta por Oracle externo y providers activos disponibles.
+6. Del mismo `LLMCallResultV1` se construye `ProducerReceiptV1`, incluyendo
+   provider/model, parse final, receipts/fallos y fallback entre providers.
+7. `OracleEngine.proyectar_resultado(...)` recibe explicitamente productor y
+   receipt de cache. Solo un parse `VALID` generado por provider intenta una
+   escritura; el resultado conserva `STORED`, `FAILED` o `SKIPPED_POLICY`.
 8. El Core llama `PersonaEngine.preparar_verbalizacion_oraculo(...)`.
-9. Persona verbaliza el conocimiento interno y solo entonces se produce `ActionResponse(accion="hablar")`.
+9. Persona verbaliza el conocimiento interno y solo entonces se produce
+   `ActionResponse(accion="hablar")`.
 
 ### Salida De Oraculo
 
@@ -1299,9 +1318,15 @@ Archivos fuente:
 | `pregunta_original` | Texto original del usuario. |
 | `contenido_tecnico` | Conocimiento frio, explicacion, diagnostico o codigo. |
 | `resumen_para_persona` | Resumen opcional para facilitar verbalizacion social. |
-| `fuente` | `api`, `cache`, `fallback` o `error`. |
-| `cache_hit` | `true` solo cuando viene de `OracleMemory`. |
+| `provenance` | `KnowledgeProvenanceV1` obligatorio: productor historico + retrieval actual. |
+| `fuente` | Computed field derivado de provenance: `api`, `cache`, `fallback` o `error`. |
+| `cache_hit` | Computed field derivado del lookup path; nunca autoridad independiente. |
 | `error` | Error interno si la consulta tuvo fallo recuperable. |
+
+Construir un `OracleResult` productivo sin provenance falla validacion. La
+compatibilidad legacy exige un helper explicito y nunca inventa provider/model
+actual. `accepted_at_utc` expresa aceptacion local del conocimiento, no tiempo
+de computo remoto.
 
 ### Salida Publica Final
 
@@ -1317,6 +1342,8 @@ que convierta Oraculo directamente en `ActionResponse`.
 - Oraculo no debe devolver `accion`, `hablar`, `texto_a_comunicar` ni parametros de Unity.
 - Oraculo puede generar conocimiento o payloads sugeridos, pero el Core/Persona valida la salida publica.
 - Oraculo debe usar cache para reducir costo.
+- Un match de cache es evidencia de retrieval, no prueba de verdad factual.
+- Oraculo no coalescea misses concurrentes dentro de ROOT-018.
 
 ## Contrato De ReasoningEngine Legacy
 

@@ -27,12 +27,23 @@ from ai_engine.llm_call_control import (
     LLMFailureClassV1,
     ProviderAttemptReceiptV1,
 )
+from ai_engine.knowledge_provenance import (
+    CacheEntryIdentityV1,
+    CacheLookupStatusV1,
+    cache_receipt_for_lookup,
+    cache_receipt_not_checked,
+    legacy_unknown_provenance,
+    local_deterministic_producer,
+    provenance_for,
+    retrieval_from_cache,
+)
 from ai_engine.motor_engine import MotorEngine
 from ai_engine.motor_resolution import CandidateMatch, MotorResolution
 from ai_engine.persona_engine import PersonaEngine
 from ai_engine.provider_prompt_projection import project_chat_messages
 from ai_engine.response_parser import ResponseParser
 from ai_engine.schemas import ActionResponse, OracleResult
+from ai_engine.oracle_memory import OracleCacheLookupResultV1
 from ai_engine.structured_parse_types import StructuredParseStatus
 from api.errors import install_public_error_handlers
 from api.routes import router
@@ -198,7 +209,10 @@ def _oracle_turn(responses: list[str], *, origin: str = "terminal"):
         pregunta_original=USER,
         contenido_tecnico=ORACLE,
         resumen_para_persona="oracle summary",
-        fuente="api",
+        provenance=provenance_for(
+            local_deterministic_producer(),
+            cache_receipt_not_checked(),
+        ),
     )
     result = orchestrator._verbalizar_resultado_oracle(
         event,
@@ -419,14 +433,31 @@ def test_24_oracle_cache_is_not_looked_up_by_repair() -> None:
             self.calls = 0
 
         def evaluar_cache(self, message, memory):
-            del message, memory
+            del memory
             self.calls += 1
-            return OracleResult(
+            cache_receipt = cache_receipt_for_lookup(
+                message,
+                status=CacheLookupStatusV1.LEGACY_ENTRY,
+                threshold=0.35,
+                matched_entry=CacheEntryIdentityV1(
+                    entry_id="legacy-test-entry",
+                    logical_key=None,
+                    stored_query_sha256=None,
+                    cache_schema_version=None,
+                    knowledge_contract_version=None,
+                    provenance_version=None,
+                    entry_created_at_utc=None,
+                ),
+                distance=0.1,
+            )
+            result = OracleResult(
                 pregunta_original=USER,
                 contenido_tecnico=ORACLE,
-                fuente="cache",
-                cache_hit=True,
+                provenance=legacy_unknown_provenance(
+                    retrieval=retrieval_from_cache(cache_receipt)
+                ),
             )
+            return OracleCacheLookupResultV1(1, result, cache_receipt)
 
     orchestrator = object.__new__(Orchestrator)
     orchestrator.persona_engine = PersonaEngine()

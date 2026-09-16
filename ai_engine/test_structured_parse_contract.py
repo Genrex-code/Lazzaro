@@ -7,11 +7,25 @@ import io
 import json
 import logging
 from dataclasses import fields
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 from core.behavior_core import BehaviorCore
 from core.identity_snapshot import IdentitySnapshotProvider, build_static_self_v1
 from ai_engine.oracle_engine import OracleEngine
+from ai_engine.knowledge_provenance import (
+    CacheEntryIdentityV1,
+    CacheLookupStatusV1,
+    CacheStoreStatusV1,
+    KnowledgeProducerKindV1,
+    KnowledgeProducerRouteV1,
+    ProducerReceiptV1,
+    cache_receipt_for_lookup,
+    local_deterministic_producer,
+    oracle_cache_logical_key,
+    oracle_query_sha256,
+    with_cache_store_status,
+)
 from ai_engine.llm_call_control import (
     LLMCallResultV1,
     LLMCallTerminalV1,
@@ -80,6 +94,82 @@ class _Memory:
             }
         )
         return True
+
+    def guardar_resultado_en_cache(self, resultado):
+        if self.fail:
+            raise RuntimeError("CACHE_CANARY_PRIVATE")
+        self.writes.append(
+            {
+                "pregunta": resultado.pregunta_original,
+                "contenido_tecnico": resultado.contenido_tecnico,
+                "resumen_para_persona": resultado.resumen_para_persona,
+                "fuente": resultado.fuente,
+            }
+        )
+        identity = CacheEntryIdentityV1(
+            entry_id="structured-fixture",
+            logical_key=oracle_cache_logical_key(resultado.pregunta_original),
+            stored_query_sha256=oracle_query_sha256(resultado.pregunta_original),
+            cache_schema_version=1,
+            knowledge_contract_version=1,
+            provenance_version=1,
+            entry_created_at_utc=datetime.now(timezone.utc),
+        )
+        return with_cache_store_status(
+            resultado.provenance.retrieval.cache,
+            CacheStoreStatusV1.STORED,
+            stored_entry=identity,
+        )
+
+
+def _cache_receipt(query: str = "q"):
+    return cache_receipt_for_lookup(
+        query,
+        status=CacheLookupStatusV1.MISS,
+        threshold=0.35,
+    )
+
+
+def _producer(status: StructuredParseStatus):
+    if status is StructuredParseStatus.ERROR:
+        return local_deterministic_producer(
+            final_parse_status=status,
+            accepted_at_utc=datetime.now(timezone.utc),
+        )
+    return ProducerReceiptV1(
+        kind=KnowledgeProducerKindV1.PROVIDER_GENERATED,
+        route=KnowledgeProducerRouteV1.ORACLE_EXTERNAL,
+        provider="structured-fixture",
+        model_id="structured-fixture-model",
+        final_parse_status=status,
+        parse_contract_version=1,
+        provider_fallback_used=False,
+        scheduler_attempt_count=1,
+        failure_classes=(),
+        accepted_at_utc=datetime.now(timezone.utc),
+    )
+
+
+def _project_oracle(engine, result, query, memory):
+    return engine.proyectar_resultado(
+        result,
+        query,
+        memory,
+        producer=_producer(result.status),
+        cache_receipt=_cache_receipt(query),
+    )
+
+
+def _keep_oracle(raw, query, memory):
+    engine = OracleEngine()
+    result = engine.parse_result(raw)
+    return engine.proyectar_resultado(
+        result,
+        query,
+        memory,
+        producer=_producer(result.status),
+        cache_receipt=_cache_receipt(query),
+    )
 
 
 class _Adapter:
@@ -318,7 +408,7 @@ def test_29_oracle_plain_is_degraded_not_cacheable() -> None:
     engine = OracleEngine()
     memory = _Memory()
     parse_result = engine.parse_result("Explicacion tecnica plana")
-    engine.proyectar_resultado(parse_result, "q", memory)
+    _project_oracle(engine, parse_result, "q", memory)
     assert parse_result.status is StructuredParseStatus.DEGRADED
     assert memory.writes == []
 
@@ -355,26 +445,26 @@ def test_34_oracle_multiple_objects_is_error() -> None:
 
 def test_35_only_valid_oracle_writes_once() -> None:
     memory = _Memory()
-    OracleEngine().keep_y_save(_oracle(), "q", memory)
+    _keep_oracle(_oracle(), "q", memory)
     assert len(memory.writes) == 1
 
 
 def test_36_degraded_oracle_never_writes() -> None:
     memory = _Memory()
-    OracleEngine().keep_y_save("texto plano", "q", memory)
+    _keep_oracle("texto plano", "q", memory)
     assert memory.writes == []
 
 
 def test_37_error_oracle_never_writes() -> None:
     memory = _Memory()
-    OracleEngine().keep_y_save("", "q", memory)
+    _keep_oracle("", "q", memory)
     assert memory.writes == []
 
 
 def test_38_cache_failure_does_not_mutate_parse_status() -> None:
     engine = OracleEngine()
     result = engine.parse_result(_oracle())
-    engine.proyectar_resultado(result, "q", _Memory(fail=True))
+    _project_oracle(engine, result, "q", _Memory(fail=True))
     assert result.status is StructuredParseStatus.VALID
     assert result.value is not None
 
@@ -514,7 +604,7 @@ def test_48_legacy_wrapper_parses_only_once() -> None:
         "ai_engine.oracle_engine.inspect_json_object",
         wraps=inspector,
     ) as parser:
-        OracleEngine().keep_y_save(_oracle(), "q", _Memory())
+        _keep_oracle(_oracle(), "q", _Memory())
     assert parser.call_count == 1
 
 
@@ -628,7 +718,7 @@ def test_55_deterministic_thirty_case_corpus() -> None:
         assert ResponseParser.project_result(general).accion in {"none"}
         assert PersonaEngine().proyectar_resultado(persona)["accion"] == "hablar"
         memory = _Memory()
-        OracleEngine().proyectar_resultado(oracle, "q", memory)
+        _project_oracle(OracleEngine(), oracle, "q", memory)
         if oracle.status is StructuredParseStatus.VALID:
             assert len(memory.writes) == 1
         else:

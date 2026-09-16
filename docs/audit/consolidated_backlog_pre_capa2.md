@@ -6,6 +6,16 @@
 - Alcance: baseline/Fase 0, AuditTrace/Fase 1 y auditorías cerradas de los bloques 01–09.
 Semántica: `PASS_REPRODUCED` confirma que el comportamiento observado pudo reproducirse; no lo aprueba como seguro ni correcto.
 
+### Estado de remediación posterior
+
+El inventario y los totales de este documento siguen siendo la fotografía
+histórica del cierre de auditoría; no se reescriben al implementar cada ROOT.
+A 2026-09-16, `ROOT-018` queda `IMPLEMENTED / HUMAN_REVIEW_PENDING`: provenance
+de productor y retrieval versionada, identidad Q1/Q2 separada, cache health
+tipado y política de escritura sin laundering. `ORACLE-CACHE-001` y
+`LLM-AUDIT-001` quedan cubiertos por código y pruebas. ROOT-017 (factualidad) y
+ROOT-053 (single-flight) permanecen abiertos y no fueron iniciados.
+
 ## 1. Resumen ejecutivo
 
 La auditoría produjo **105 tickets administrativos OPEN**: 2 P0, 40 P1, 56 P2 y 7 P3. La deduplicación por corrección arquitectónica o contractual común los reduce a **55 causas raíz**: 2 P0, 27 P1, 22 P2 y 4 P3.

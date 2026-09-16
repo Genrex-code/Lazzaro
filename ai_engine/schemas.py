@@ -6,10 +6,16 @@ Centraliza las estructuras que viajan entre el core, la memoria, el LLM y las he
 from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from ai_engine.decision_outcome import DecisionOutcome
 from ai_engine.identity_projection import IdentityContextV1
+from ai_engine.knowledge_provenance import (
+    KnowledgeProducerKindV1,
+    KnowledgeProducerRouteV1,
+    KnowledgeProvenanceV1,
+    RetrievalPathV1,
+)
 
 
 class AgentContext(BaseModel):
@@ -110,9 +116,55 @@ class ActionResponse(BaseModel):
 class OracleResult(BaseModel):
     """Conocimiento interno producido por Capa 3 antes de pasar por Persona."""
 
+    model_config = ConfigDict(extra="forbid")
+
     pregunta_original: str
     contenido_tecnico: str
     resumen_para_persona: Optional[str] = None
-    fuente: Literal["api", "cache", "fallback", "error"] = "api"
-    cache_hit: bool = False
+    provenance: KnowledgeProvenanceV1
     error: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def compatibility_fields_cannot_contradict_provenance(cls, value: Any) -> Any:
+        """Acepta proyecciones legacy solo si coinciden; nunca son autoridad."""
+        if not isinstance(value, dict) or value.get("provenance") is None:
+            return value
+        enriched = dict(value)
+        provenance = KnowledgeProvenanceV1.model_validate(enriched["provenance"])
+        expected_cache_hit = (
+            provenance.retrieval.lookup_path is RetrievalPathV1.CACHE_HIT
+        )
+        expected_source = cls._source_for_provenance(provenance)
+        if "cache_hit" in enriched and enriched["cache_hit"] is not expected_cache_hit:
+            raise ValueError("cache_hit contradicts knowledge provenance")
+        if "fuente" in enriched and enriched["fuente"] != expected_source:
+            raise ValueError("fuente contradicts knowledge provenance")
+        enriched.pop("cache_hit", None)
+        enriched.pop("fuente", None)
+        return enriched
+
+    @staticmethod
+    def _source_for_provenance(
+        provenance: KnowledgeProvenanceV1,
+    ) -> Literal["api", "cache", "fallback", "error"]:
+        if provenance.retrieval.lookup_path is RetrievalPathV1.CACHE_HIT:
+            return "cache"
+        producer = provenance.producer
+        if producer.kind is KnowledgeProducerKindV1.LOCAL_DETERMINISTIC:
+            return "error"
+        if producer.route is KnowledgeProducerRouteV1.ORACLE_EXTERNAL:
+            return "api"
+        if producer.route is KnowledgeProducerRouteV1.ACTIVE_PROVIDER_CHAIN:
+            return "fallback"
+        return "error"
+
+    @computed_field(return_type=str)
+    @property
+    def fuente(self) -> Literal["api", "cache", "fallback", "error"]:
+        return self._source_for_provenance(self.provenance)
+
+    @computed_field(return_type=bool)
+    @property
+    def cache_hit(self) -> bool:
+        return self.provenance.retrieval.lookup_path is RetrievalPathV1.CACHE_HIT

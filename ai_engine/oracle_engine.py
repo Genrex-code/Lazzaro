@@ -3,13 +3,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, StrictStr, ValidationError
 
 from core.logger import get_logger
 
-from .oracle_memory import OracleMemory
+from .knowledge_provenance import (
+    CacheLookupStatusV1,
+    CacheReceiptV1,
+    CacheStoreStatusV1,
+    ProducerReceiptV1,
+    cache_receipt_for_lookup,
+    provenance_for,
+    with_cache_store_status,
+)
+from .oracle_memory import OracleCacheLookupResultV1, OracleMemory
 from .prompt_plan import (
     ContextEnvelopeV1,
     PromptPlanV1,
@@ -29,7 +38,6 @@ from .structured_parse_types import (
 
 
 logger = get_logger(__name__)
-OracleSource = Literal["api", "fallback"]
 
 
 class _OraclePayload(BaseModel):
@@ -55,27 +63,36 @@ class OracleEngine:
         self,
         mensaje_usuario: str,
         memoria: OracleMemory,
-    ) -> Optional[OracleResult]:
-        """Consulta el cache existente sin afirmar calidad de parse legacy."""
-        buscar_resultado = getattr(memoria, "buscar_resultado_cacheado", None)
-        if callable(buscar_resultado):
-            resultado = buscar_resultado(mensaje_usuario)
-            if resultado:
+    ) -> OracleCacheLookupResultV1:
+        """Consulta una vez y conserva el recibo aun cuando no haya contenido."""
+        buscar_tipado = getattr(memoria, "buscar_resultado_cacheado_con_recibo", None)
+        if callable(buscar_tipado):
+            result = buscar_tipado(mensaje_usuario)
+            if not isinstance(result, OracleCacheLookupResultV1):
+                raise TypeError("OracleMemory devolvio un cache lookup fuera de contrato")
+            if result.cached_result is not None:
                 logger.info("Oracle Cache HIT. Devolviendo conocimiento interno cacheado.")
-                return resultado
-            return None
+            return result
 
-        respuesta_cacheada = memoria.buscar_respuesta_cacheada(mensaje_usuario)
-        if respuesta_cacheada:
-            logger.info("Oracle Cache HIT legacy. Calidad de parse no disponible.")
-            return OracleResult(
-                pregunta_original=mensaje_usuario,
-                contenido_tecnico=respuesta_cacheada,
-                resumen_para_persona=None,
-                fuente="cache",
-                cache_hit=True,
+        # Compatibilidad acotada con dobles antiguos: el resultado ya debe
+        # contener provenance; un miss se representa explícitamente.
+        buscar_resultado = getattr(memoria, "buscar_resultado_cacheado", None)
+        resultado = buscar_resultado(mensaje_usuario) if callable(buscar_resultado) else None
+        if isinstance(resultado, OracleResult):
+            return OracleCacheLookupResultV1(
+                1,
+                resultado,
+                resultado.provenance.retrieval.cache,
             )
-        return None
+        return OracleCacheLookupResultV1(
+            1,
+            None,
+            cache_receipt_for_lookup(
+                mensaje_usuario,
+                status=CacheLookupStatusV1.MISS,
+                threshold=OracleMemory.DEFAULT_CACHE_DISTANCE,
+            ),
+        )
 
     def preparar_consulta(self, mensaje_usuario: str | None) -> PromptPlanV1:
         """Build a cold Oracle plan; the request remains optional and typed."""
@@ -192,21 +209,31 @@ class OracleEngine:
         pregunta_original: str,
         memoria: OracleMemory,
         *,
-        fuente: OracleSource = "api",
+        producer: ProducerReceiptV1,
+        cache_receipt: CacheReceiptV1,
     ) -> OracleResult:
         """Aplica disponibilidad y cache sobre un parse result ya calculado."""
-        fuente_normalizada = self._normalizar_fuente(fuente)
+        if producer.final_parse_status is not parse_result.status:
+            raise ValueError("producer parse status must match the projected result")
+        if cache_receipt.lookup_status in {
+            CacheLookupStatusV1.HIT,
+            CacheLookupStatusV1.LEGACY_ENTRY,
+        }:
+            raise ValueError("cache hits must be returned, never projected again")
+        if cache_receipt.store_status is not CacheStoreStatusV1.NOT_ATTEMPTED:
+            raise ValueError("projection requires a fresh cache lookup receipt")
         if parse_result.status is StructuredParseStatus.VALID:
             assert parse_result.value is not None
             resultado = OracleResult(
                 pregunta_original=pregunta_original,
                 contenido_tecnico=parse_result.value.contenido_tecnico,
                 resumen_para_persona=parse_result.value.resumen_para_persona,
-                fuente=fuente_normalizada,
-                cache_hit=False,
+                provenance=provenance_for(producer, cache_receipt),
             )
-            self._guardar_resultado(memoria, resultado)
-            return resultado
+            stored_receipt = self._guardar_resultado(memoria, resultado)
+            return resultado.model_copy(
+                update={"provenance": provenance_for(producer, stored_receipt)}
+            )
 
         if (
             parse_result.status is StructuredParseStatus.DEGRADED
@@ -218,13 +245,20 @@ class OracleEngine:
                 pregunta_original=pregunta_original,
                 contenido_tecnico=parse_result.salvage.text,
                 resumen_para_persona=None,
-                fuente=fuente_normalizada,
-                cache_hit=False,
+                provenance=provenance_for(
+                    producer,
+                    with_cache_store_status(
+                        cache_receipt,
+                        CacheStoreStatusV1.SKIPPED_POLICY,
+                    ),
+                ),
             )
 
         return self._fallback(
             pregunta_original,
             "Mi procesador logico no produjo conocimiento estructurado util para comunicar.",
+            producer=producer,
+            cache_receipt=cache_receipt,
         )
 
     def keep_y_save(
@@ -233,7 +267,8 @@ class OracleEngine:
         pregunta_original: str,
         memoria: OracleMemory,
         *,
-        fuente: OracleSource = "api",
+        producer: ProducerReceiptV1,
+        cache_receipt: CacheReceiptV1,
     ) -> OracleResult:
         """Wrapper legacy: una sola parseada, policy y cache solo para VALID."""
         result = self.parse_result(respuesta_llm)
@@ -241,7 +276,8 @@ class OracleEngine:
             result,
             pregunta_original,
             memoria,
-            fuente=fuente,
+            producer=producer,
+            cache_receipt=cache_receipt,
         )
 
     def _oracle_degraded_or_error(
@@ -317,35 +353,50 @@ class OracleEngine:
         return tuple(result)
 
     @staticmethod
-    def _guardar_resultado(memoria: OracleMemory, resultado: OracleResult) -> None:
+    def _guardar_resultado(
+        memoria: OracleMemory,
+        resultado: OracleResult,
+    ) -> CacheReceiptV1:
         try:
-            memoria.guardar_en_cache(
-                resultado.pregunta_original,
-                resultado.contenido_tecnico,
-                resumen_para_persona=resultado.resumen_para_persona,
-                fuente=resultado.fuente,
-            )
+            guardar = getattr(memoria, "guardar_resultado_en_cache", None)
+            if not callable(guardar):
+                raise TypeError("OracleMemory no expone guardar_resultado_en_cache")
+            receipt = guardar(resultado)
+            if not isinstance(receipt, CacheReceiptV1):
+                raise TypeError("OracleMemory devolvio un store receipt invalido")
+            return receipt
         except Exception as error:
             logger.error(
                 "Oracle cache write failed component=oracle_cache error_type=%s",
                 type(error).__name__,
             )
+            return with_cache_store_status(
+                resultado.provenance.retrieval.cache,
+                CacheStoreStatusV1.FAILED,
+            )
 
     @staticmethod
-    def _fallback(pregunta_original: str, mensaje: str) -> OracleResult:
+    def _fallback(
+        pregunta_original: str,
+        mensaje: str,
+        *,
+        producer: ProducerReceiptV1,
+        cache_receipt: CacheReceiptV1,
+    ) -> OracleResult:
         logger.info("Activando fallback frio en Capa 3.")
         return OracleResult(
             pregunta_original=pregunta_original,
             contenido_tecnico=mensaje,
             resumen_para_persona=mensaje,
-            fuente="error",
-            cache_hit=False,
+            provenance=provenance_for(
+                producer,
+                with_cache_store_status(
+                    cache_receipt,
+                    CacheStoreStatusV1.SKIPPED_POLICY,
+                ),
+            ),
             error="Capa Oraculo activo un resultado de rescate.",
         )
-
-    @staticmethod
-    def _normalizar_fuente(fuente: str) -> OracleSource:
-        return "fallback" if str(fuente).strip().lower() == "fallback" else "api"
 
     @staticmethod
     def _log_parse_result(
