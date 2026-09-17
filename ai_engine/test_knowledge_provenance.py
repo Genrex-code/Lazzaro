@@ -86,6 +86,21 @@ def _technical(
     )
 
 
+def _failed_technical(
+    terminal: LLMCallTerminalV1,
+    final_failure: LLMFailureClassV1 | None,
+    receipts: tuple[ProviderAttemptReceiptV1, ...] = (),
+) -> LLMCallResultV1:
+    return LLMCallResultV1(
+        terminal=terminal,
+        final_text=None,
+        final_provider=None,
+        final_model_id=None,
+        final_failure=final_failure,
+        receipts=receipts,
+    )
+
+
 def _producer(
     *,
     provider: str = "gemini",
@@ -105,6 +120,8 @@ def _producer(
         provider_fallback_used=fallback,
         scheduler_attempt_count=attempts,
         failure_classes=failures,
+        generation_terminal=LLMCallTerminalV1.SUCCESS,
+        final_failure=None,
         accepted_at_utc=NOW,
     )
 
@@ -139,6 +156,18 @@ def _entry(entry_id: str = "entry-q1", query: str = "Q1") -> CacheEntryIdentityV
         knowledge_contract_version=1,
         provenance_version=1,
         entry_created_at_utc=NOW,
+    )
+
+
+def _legacy_entry(entry_id: str = "legacy-entry") -> CacheEntryIdentityV1:
+    return CacheEntryIdentityV1(
+        entry_id=entry_id,
+        logical_key=None,
+        stored_query_sha256=None,
+        cache_schema_version=None,
+        knowledge_contract_version=None,
+        provenance_version=None,
+        entry_created_at_utc=None,
     )
 
 
@@ -703,6 +732,348 @@ def test_25_physical_entry_id_is_not_logical_identity() -> None:
     identity = _entry(entry_id="550e8400-e29b-41d4-a716-446655440000", query="Q1")
     assert identity.entry_id != identity.logical_key
     assert identity.entry_id != identity.stored_query_sha256
+
+
+def test_26_provider_generated_preserves_success_terminal() -> None:
+    producer = provider_receipt_from_llm(
+        _technical("gemini", (_attempt("gemini", None),)),
+        route_by_provider={
+            "gemini": KnowledgeProducerRouteV1.ACTIVE_PROVIDER_CHAIN
+        },
+        final_parse_status=StructuredParseStatus.VALID,
+        accepted_at_utc=NOW,
+    )
+    assert producer.generation_terminal is LLMCallTerminalV1.SUCCESS
+    assert producer.final_failure is None
+
+
+def test_27_provider_generated_rejects_non_success_terminal() -> None:
+    payload = _producer().model_dump(mode="python")
+    payload["generation_terminal"] = LLMCallTerminalV1.RETRY_EXHAUSTED
+    try:
+        ProducerReceiptV1.model_validate(payload)
+    except ValidationError:
+        return
+    raise AssertionError("provider-generated producer accepted non-success terminal")
+
+
+def test_28_provider_generated_rejects_final_failure() -> None:
+    payload = _producer().model_dump(mode="python")
+    payload["final_failure"] = LLMFailureClassV1.AUTH_FAILURE
+    try:
+        ProducerReceiptV1.model_validate(payload)
+    except ValidationError:
+        return
+    raise AssertionError("provider-generated producer accepted final failure")
+
+
+def test_29_local_preserves_deadline_terminal() -> None:
+    technical = _failed_technical(
+        LLMCallTerminalV1.DEADLINE_EXCEEDED,
+        LLMFailureClassV1.DEADLINE_EXCEEDED,
+        (_attempt("gemini", LLMFailureClassV1.DEADLINE_EXCEEDED),),
+    )
+    producer = local_deterministic_producer(
+        technical_result=technical,
+        final_parse_status=StructuredParseStatus.ERROR,
+        accepted_at_utc=NOW,
+    )
+    assert producer.generation_terminal is LLMCallTerminalV1.DEADLINE_EXCEEDED
+    assert producer.final_failure is LLMFailureClassV1.DEADLINE_EXCEEDED
+
+
+def test_30_local_preserves_retry_exhausted_terminal() -> None:
+    technical = _failed_technical(
+        LLMCallTerminalV1.RETRY_EXHAUSTED,
+        LLMFailureClassV1.RATE_LIMITED,
+        (_attempt("gemini", LLMFailureClassV1.RATE_LIMITED),),
+    )
+    producer = local_deterministic_producer(
+        technical_result=technical,
+        final_parse_status=StructuredParseStatus.ERROR,
+        accepted_at_utc=NOW,
+    )
+    assert producer.generation_terminal is LLMCallTerminalV1.RETRY_EXHAUSTED
+    assert producer.final_failure is LLMFailureClassV1.RATE_LIMITED
+
+
+def test_31_local_preserves_non_retryable_terminal() -> None:
+    technical = _failed_technical(
+        LLMCallTerminalV1.NON_RETRYABLE_FAILURE,
+        LLMFailureClassV1.AUTH_FAILURE,
+        (_attempt("gemini", LLMFailureClassV1.AUTH_FAILURE),),
+    )
+    producer = local_deterministic_producer(
+        technical_result=technical,
+        final_parse_status=StructuredParseStatus.ERROR,
+        accepted_at_utc=NOW,
+    )
+    assert producer.generation_terminal is LLMCallTerminalV1.NON_RETRYABLE_FAILURE
+    assert producer.final_failure is LLMFailureClassV1.AUTH_FAILURE
+
+
+def test_32_local_preserves_all_providers_failed_terminal() -> None:
+    technical = _failed_technical(
+        LLMCallTerminalV1.ALL_PROVIDERS_FAILED,
+        LLMFailureClassV1.CONNECTION_FAILURE,
+        (
+            _attempt("oracle", LLMFailureClassV1.TRANSPORT_TIMEOUT, started=1),
+            _attempt("gemini", LLMFailureClassV1.CONNECTION_FAILURE, started=3),
+        ),
+    )
+    producer = local_deterministic_producer(
+        technical_result=technical,
+        final_parse_status=StructuredParseStatus.ERROR,
+        accepted_at_utc=NOW,
+    )
+    assert producer.generation_terminal is LLMCallTerminalV1.ALL_PROVIDERS_FAILED
+    assert producer.final_failure is LLMFailureClassV1.CONNECTION_FAILURE
+    assert producer.scheduler_attempt_count == 2
+
+
+def test_33_local_preserves_no_compatible_provider_terminal() -> None:
+    technical = _failed_technical(
+        LLMCallTerminalV1.NO_COMPATIBLE_PROVIDER,
+        LLMFailureClassV1.PROJECTION_UNSUPPORTED,
+    )
+    producer = local_deterministic_producer(
+        technical_result=technical,
+        final_parse_status=StructuredParseStatus.ERROR,
+        accepted_at_utc=NOW,
+    )
+    assert producer.generation_terminal is LLMCallTerminalV1.NO_COMPATIBLE_PROVIDER
+    assert producer.final_failure is LLMFailureClassV1.PROJECTION_UNSUPPORTED
+    assert producer.scheduler_attempt_count == 0
+    assert producer.failure_classes == ()
+
+
+def test_34_local_preserves_final_failure_without_inference() -> None:
+    technical = _failed_technical(
+        LLMCallTerminalV1.NON_RETRYABLE_FAILURE,
+        LLMFailureClassV1.CONFIGURATION_ERROR,
+        (_attempt("gemini", LLMFailureClassV1.AUTH_FAILURE),),
+    )
+    producer = local_deterministic_producer(
+        technical_result=technical,
+        final_parse_status=StructuredParseStatus.ERROR,
+        accepted_at_utc=NOW,
+    )
+    assert producer.final_failure is LLMFailureClassV1.CONFIGURATION_ERROR
+    assert producer.failure_classes == (LLMFailureClassV1.AUTH_FAILURE,)
+
+    current_turn = OracleEngine().proyectar_resultado(
+        OracleEngine().parse_result(""),
+        "Q",
+        _memory(
+            _search(
+                ChromaSearchStatusV1.EMPTY,
+                {
+                    "ids": [[]],
+                    "documents": [[]],
+                    "metadatas": [[]],
+                    "distances": [[]],
+                },
+            )
+        ),
+        producer=producer,
+        cache_receipt=_miss("Q"),
+    )
+    assert current_turn.provenance.producer.generation_terminal is (
+        LLMCallTerminalV1.NON_RETRYABLE_FAILURE
+    )
+    assert current_turn.provenance.producer.final_failure is (
+        LLMFailureClassV1.CONFIGURATION_ERROR
+    )
+    assert current_turn.provenance.retrieval.cache.store_status is (
+        CacheStoreStatusV1.SKIPPED_POLICY
+    )
+
+    successful_technical = _technical(
+        "gemini",
+        (_attempt("gemini", None),),
+    )
+    parse_fallback = local_deterministic_producer(
+        technical_result=successful_technical,
+        final_parse_status=StructuredParseStatus.ERROR,
+        accepted_at_utc=NOW,
+    )
+    assert parse_fallback.generation_terminal is LLMCallTerminalV1.SUCCESS
+    assert parse_fallback.final_failure is None
+    assert parse_fallback.failure_classes == ()
+
+
+def test_35_local_without_llm_has_no_generation_terminal() -> None:
+    producer = local_deterministic_producer(accepted_at_utc=NOW)
+    assert producer.generation_terminal is None
+    assert producer.final_failure is None
+    assert producer.scheduler_attempt_count == 0
+    assert producer.failure_classes == ()
+
+
+def test_36_legacy_has_no_generation_terminal() -> None:
+    receipt = cache_receipt_for_lookup(
+        "Q2",
+        status=CacheLookupStatusV1.LEGACY_ENTRY,
+        threshold=0.35,
+        matched_entry=_legacy_entry(),
+        distance=0.1,
+    )
+    provenance = legacy_unknown_provenance(
+        retrieval=RetrievalReceiptV1(cache=receipt)
+    )
+    assert provenance.producer.generation_terminal is None
+    assert provenance.producer.final_failure is None
+
+
+def test_37_cache_roundtrip_preserves_complete_historical_producer() -> None:
+    historical = _producer(
+        provider="historical-provider",
+        route=KnowledgeProducerRouteV1.ORACLE_EXTERNAL,
+        fallback=True,
+        attempts=2,
+        failures=(LLMFailureClassV1.CONNECTION_FAILURE,),
+    )
+    empty = _search(
+        ChromaSearchStatusV1.EMPTY,
+        {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]},
+    )
+    writer = _memory(empty)
+    stored = writer.guardar_resultado_en_cache(
+        _generated_result(query="Q1 historical", producer=historical)
+    )
+    assert stored.store_status is CacheStoreStatusV1.STORED
+    write = writer.client.writes[0]
+
+    current_config = _producer(provider="current-provider")
+    assert current_config.provider != historical.provider
+    reader = _memory(
+        _search(
+            ChromaSearchStatusV1.SUCCESS,
+            _payload(
+                write["documentos"][0],
+                write["metadatos"][0],
+                entry_id=write["ids"][0],
+            ),
+        )
+    )
+    restored = reader.buscar_resultado_cacheado_con_recibo("Q2 current")
+    assert restored.cached_result is not None
+    restored_producer = restored.cached_result.provenance.producer
+    assert restored_producer == historical
+    assert restored_producer.generation_terminal is LLMCallTerminalV1.SUCCESS
+    assert restored_producer.final_failure is None
+    assert canonical_producer_json(restored_producer) == canonical_producer_json(
+        historical
+    )
+
+
+def test_38_hit_rejects_legacy_identity() -> None:
+    try:
+        cache_receipt_for_lookup(
+            "Q2",
+            status=CacheLookupStatusV1.HIT,
+            threshold=0.35,
+            matched_entry=_legacy_entry(),
+            distance=0.1,
+        )
+    except ValidationError:
+        return
+    raise AssertionError("HIT accepted a legacy cache identity")
+
+
+def test_39_legacy_entry_rejects_v1_identity() -> None:
+    try:
+        cache_receipt_for_lookup(
+            "Q2",
+            status=CacheLookupStatusV1.LEGACY_ENTRY,
+            threshold=0.35,
+            matched_entry=_entry(),
+            distance=0.1,
+        )
+    except ValidationError:
+        return
+    raise AssertionError("LEGACY_ENTRY accepted a v1 cache identity")
+
+
+def test_40_legacy_unknown_with_hit_is_rejected() -> None:
+    legacy_receipt = cache_receipt_for_lookup(
+        "Q2",
+        status=CacheLookupStatusV1.LEGACY_ENTRY,
+        threshold=0.35,
+        matched_entry=_legacy_entry(),
+        distance=0.1,
+    )
+    legacy_producer = legacy_unknown_provenance(
+        retrieval=RetrievalReceiptV1(cache=legacy_receipt)
+    ).producer
+    hit = cache_receipt_for_lookup(
+        "Q2",
+        status=CacheLookupStatusV1.HIT,
+        threshold=0.35,
+        matched_entry=_entry(),
+        distance=0.1,
+    )
+    try:
+        provenance_for(legacy_producer, hit)
+    except ValidationError:
+        return
+    raise AssertionError("LEGACY_UNKNOWN producer accepted a v1 HIT")
+
+
+def test_41_provider_generated_with_legacy_entry_is_rejected() -> None:
+    legacy_receipt = cache_receipt_for_lookup(
+        "Q2",
+        status=CacheLookupStatusV1.LEGACY_ENTRY,
+        threshold=0.35,
+        matched_entry=_legacy_entry(),
+        distance=0.1,
+    )
+    try:
+        provenance_for(_producer(), legacy_receipt)
+    except ValidationError:
+        return
+    raise AssertionError("provider-generated producer accepted LEGACY_ENTRY")
+
+
+def test_42_local_deterministic_with_hit_is_rejected() -> None:
+    hit = cache_receipt_for_lookup(
+        "Q2",
+        status=CacheLookupStatusV1.HIT,
+        threshold=0.35,
+        matched_entry=_entry(),
+        distance=0.1,
+    )
+    try:
+        provenance_for(
+            local_deterministic_producer(accepted_at_utc=NOW),
+            hit,
+        )
+    except ValidationError:
+        return
+    raise AssertionError("local deterministic producer accepted cache HIT")
+
+
+def test_43_provider_generated_with_v1_hit_is_valid() -> None:
+    hit = cache_receipt_for_lookup(
+        "Q2",
+        status=CacheLookupStatusV1.HIT,
+        threshold=0.35,
+        matched_entry=_entry(),
+        distance=0.1,
+    )
+    provenance = provenance_for(_producer(), hit)
+    assert provenance.producer.kind is KnowledgeProducerKindV1.PROVIDER_GENERATED
+    assert provenance.retrieval.lookup_path is RetrievalPathV1.CACHE_HIT
+
+
+def test_44_provider_generated_requires_real_lookup_before_generation() -> None:
+    generated = provenance_for(_producer(), _miss("Q2"))
+    assert generated.retrieval.lookup_path is RetrievalPathV1.GENERATED
+    try:
+        provenance_for(_producer(), cache_receipt_not_checked())
+    except ValidationError:
+        return
+    raise AssertionError("provider-generated producer accepted NOT_CHECKED")
 
 
 def main() -> None:

@@ -27,18 +27,34 @@ La estructura v1 separa dos autoridades:
 
 El productor conserva `kind`, `route`, provider, model, parse status/version,
 fallback entre proveedores, cantidad de receipts del scheduler, clases de fallo
-estables y `accepted_at_utc`. Ese timestamp es el momento local en que Lazzaro
-aceptó la salida, no una afirmación sobre cuándo computó el modelo remoto.
+estables, `generation_terminal`, `final_failure` y `accepted_at_utc`. Ese
+timestamp es el momento local en que Lazzaro aceptó la salida, no una afirmación
+sobre cuándo computó el modelo remoto.
 
 `scheduler_attempt_count` es exactamente `len(LLMCallResultV1.receipts)`. No
 pretende contar requests HTTP, porque ROOT-021 puede resolver incompatibilidad
 de proyección antes del transporte. Las failure classes son únicas, estables y
 en orden de primera aparición; un receipt exitoso no agrega una clase.
+Ese resumen no reconstruye causalidad: `generation_terminal` y `final_failure`
+se copian literalmente de `LLMCallResultV1.terminal/final_failure`. Así,
+`DEADLINE_EXCEEDED`, `RETRY_EXHAUSTED`, `NON_RETRYABLE_FAILURE`,
+`ALL_PROVIDERS_FAILED` y `NO_COMPATIBLE_PROVIDER` permanecen distinguibles aun
+cuando dos agregados de receipts se parezcan.
 
 `provider_fallback_used` es `true` sólo si, antes del receipt exitoso aceptado,
 existe al menos un receipt con una identidad de proveedor diferente. Reintentos
 del mismo proveedor no cuentan. En ROOT-021 una proyección incompatible no crea
 receipt y por eso no altera este campo ni el attempt count.
+
+Las combinaciones del productor son estrictas:
+
+- `PROVIDER_GENERATED` exige terminal `SUCCESS`, `final_failure=None`, provider,
+  timestamp de aceptación, parse `VALID|DEGRADED` y al menos un receipt;
+- `LOCAL_DETERMINISTIC` con tentativa técnica conserva exactamente terminal,
+  fallo final, cantidad y clases de esa tentativa; sin tentativa usa terminal y
+  fallo `None`, cero receipts y cero failure classes;
+- `LEGACY_UNKNOWN` usa terminal/fallo `None` porque no puede reconstruir estado
+  histórico ROOT-021.
 
 ## Ruta del productor
 
@@ -85,6 +101,26 @@ identidad almacenada. `fuente` y `cache_hit` siguen disponibles como computed
 fields derivados de provenance; si un constructor intenta suministrarlos con
 valores contradictorios, la validación falla.
 
+Además, `HIT` exige una `matched_entry` v1 completa (tres versiones, key lógica,
+hash de Q1 y timestamp); `LEGACY_ENTRY` exige que todos esos campos sean `None`.
+No se puede etiquetar una identidad legacy como v1 ni una identidad v1 como
+legacy mediante construcción directa.
+
+## Coherencia productor/retrieval
+
+`KnowledgeProvenanceV1` rechaza estados imposibles:
+
+- `LEGACY_ENTRY` existe si y sólo si el productor es `LEGACY_UNKNOWN`;
+- un `HIT` v1 exige productor histórico `PROVIDER_GENERATED`;
+- `LOCAL_DETERMINISTIC` siempre usa path `GENERATED` y nunca cache hit;
+- un productor provider puede ser generación tras lookup o hit v1, pero no
+  `LEGACY_ENTRY` ni `NOT_CHECKED`.
+
+La caracterización del flujo confirmó que `NOT_CHECKED` productivo sólo aparece
+en el resultado local de una consulta vacía antes de cache/LLM. Toda generación
+por provider atraviesa primero un lookup tipado; por eso provider +
+`NOT_CHECKED` se rechaza sin eliminar un caso productivo.
+
 ## Identidad Q1/Q2
 
 Para un hit semántico:
@@ -130,6 +166,9 @@ malformado no se sirve.
 
 Un write fail no invalida ni regenera el conocimiento ya aceptado. Los hits no
 se re-cachean, por lo que no existe laundering de provenance histórica.
+El JSON canónico del productor incluye terminal y fallo final; un hit restaura
+el receipt histórico byte/semánticamente equivalente aunque cambie la
+configuración actual de providers.
 
 ## Fronteras preservadas
 
@@ -142,13 +181,19 @@ permanece sin iniciar. No se modificaron Persona, PromptPlan, los prompts de
 Reasoning/Persona/Oracle, API, Unity, AuditTrace v1, ActionLedger, Memory general
 ni DevelopmentalCore.
 
+ROOT-020 sigue siendo la autoridad de `reason_codes` detallados. ROOT-018
+persiste el status/version de parse necesarios, pero no duplica esos códigos:
+ROOT-017 aún no define una necesidad durable que justifique ampliar este
+contrato y no se inició en este packet.
+
 ## Pruebas
 
 Las matrices permanentes son:
 
 - `memory.test_chroma_search_status`: 12 casos del boundary tipado;
-- `ai_engine.test_knowledge_provenance`: 25 casos de provenance, rutas,
-  fallback, identidad, versionado, legacy, Q1/Q2, lectura y escritura;
+- `ai_engine.test_knowledge_provenance`: 44 casos de provenance, causalidad
+  ROOT-021, rutas, coherencia, identidad, versionado, legacy, Q1/Q2, lectura y
+  escritura;
 - `ai_engine.test_oracle`: integración Oracle→Persona;
 - regresiones ROOT-021/019/020/008/016 y suite aislada global.
 

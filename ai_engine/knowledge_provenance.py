@@ -22,7 +22,11 @@ from pydantic import (
     model_validator,
 )
 
-from ai_engine.llm_call_control import LLMCallResultV1, LLMFailureClassV1
+from ai_engine.llm_call_control import (
+    LLMCallResultV1,
+    LLMCallTerminalV1,
+    LLMFailureClassV1,
+)
 from ai_engine.structured_parse_types import StructuredParseStatus
 
 
@@ -112,6 +116,8 @@ class ProducerReceiptV1(BaseModel):
     provider_fallback_used: StrictBool
     scheduler_attempt_count: StrictInt
     failure_classes: tuple[LLMFailureClassV1, ...]
+    generation_terminal: LLMCallTerminalV1 | None
+    final_failure: LLMFailureClassV1 | None
     accepted_at_utc: datetime | None
 
     @field_validator("provenance_version", mode="before")
@@ -180,6 +186,10 @@ class ProducerReceiptV1(BaseModel):
                 raise ValueError("provider-generated knowledge requires usable typed parse evidence")
             if self.scheduler_attempt_count <= 0:
                 raise ValueError("provider-generated knowledge requires scheduler receipts")
+            if self.generation_terminal is not LLMCallTerminalV1.SUCCESS:
+                raise ValueError("provider-generated knowledge requires SUCCESS terminal")
+            if self.final_failure is not None:
+                raise ValueError("provider-generated knowledge cannot claim final failure")
             return self
 
         if self.kind is KnowledgeProducerKindV1.LOCAL_DETERMINISTIC:
@@ -191,6 +201,14 @@ class ProducerReceiptV1(BaseModel):
                 raise ValueError("local deterministic producer requires acceptance time")
             if (self.final_parse_status is None) != (self.parse_contract_version is None):
                 raise ValueError("parse status and version must be present together")
+            if self.generation_terminal is None and (
+                self.final_failure is not None
+                or self.scheduler_attempt_count != 0
+                or self.failure_classes
+            ):
+                raise ValueError(
+                    "local producer without generation terminal cannot claim scheduler state"
+                )
             return self
 
         if self.route is not KnowledgeProducerRouteV1.LEGACY_UNKNOWN:
@@ -202,6 +220,8 @@ class ProducerReceiptV1(BaseModel):
                 self.model_id,
                 self.final_parse_status,
                 self.parse_contract_version,
+                self.generation_terminal,
+                self.final_failure,
                 self.accepted_at_utc,
             )
         ):
@@ -368,6 +388,14 @@ class CacheReceiptV1(BaseModel):
                 raise ValueError("cache hit requires matched entry and distance")
             if self.store_status is not CacheStoreStatusV1.NOT_ATTEMPTED:
                 raise ValueError("cache hit cannot be stored again")
+            is_versioned = self.matched_entry.cache_schema_version is not None
+            if self.lookup_status is CacheLookupStatusV1.HIT and not is_versioned:
+                raise ValueError("HIT requires a versioned v1 matched identity")
+            if (
+                self.lookup_status is CacheLookupStatusV1.LEGACY_ENTRY
+                and is_versioned
+            ):
+                raise ValueError("LEGACY_ENTRY requires a legacy matched identity")
         elif self.matched_entry is not None:
             raise ValueError("non-hit cannot claim matched entry")
 
@@ -434,6 +462,34 @@ class KnowledgeProvenanceV1(BaseModel):
     @classmethod
     def _version(cls, value: object) -> int:
         return _exact_version(value, name="knowledge provenance version")
+
+    @model_validator(mode="after")
+    def _producer_retrieval_coherence(self) -> "KnowledgeProvenanceV1":
+        producer_kind = self.producer.kind
+        lookup_status = self.retrieval.cache.lookup_status
+        is_legacy_entry = lookup_status is CacheLookupStatusV1.LEGACY_ENTRY
+        is_legacy_producer = producer_kind is KnowledgeProducerKindV1.LEGACY_UNKNOWN
+
+        if is_legacy_entry != is_legacy_producer:
+            raise ValueError(
+                "LEGACY_ENTRY and LEGACY_UNKNOWN must describe the same provenance"
+            )
+        if (
+            producer_kind is KnowledgeProducerKindV1.LOCAL_DETERMINISTIC
+            and self.retrieval.lookup_path is not RetrievalPathV1.GENERATED
+        ):
+            raise ValueError("local deterministic knowledge cannot be a cache hit")
+        if (
+            lookup_status is CacheLookupStatusV1.HIT
+            and producer_kind is not KnowledgeProducerKindV1.PROVIDER_GENERATED
+        ):
+            raise ValueError("v1 HIT requires provider-generated historical knowledge")
+        if (
+            producer_kind is KnowledgeProducerKindV1.PROVIDER_GENERATED
+            and lookup_status is CacheLookupStatusV1.NOT_CHECKED
+        ):
+            raise ValueError("provider-generated knowledge requires a cache lookup receipt")
+        return self
 
 
 def normalize_oracle_query(query: str) -> str:
@@ -533,7 +589,11 @@ def provider_receipt_from_llm(
     accepted_at_utc: datetime | None = None,
 ) -> ProducerReceiptV1:
     final_provider = str(result.final_provider or "").strip()
-    if not result.succeeded or not final_provider:
+    if (
+        result.terminal is not LLMCallTerminalV1.SUCCESS
+        or result.final_failure is not None
+        or not final_provider
+    ):
         raise ValueError("provider producer requires a successful final provider")
     route = route_by_provider.get(final_provider)
     if route not in {
@@ -567,6 +627,8 @@ def provider_receipt_from_llm(
         provider_fallback_used=fallback_used,
         scheduler_attempt_count=len(result.receipts),
         failure_classes=_failure_classes(result),
+        generation_terminal=result.terminal,
+        final_failure=result.final_failure,
         accepted_at_utc=accepted_at_utc or datetime.now(timezone.utc),
     )
 
@@ -585,9 +647,19 @@ def local_deterministic_producer(
         final_parse_status=final_parse_status,
         parse_contract_version=1 if final_parse_status is not None else None,
         provider_fallback_used=False,
-        scheduler_attempt_count=(len(technical_result.receipts) if technical_result else 0),
+        scheduler_attempt_count=(
+            len(technical_result.receipts) if technical_result is not None else 0
+        ),
         failure_classes=(
-            _failure_classes(technical_result) if technical_result else ()
+            _failure_classes(technical_result)
+            if technical_result is not None
+            else ()
+        ),
+        generation_terminal=(
+            technical_result.terminal if technical_result is not None else None
+        ),
+        final_failure=(
+            technical_result.final_failure if technical_result is not None else None
         ),
         accepted_at_utc=accepted_at_utc or datetime.now(timezone.utc),
     )
@@ -607,6 +679,8 @@ def legacy_unknown_provenance(
         provider_fallback_used=False,
         scheduler_attempt_count=0,
         failure_classes=(),
+        generation_terminal=None,
+        final_failure=None,
         accepted_at_utc=None,
     )
     return KnowledgeProvenanceV1(

@@ -146,6 +146,8 @@ def _producer(status: StructuredParseStatus):
         provider_fallback_used=False,
         scheduler_attempt_count=1,
         failure_classes=(),
+        generation_terminal=LLMCallTerminalV1.SUCCESS,
+        final_failure=None,
         accepted_at_utc=datetime.now(timezone.utc),
     )
 

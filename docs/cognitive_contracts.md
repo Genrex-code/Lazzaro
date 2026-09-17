@@ -1301,7 +1301,9 @@ Archivos fuente:
 5. El Core precalcula la ruta de cada slot y ejecuta una unica cadena ROOT-021
    compuesta por Oracle externo y providers activos disponibles.
 6. Del mismo `LLMCallResultV1` se construye `ProducerReceiptV1`, incluyendo
-   provider/model, parse final, receipts/fallos y fallback entre providers.
+   provider/model, parse final, receipts/fallos, fallback entre providers y los
+   valores exactos `terminal/final_failure` de ROOT-021. Las failure classes
+   resumidas nunca reconstruyen esos dos campos.
 7. `OracleEngine.proyectar_resultado(...)` recibe explicitamente productor y
    receipt de cache. Solo un parse `VALID` generado por provider intenta una
    escritura; el resultado conserva `STORED`, `FAILED` o `SKIPPED_POLICY`.
@@ -1327,6 +1329,15 @@ Construir un `OracleResult` productivo sin provenance falla validacion. La
 compatibilidad legacy exige un helper explicito y nunca inventa provider/model
 actual. `accepted_at_utc` expresa aceptacion local del conocimiento, no tiempo
 de computo remoto.
+
+`ProducerReceiptV1.generation_terminal` y `final_failure` son enums tipados.
+Un productor provider exige `SUCCESS/None`; un productor local conserva los
+valores exactos del resultado técnico o ambos `None` si no hubo intento LLM; un
+legacy siempre usa ambos `None`. `HIT` sólo acepta identidad v1 y productor
+provider histórico, `LEGACY_ENTRY` sólo identidad/productor legacy, y un
+resultado local nunca puede declarar cache hit. Provider + `NOT_CHECKED` es
+inválido porque todo flujo productivo de generación consulta cache antes del
+dispatch; la consulta vacía pre-dispatch sigue siendo local + `NOT_CHECKED`.
 
 ### Salida Publica Final
 
