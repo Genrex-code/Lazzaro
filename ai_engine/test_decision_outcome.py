@@ -76,18 +76,30 @@ IDENTITY_CONTEXT = IdentityContextV1.from_snapshot(
 
 
 def _persona_raw(text: str = "Hola") -> str:
+    del text
     return json.dumps(
         {
-            "accion": "hablar",
-            "parametros": {"texto_a_comunicar": text},
-            "pensamiento_privado": "privado",
-            "razon": "social",
+            "version": 1,
+            "acts": [{"kind": "SOCIAL", "template_id": "SOCIAL_HELLO"}],
+            "style_cues": [],
+            "verbosity": "STANDARD",
         }
     )
 
 
 def _persona_salvage(text: str = "Hola") -> str:
-    return '{"accion":"hablar","parametros":{"texto_a_comunicar":"' + text + '"}'
+    del text
+    # A valid strict plan can still contain an unsupported act. ROOT-017
+    # renders the supported subset without exposing model-authored prose.
+    return json.dumps({
+        "version": 1,
+        "acts": [
+            {"kind": "SOCIAL", "template_id": "SOCIAL_HELLO"},
+            {"kind": "SOCIAL", "template_id": "SELF_NAME"},
+        ],
+        "style_cues": [],
+        "verbosity": "STANDARD",
+    })
 
 
 class _Identity:
@@ -289,7 +301,9 @@ def test_01_canonical_persona_has_no_retry() -> None:
 def test_02_degraded_persona_uses_safe_salvage() -> None:
     response, _, _ = _persona_turn([_persona_salvage()])
     assert response.valido and response.accion == "hablar"
-    assert response.outcome.quality is DecisionQuality.SALVAGED
+    assert response.outcome.quality is DecisionQuality.DETERMINISTIC_FALLBACK
+    assert response.outcome.final_parse_status is StructuredParseStatus.VALID
+    assert response.outcome.reason_codes == (DecisionReasonCode.SAFE_SALVAGE,)
 
 
 def test_03_persona_error_has_exactly_one_retry() -> None:
@@ -307,7 +321,8 @@ def test_04_valid_retry_is_typed_as_repair() -> None:
 def test_05_degraded_retry_keeps_salvaged_provenance() -> None:
     response, _, _ = _persona_turn([FAILED_RAW, _persona_salvage()])
     assert response.valido and response.outcome.attempt is DecisionAttempt.REPAIR
-    assert response.outcome.quality is DecisionQuality.SALVAGED
+    assert response.outcome.quality is DecisionQuality.DETERMINISTIC_FALLBACK
+    assert response.outcome.final_parse_status is StructuredParseStatus.VALID
 
 
 def test_06_failed_retry_becomes_deterministic_fallback() -> None:

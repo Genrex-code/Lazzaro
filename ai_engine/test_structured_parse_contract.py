@@ -616,7 +616,14 @@ def test_49_canonical_persona_adds_no_llm_call() -> None:
     orchestrator.identity_provider = IdentitySnapshotProvider(
         build_static_self_v1(), BehaviorCore()
     )
-    orchestrator.llm_adapter = _Adapter([_persona()])
+    orchestrator.llm_adapter = _Adapter([
+        json.dumps({
+            "version": 1,
+            "acts": [{"kind": "SOCIAL", "template_id": "SOCIAL_HELLO"}],
+            "style_cues": [],
+            "verbosity": "STANDARD",
+        })
+    ])
     event = EventoEntrante(
         origen="unity",
         tipo_evento="comando_usuario",

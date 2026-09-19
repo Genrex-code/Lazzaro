@@ -1357,12 +1357,10 @@ def test_oracle_invalid_external_response_is_correlated_as_fallback() -> None:
         "persona-verbalizer-test",
         json.dumps(
             {
-                "accion": "hablar",
-                "parametros": {
-                    "texto_a_comunicar": "No pude completar esa consulta."
-                },
-                "pensamiento_privado": "",
-                "razon": "",
+                "version": 1,
+                "acts": [{"kind": "CLARIFICATION", "template_id": "CLARIFY_UNKNOWN"}],
+                "style_cues": [],
+                "verbosity": "STANDARD",
             }
         ),
     )
@@ -1430,10 +1428,10 @@ def test_persona_invalid_output_and_existing_retry_are_observable() -> None:
             self.calls += 1
             text = json.dumps(
                 {
-                    "accion": "hablar",
-                    "parametros": {"texto_a_comunicar": "Respuesta reparada."},
-                    "pensamiento_privado": "",
-                    "razon": "",
+                    "version": 1,
+                    "acts": [{"kind": "SOCIAL", "template_id": "SOCIAL_ACKNOWLEDGE"}],
+                    "style_cues": [],
+                    "verbosity": "STANDARD",
                 }
             )
             return LLMCallResultV1(
@@ -1473,7 +1471,7 @@ def test_persona_invalid_output_and_existing_retry_are_observable() -> None:
     )
 
     assert_true(
-        result is not None and result.parametros["texto_a_comunicar"] == "Respuesta reparada.",
+        result is not None and result.parametros["texto_a_comunicar"] == "Te sigo.",
         "La observabilidad no debe cambiar el reintento social existente.",
     )
     assert_true(adapter.calls == 2, "Debe conservar exactamente una llamada y su único reintento existente.")

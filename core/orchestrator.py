@@ -40,6 +40,12 @@ from ai_engine.oracle_client import OracleClient
 from ai_engine.oracle_engine import OracleEngine
 from ai_engine.oracle_memory import OracleMemory
 from ai_engine.persona_engine import PersonaEngine
+from ai_engine.persona_factual_bridge import (
+    PersonaFactualBoundaryV1,
+    PersonaFactualBridgeV1,
+    PersonaFactualRenderResultV1,
+    PersonaFactualValidationStatusV1,
+)
 from ai_engine.schemas import ActionResponse, OracleResult
 from ai_engine.structured_parse_types import StructuredParseStatus
 from ai_engine.subjective_effort import SubjectiveEffortCalculator
@@ -115,6 +121,7 @@ class Orchestrator:
         self.identity_provider = identity_provider
         self.subjective_effort = SubjectiveEffortCalculator()
         self.persona_engine = PersonaEngine()
+        self.persona_factual_bridge = PersonaFactualBridgeV1()
         self.llm_adapter = LLMGenerationAdapter(
             getattr(reasoning_engine, "ai_client", None),
             getattr(reasoning_engine, "policy_manager", None),
@@ -2149,13 +2156,16 @@ class Orchestrator:
         percepcion = self._extraer_percepcion_motor(evento, contexto_llm)
 
         try:
-            mensajes = self.persona_engine.preparar_interaccion(
-                mensaje_usuario=mensaje_usuario,
-                identity_context=self._exigir_identity_context(identity_context),
-                percepcion=percepcion,
-                recuerdos=memoria_texto,
-                restriccion_canal=self._restriccion_canal_persona(evento),
+            bridge = self._persona_factual_boundary()
+            factual_turn = bridge.prepare(
+                message=mensaje_usuario,
+                identity=self._exigir_identity_context(identity_context),
+                memory_summary=memoria_texto,
+                event_details=evento.detalles,
+                prior_perception=percepcion,
+                terminal_channel=self._es_canal_terminal(evento),
             )
+            mensajes = factual_turn.prompt_plan
             llm_budget = self._nuevo_budget_ruta_llm()
             raw_response = self.llm_adapter.ejecutar_plan(
                 mensajes,
@@ -2166,12 +2176,11 @@ class Orchestrator:
                 error_context="Capa Social",
                 budget=llm_budget,
             )
-            parse_result = self.persona_engine.parsear_resultado(raw_response)
-            datos = self.persona_engine.proyectar_resultado(parse_result)
-            parse_result_final = parse_result
+            factual_result = bridge.finish(raw_response, factual_turn)
+            factual_result_final = factual_result
             hubo_reintento = False
-            self._observar_fallback_persona(datos, audit_observation)
-            if datos.get("requiere_reintento"):
+            self._observe_factual_fallback(factual_result, audit_observation)
+            if factual_result.retryable_syntax:
                 logger.info("Capa Social solicita reintento breve por salida LLM irrecuperable.")
                 mensajes_reintento = self.persona_engine.preparar_reintento_json(
                     mensajes_originales=mensajes,
@@ -2188,26 +2197,22 @@ class Orchestrator:
                 )
                 hubo_reintento = bool(resultado_reintento.receipts)
                 if hubo_reintento:
-                    parse_result_reintento = self.persona_engine.parsear_resultado(
-                        resultado_reintento.final_text or ""
+                    factual_result_final = bridge.finish(
+                        resultado_reintento.final_text or "", factual_turn
                     )
-                    parse_result_final = parse_result_reintento
-                    datos_reintento = self.persona_engine.proyectar_resultado(
-                        parse_result_reintento
-                    )
-                    self._observar_fallback_persona(datos_reintento, audit_observation)
-                    datos = datos_reintento
+            self._observe_factual_fallback(factual_result_final, audit_observation)
+            datos = self._factual_persona_data(factual_result_final)
             return self._action_response_desde_persona(
                 datos,
-                outcome=self._outcome_persona(
-                    primary_status=parse_result.status,
-                    final_status=parse_result_final.status,
+                outcome=self._factual_persona_outcome(
+                    primary_status=factual_result.parse_status,
+                    final_result=factual_result_final,
                     retried=hubo_reintento,
                     layer=DecisionLayer.PERSONA,
                 ),
             )
         except Exception as e:
-            logger.error("Error en PersonaEngine: %s", e, exc_info=True)
+            logger.error("Error en Persona factual. error_type=%s", type(e).__name__)
             if isinstance(audit_observation, dict):
                 audit_observation["fallback_used"] = True
                 audit_observation.setdefault("decision_error_type", type(e).__name__)
@@ -2252,6 +2257,79 @@ class Orchestrator:
         else:
             raise TypeError("components debe ser IdentityComponentsV1 o None")
         return IdentityContextV1.from_snapshot(snapshot)
+
+    def _persona_factual_boundary(self) -> PersonaFactualBoundaryV1:
+        """The one replaceable ROOT-017 seam; never bypass it for a Persona turn."""
+        bridge = getattr(self, "persona_factual_bridge", None)
+        if bridge is None:
+            # Also supports isolated Orchestrator fixtures made with object.__new__.
+            bridge = PersonaFactualBridgeV1()
+            self.persona_factual_bridge = bridge
+        if not isinstance(bridge, PersonaFactualBoundaryV1):
+            raise TypeError("Persona factual boundary must be typed")
+        return bridge
+
+    @staticmethod
+    def _factual_persona_data(result: PersonaFactualRenderResultV1) -> dict:
+        return {
+            "accion": "hablar",
+            "parametros": {"texto_a_comunicar": result.text},
+            "pensamiento_privado": "",
+            "razon": "ROOT-017 factual bridge",
+            "structured_parse_status": result.parse_status.value,
+            "primary_parse_valid": result.parse_status is StructuredParseStatus.VALID,
+            "factual_validation_status": result.validation.status.value,
+        }
+
+    @staticmethod
+    def _observe_factual_fallback(
+        result: PersonaFactualRenderResultV1,
+        audit_observation: dict[str, object] | None,
+    ) -> None:
+        if not isinstance(audit_observation, dict):
+            return
+        if result.validation.status is PersonaFactualValidationStatusV1.ACCEPTED:
+            return
+        audit_observation["fallback_used"] = True
+        audit_observation.setdefault(
+            "decision_error_type",
+            "InvalidLLMResponse"
+            if result.parse_status is not StructuredParseStatus.VALID
+            else "InvalidFactualPlan",
+        )
+        audit_observation.setdefault(
+            "decision_error_component",
+            "llm" if result.parse_status is not StructuredParseStatus.VALID else "persona",
+        )
+        audit_observation.setdefault("decision_error_observed_ns", time.perf_counter_ns())
+
+    def _factual_persona_outcome(
+        self,
+        *,
+        primary_status: StructuredParseStatus,
+        final_result: PersonaFactualRenderResultV1,
+        retried: bool,
+        layer: DecisionLayer,
+    ) -> DecisionOutcome:
+        outcome = self._outcome_persona(
+            primary_status=primary_status,
+            final_status=final_result.parse_status,
+            retried=retried,
+            layer=layer,
+        )
+        if final_result.validation.status is PersonaFactualValidationStatusV1.REJECTED:
+            return outcome.evolve(
+                quality=DecisionQuality.DETERMINISTIC_FALLBACK,
+                reason_codes=(DecisionReasonCode.DETERMINISTIC_FALLBACK,),
+            )
+        if final_result.validation.status is PersonaFactualValidationStatusV1.PARTIAL:
+            return outcome.evolve(
+                # ROOT-008 reserves SALVAGED for a DEGRADED parse. This is a
+                # VALID plan with factual acts dropped by deterministic policy.
+                quality=DecisionQuality.DETERMINISTIC_FALLBACK,
+                reason_codes=(DecisionReasonCode.SAFE_SALVAGE,),
+            )
+        return outcome
 
     @staticmethod
     def _observar_fallback_persona(
@@ -2409,6 +2487,7 @@ class Orchestrator:
                 "structured_parse_status",
                 "structured_parse_reason_codes",
                 "structured_parse_normalizations",
+                "factual_validation_status",
             )
             if key in datos
         }
@@ -2706,14 +2785,17 @@ class Orchestrator:
         percepcion = self._extraer_percepcion_motor(evento, contexto_llm)
 
         try:
-            mensajes = self.persona_engine.preparar_verbalizacion_oraculo(
-                mensaje_usuario=mensaje_usuario,
-                identity_context=self._exigir_identity_context(identity_context),
-                datos_oraculo=oracle_result,
-                percepcion=percepcion,
-                recuerdos=memoria_texto,
-                restriccion_canal=self._restriccion_canal_persona(evento),
+            bridge = self._persona_factual_boundary()
+            factual_turn = bridge.prepare(
+                message=mensaje_usuario,
+                identity=self._exigir_identity_context(identity_context),
+                memory_summary=memoria_texto,
+                event_details=evento.detalles,
+                prior_perception=percepcion,
+                terminal_channel=self._es_canal_terminal(evento),
+                oracle_result=oracle_result,
             )
+            mensajes = factual_turn.prompt_plan
             if llm_budget is None:
                 # Cache hit: no hubo etapa técnica, así que el budget nace aquí.
                 llm_budget = self._nuevo_budget_ruta_llm()
@@ -2726,12 +2808,11 @@ class Orchestrator:
                 error_context="Verbalizacion Capa Social del Oraculo",
                 budget=llm_budget,
             )
-            parse_result = self.persona_engine.parsear_resultado(raw_response)
-            datos = self.persona_engine.proyectar_resultado(parse_result)
-            parse_result_final = parse_result
+            factual_result = bridge.finish(raw_response, factual_turn)
+            factual_result_final = factual_result
             hubo_reintento = False
-            self._observar_fallback_persona(datos, audit_observation)
-            if datos.get("requiere_reintento"):
+            self._observe_factual_fallback(factual_result, audit_observation)
+            if factual_result.retryable_syntax:
                 logger.info("Verbalizacion del Oraculo solicita reintento social breve.")
                 mensajes_reintento = self.persona_engine.preparar_reintento_json(
                     mensajes_originales=mensajes,
@@ -2748,18 +2829,16 @@ class Orchestrator:
                 )
                 hubo_reintento = bool(resultado_reintento.receipts)
                 if hubo_reintento:
-                    parse_result_reintento = self.persona_engine.parsear_resultado(
-                        resultado_reintento.final_text or ""
+                    factual_result_final = bridge.finish(
+                        resultado_reintento.final_text or "", factual_turn
                     )
-                    parse_result_final = parse_result_reintento
-                    datos = self.persona_engine.proyectar_resultado(
-                        parse_result_reintento
-                    )
-                    self._observar_fallback_persona(datos, audit_observation)
 
-            outcome = self._outcome_persona(
-                primary_status=parse_result.status,
-                final_status=parse_result_final.status,
+            self._observe_factual_fallback(factual_result_final, audit_observation)
+            datos = self._factual_persona_data(factual_result_final)
+
+            outcome = self._factual_persona_outcome(
+                primary_status=factual_result.parse_status,
+                final_result=factual_result_final,
                 retried=hubo_reintento,
                 layer=DecisionLayer.ORACLE_PERSONA,
             )
@@ -2783,7 +2862,7 @@ class Orchestrator:
                 action_response = action_response.model_copy(update={"error": oracle_result.error})
             return action_response
         except Exception as e:
-            logger.error("Error verbalizando resultado del Oraculo: %s", e, exc_info=True)
+            logger.error("Error verbalizando resultado del Oraculo. error_type=%s", type(e).__name__)
             if isinstance(audit_observation, dict):
                 audit_observation["fallback_used"] = True
                 audit_observation.setdefault("decision_error_type", type(e).__name__)

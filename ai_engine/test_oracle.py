@@ -207,13 +207,15 @@ def _oracle_json(contenido: str, resumen: str | None = None) -> str:
     )
 
 
-def _persona_json(texto: str) -> str:
+def _persona_json(texto: str, template: str = "ORACLE_GENERATED") -> str:
+    del texto  # ROOT-017: model output cannot own public free prose.
     return json.dumps(
         {
-            "accion": "hablar",
-            "parametros": {"texto_a_comunicar": texto},
-            "pensamiento_privado": "Persona verbaliza conocimiento interno.",
-            "razon": "Respuesta publica generada por Capa 2.",
+            "version": 1,
+            "acts": [{"kind": "ATTRIBUTED_TEXT", "evidence_id": "pe-0007",
+                      "template_id": template, "display": "EXCERPT_240"}],
+            "style_cues": [],
+            "verbosity": "STANDARD",
         }
     )
 
@@ -315,8 +317,8 @@ def test_orchestrator_oracle_fallback_calls_persona() -> None:
 
     assert_true(respuesta.accion == "hablar", "La respuesta publica final debe ser hablar.")
     assert_true(
-        respuesta.parametros["texto_a_comunicar"] == "Lo traduzco con mi voz, sin sonar como el Oraculo.",
-        "La voz final debe venir de Persona.",
+        "Resumen: Respuesta fria desde el LLM activo." in respuesta.parametros["texto_a_comunicar"],
+        "Persona debe atribuir el contenido tecnico en vez de publicar texto libre.",
     )
     assert_true(oracle_client.calls == 0, "OracleClient sin API key no debe consultarse.")
     assert_true(len(llm_adapter.calls) == 2, "Debe llamar LLM para Oraculo frio y luego Persona.")
@@ -361,8 +363,8 @@ def test_orchestrator_oracle_external_then_persona() -> None:
         "Una respuesta externa exitosa debe conservar fuente api.",
     )
     assert_true(
-        respuesta.parametros["texto_a_comunicar"] == "Respuesta social desde conocimiento externo.",
-        "Persona debe verbalizar el resultado externo.",
+        "Resumen: Respuesta fria desde Oraculo externo." in respuesta.parametros["texto_a_comunicar"],
+        "Persona debe atribuir el resultado externo.",
     )
 
 
@@ -395,7 +397,7 @@ def test_oracle_cache_returns_oracle_result_and_calls_persona_only() -> None:
         ),
     )
     memoria = FakeOracleMemory(cache_result=cache_result)
-    llm_adapter = FakeLLMAdapter([_persona_json("Recupere esa idea y te la explico a mi manera.")])
+    llm_adapter = FakeLLMAdapter([_persona_json("", "ORACLE_CACHED")])
     oracle_client = FakeOracleClient(configurado=True, respuesta=_oracle_json("No debe usarse."))
     orquestador = _orquestador_para_oracle(oracle_client, llm_adapter, oracle_memory=memoria)
     audit_observation = {}
@@ -416,8 +418,9 @@ def test_oracle_cache_returns_oracle_result_and_calls_persona_only() -> None:
         "El cache hit debe conservar fuente cache sin marcar fallback.",
     )
     assert_true(
-        respuesta.parametros["texto_a_comunicar"] == "Recupere esa idea y te la explico a mi manera.",
-        "Persona debe verbalizar el cache hit.",
+        "Cache lista para verbalizar." in respuesta.parametros["texto_a_comunicar"]
+        and "previo" in respuesta.parametros["texto_a_comunicar"],
+        "Persona debe atribuir el cache hit como resultado previo.",
     )
 
 
