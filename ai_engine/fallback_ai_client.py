@@ -48,6 +48,8 @@ class FallbackAIClient(BaseAIClient):
         self.fallback_chain_name = "fallback:" + "->".join(self.provider_order)
         self._provider_local = threading.local()
         self.last_provider_used = None
+        self._close_lock = threading.Lock()
+        self._close_attempted = False
 
     @property
     def last_provider_used(self) -> str | None:
@@ -202,19 +204,31 @@ class FallbackAIClient(BaseAIClient):
             )
 
     def close(self) -> None:
-        for client in self.clients:
+        with self._close_lock:
+            if self._close_attempted:
+                return
+            self._close_attempted = True
+        first_error: BaseException | None = None
+        for client in reversed(self.clients):
             close = getattr(client, "close", None)
             if callable(close):
                 try:
                     close()
-                except Exception as error:
-                    log_safe_boundary_failure(
-                        logger,
-                        component="llm_fallback.close",
-                        code="UPSTREAM_PROVIDER_FAILED",
-                        error=error,
-                        level=logging.WARNING,
-                    )
+                except BaseException as error:
+                    if first_error is None:
+                        first_error = error
+                    try:
+                        log_safe_boundary_failure(
+                            logger,
+                            component="llm_fallback.close",
+                            code="UPSTREAM_PROVIDER_FAILED",
+                            error=error,
+                            level=logging.WARNING,
+                        )
+                    except Exception:
+                        pass
+        if first_error is not None:
+            raise first_error
 
 
 __all__ = ["FallbackAIClient"]

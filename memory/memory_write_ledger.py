@@ -5,11 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import logging
 from pathlib import Path
 import sqlite3
 import threading
 from typing import Callable
 import uuid
+
+from core.logger import get_logger
+from core.safe_error_logging import log_safe_boundary_failure
 
 from memory.memory_write_types import (
     MemoryWriteIssueCode,
@@ -21,6 +25,7 @@ from memory.memory_write_types import (
 
 
 SCHEMA_VERSION = 1
+logger = get_logger(__name__)
 
 
 def _utc_now() -> str:
@@ -85,17 +90,29 @@ class MemoryWriteLedger:
                 isolation_level=None,
                 check_same_thread=False,
             )
-            connection.row_factory = sqlite3.Row
-            connection.execute("PRAGMA foreign_keys = ON")
-            connection.execute("PRAGMA busy_timeout = 30000")
-            if self.path != ":memory:":
-                connection.execute("PRAGMA journal_mode = WAL")
-            self._connection = connection
             try:
+                connection.row_factory = sqlite3.Row
+                connection.execute("PRAGMA foreign_keys = ON")
+                connection.execute("PRAGMA busy_timeout = 30000")
+                if self.path != ":memory:":
+                    connection.execute("PRAGMA journal_mode = WAL")
+                self._connection = connection
                 self._initialize_schema()
-            except Exception:
+            except BaseException:
                 self._connection = None
-                connection.close()
+                try:
+                    connection.close()
+                except BaseException as cleanup_error:
+                    try:
+                        log_safe_boundary_failure(
+                            logger,
+                            component="memory_write_ledger.open.rollback",
+                            code="LEDGER_UNAVAILABLE",
+                            error=cleanup_error,
+                            level=logging.WARNING,
+                        )
+                    except Exception:
+                        pass
                 raise
 
     def close(self) -> None:

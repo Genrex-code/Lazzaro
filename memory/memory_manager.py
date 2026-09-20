@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from hashlib import sha1, sha256
 import json
+import logging
 import re
 import threading
 from typing import Any, Literal, Optional
@@ -15,6 +16,7 @@ import uuid
 
 from ai_engine.learned_alias_candidates import LearnedAliasCandidate, alias_key
 from core.logger import get_logger
+from core.safe_error_logging import log_safe_boundary_failure
 from memory.chroma_client import ChromaClient
 from memory.conversation_memory import ConversationMemory, PublicConversationTurn
 from memory.episodic_memory import EpisodicMemoryStore
@@ -129,40 +131,67 @@ class MemoryManager:
         consolidacion_antiguedad_minutos: int = 5,
         consolidacion_importancia_maxima: float = 0.25,
         memory_write_ledger_path: str | None = None,
+        owns_chroma_client: bool = True,
     ):
         self.client = chroma_client
-        self.encoder = MemoryEncoder()
-        self.episodic_store = EpisodicMemoryStore(self.client)
-        self.semantic_store = SemanticMemoryStore(self.client)
-        self.retriever = MemoryRetriever(self.episodic_store, self.semantic_store)
-        self.filters = MemoryFilters()
-        self.decay = MemoryDecay()
-        self.summarizer = MemorySummarizer()
-        self.working_memory = WorkingMemory(max_size=working_memory_size)
-        self.conversation_memory = ConversationMemory(max_turns=conversation_memory_size)
-        self.consolidacion_umbral = consolidacion_umbral
-        self.consolidacion_antiguedad_minutos = consolidacion_antiguedad_minutos
-        self.consolidacion_importancia_maxima = consolidacion_importancia_maxima
-        self.revision_consolidacion_cada = max(5, min(10, consolidacion_umbral))
-        self._observaciones_desde_revision = 0
-        self._hechos_conversacionales_guardados: set[str] = set()
-        self._alias_aprendidos_guardados: set[str] = set()
-        self._memorias_afectivas_guardadas: set[str] = set()
-        self._ram_state_lock = threading.Lock()
-        self._guardado_conversacional_lock = threading.RLock()
-        self._fotografias_conversacionales_pendientes: OrderedDict[
-            str,
-            tuple[PublicConversationTurn, ...],
-        ] = OrderedDict()
-        self.memory_write_ledger = MemoryWriteLedger(
-            memory_write_ledger_path or ":memory:"
-        )
-        self.memory_write_ledger.open()
-        self.memory_write_coordinator = MemoryWriteCoordinator(
-            self.client,
-            self.memory_write_ledger,
-        )
-        logger.info("MemoryManager inicializado correctamente.")
+        self._owns_chroma_client = owns_chroma_client
+        self._lifecycle_close_lock = threading.Lock()
+        self._lifecycle_close_attempted = False
+        try:
+            self.encoder = MemoryEncoder()
+            self.episodic_store = EpisodicMemoryStore(self.client)
+            self.semantic_store = SemanticMemoryStore(self.client)
+            self.retriever = MemoryRetriever(self.episodic_store, self.semantic_store)
+            self.filters = MemoryFilters()
+            self.decay = MemoryDecay()
+            self.summarizer = MemorySummarizer()
+            self.working_memory = WorkingMemory(max_size=working_memory_size)
+            self.conversation_memory = ConversationMemory(max_turns=conversation_memory_size)
+            self.consolidacion_umbral = consolidacion_umbral
+            self.consolidacion_antiguedad_minutos = consolidacion_antiguedad_minutos
+            self.consolidacion_importancia_maxima = consolidacion_importancia_maxima
+            self.revision_consolidacion_cada = max(5, min(10, consolidacion_umbral))
+            self._observaciones_desde_revision = 0
+            self._hechos_conversacionales_guardados: set[str] = set()
+            self._alias_aprendidos_guardados: set[str] = set()
+            self._memorias_afectivas_guardadas: set[str] = set()
+            self._ram_state_lock = threading.Lock()
+            self._guardado_conversacional_lock = threading.RLock()
+            self._fotografias_conversacionales_pendientes: OrderedDict[
+                str,
+                tuple[PublicConversationTurn, ...],
+            ] = OrderedDict()
+            self.memory_write_ledger = MemoryWriteLedger(
+                memory_write_ledger_path or ":memory:"
+            )
+            self.memory_write_ledger.open()
+            self.memory_write_coordinator = MemoryWriteCoordinator(
+                self.client,
+                self.memory_write_ledger,
+            )
+            logger.info("MemoryManager inicializado correctamente.")
+        except BaseException:
+            ledger = getattr(self, "memory_write_ledger", None)
+            for stage, resource in (
+                ("ledger", ledger),
+                ("chroma", self.client if owns_chroma_client else None),
+            ):
+                close = getattr(resource, "close", None)
+                if callable(close):
+                    try:
+                        close()
+                    except BaseException as cleanup_error:
+                        try:
+                            log_safe_boundary_failure(
+                                logger,
+                                component=f"memory.constructor.cleanup.{stage}",
+                                code="AGENT_UNAVAILABLE",
+                                error=cleanup_error,
+                                level=logging.WARNING,
+                            )
+                        except Exception:
+                            pass
+            raise
 
     def _obtener_ram_state_lock(self):
         """Obtiene el lock de RAM; el fallback soporta fakes legacy sin __init__."""
@@ -2032,14 +2061,41 @@ class MemoryManager:
 
     def close(self) -> None:
         """Cierra recursos persistentes de memoria."""
+        lock = getattr(self, "_lifecycle_close_lock", None)
+        if lock is None:
+            lock = threading.Lock()
+            self._lifecycle_close_lock = lock
+        with lock:
+            if getattr(self, "_lifecycle_close_attempted", False):
+                return
+            self._lifecycle_close_attempted = True
         coordinator = getattr(self, "memory_write_coordinator", None)
-        if coordinator is not None:
-            close_coordinator = getattr(coordinator, "close", None)
-            if callable(close_coordinator):
-                close_coordinator()
-        close = getattr(self.client, "close", None)
-        if callable(close):
-            close()
+        ledger = getattr(self, "memory_write_ledger", None)
+        first_error: BaseException | None = None
+        for stage, resource in (
+            ("ledger", coordinator if coordinator is not None else ledger),
+            ("chroma", self.client if getattr(self, "_owns_chroma_client", True) else None),
+        ):
+            close = getattr(resource, "close", None)
+            if not callable(close):
+                continue
+            try:
+                close()
+            except BaseException as error:
+                if first_error is None:
+                    first_error = error
+                try:
+                    log_safe_boundary_failure(
+                        logger,
+                        component=f"memory.close.{stage}",
+                        code="AGENT_UNAVAILABLE",
+                        error=error,
+                        level=logging.WARNING,
+                    )
+                except Exception:
+                    pass
+        if first_error is not None:
+            raise first_error
 
     def _programar_consolidacion_si_aplica(
         self,

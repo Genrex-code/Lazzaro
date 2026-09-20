@@ -6,6 +6,7 @@ Proporciona una interfaz limpia y tolerante a fallos para el resto del sistema.
 from pathlib import Path
 from typing import Any, ClassVar, TypeAlias, cast
 import gc
+import logging
 import math
 import threading
 import chromadb
@@ -19,6 +20,7 @@ except Exception:  # pragma: no cover - compatibilidad con versiones antiguas
     SharedSystemClient = None  # type: ignore[assignment]
 
 from core.logger import get_logger
+from core.safe_error_logging import log_safe_boundary_failure
 from memory.memory_write_types import (
     ExactLookupReceipt,
     ExactLookupStatus,
@@ -107,7 +109,13 @@ class ChromaClient:
             if SharedSystemClient is not None:
                 SharedSystemClient.clear_system_cache()
         except Exception as e:
-            logger.debug("No se pudo limpiar cache global de ChromaDB: %s", e)
+            try:
+                log_safe_boundary_failure(
+                    logger, component="chroma.cache_cleanup", code="CHROMA_CLEANUP_FAILED",
+                    error=e, level=logging.DEBUG,
+                )
+            except Exception:
+                pass
 
     # Inicializacion y estado
 
@@ -128,11 +136,28 @@ class ChromaClient:
                     self.db_path,
                     self.collection_name,
                 )
-            except Exception as e:
-                logger.error("Error al inicializar ChromaDB: %s", e)
-                # El cliente queda a None; los metodos devolveran un valor seguro.
-                self._client = None
-                self._collection = None
+            except BaseException as e:
+                try:
+                    log_safe_boundary_failure(
+                        logger, component="chroma.initialize", code="CHROMA_UNAVAILABLE",
+                        error=e,
+                    )
+                except Exception:
+                    pass
+                # Release por la misma ruta de refcount; no abandonar el handle parcial.
+                try:
+                    self.close()
+                except BaseException as cleanup_error:
+                    try:
+                        log_safe_boundary_failure(
+                            logger, component="chroma.initialize.rollback",
+                            code="CHROMA_CLEANUP_FAILED", error=cleanup_error,
+                            level=logging.WARNING,
+                        )
+                    except Exception:
+                        pass
+                if not isinstance(e, Exception):
+                    raise
 
     @property
     def disponible(self) -> bool:
@@ -606,21 +631,32 @@ class ChromaClient:
             self._collection = None
             self._client = None
 
+            es_ultimo_cliente = self._liberar_cliente(self.db_path)
+            close_error: BaseException | None = None
             try:
-                close = getattr(client, "close", None)
-                if callable(close):
-                    close()
-                else:
-                    system = getattr(client, "_system", None)
-                    stop = getattr(system, "stop", None)
-                    if callable(stop):
-                        stop()
-            except Exception as e:
-                logger.warning("No se pudo cerrar ChromaDB limpiamente: %s", e)
+                if es_ultimo_cliente:
+                    close = getattr(client, "close", None)
+                    if callable(close):
+                        close()
+                    else:
+                        system = getattr(client, "_system", None)
+                        stop = getattr(system, "stop", None)
+                        if callable(stop):
+                            stop()
+            except BaseException as error:
+                close_error = error
+                try:
+                    log_safe_boundary_failure(
+                        logger, component="chroma.close", code="CHROMA_CLEANUP_FAILED",
+                        error=error, level=logging.WARNING,
+                    )
+                except Exception:
+                    pass
             finally:
-                es_ultimo_cliente = self._liberar_cliente(self.db_path)
                 if es_ultimo_cliente:
                     self._limpiar_cache_sistema_chroma(client)
                 del collection
                 del client
                 gc.collect()
+            if close_error is not None:
+                raise close_error

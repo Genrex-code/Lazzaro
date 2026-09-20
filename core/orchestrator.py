@@ -6,6 +6,7 @@ Coordina el flujo completo: evento -> estado interno -> memoria -> IA -> accion.
 from collections import OrderedDict, deque
 from copy import deepcopy
 from datetime import datetime, timezone
+import logging
 import threading
 import time
 from typing import List, Optional
@@ -128,27 +129,37 @@ class Orchestrator:
             getattr(reasoning_engine, "policy_manager", None),
         )
         self.oracle_engine = OracleEngine()
+        self._lifecycle_close_lock = threading.Lock()
+        self._lifecycle_close_attempted = False
         oracle_db_path = getattr(getattr(memory_manager, "client", None), "db_path", "./lazzaro_data")
         self.oracle_memory = OracleMemory(db_path=str(oracle_db_path or "./lazzaro_data"))
-        oracle_settings = getattr(getattr(reasoning_engine, "ai_client", None), "settings", None)
-        self.oracle_client = OracleClient(settings=oracle_settings)
-        self._transacciones_procesadas: OrderedDict[str, AccionSaliente] = OrderedDict()
-        self._guardados_conversacionales_pendientes: OrderedDict[str, str] = OrderedDict()
-        self._alias_candidates_pendientes: OrderedDict[str, dict] = OrderedDict()
-        self._notificaciones: deque[NotificacionSaliente] = deque(maxlen=50)
-        self._transacciones_cache_lock = threading.Lock()
-        self._guardados_conversacionales_lock = threading.Lock()
-        self._alias_candidates_lock = threading.Lock()
-        self._notificaciones_lock = threading.Lock()
-        self._transacciones_lock_guard = threading.Lock()
-        self._transacciones_locks: dict[str, dict[str, object]] = {}
-        self._descanso_terminal_lock = threading.RLock()
-        self._descanso_terminal_pendiente: dict[str, str] | None = None
-        self.audit_writer = (
-            audit_writer if audit_writer is not None else AuditTraceJSONLWriter()
-        )
-        self.action_ledger = ActionLedger(action_ledger_path or ":memory:")
-        logger.info("Orchestrator inicializado.")
+        try:
+            oracle_settings = getattr(getattr(reasoning_engine, "ai_client", None), "settings", None)
+            self.oracle_client = OracleClient(settings=oracle_settings)
+            self._transacciones_procesadas: OrderedDict[str, AccionSaliente] = OrderedDict()
+            self._guardados_conversacionales_pendientes: OrderedDict[str, str] = OrderedDict()
+            self._alias_candidates_pendientes: OrderedDict[str, dict] = OrderedDict()
+            self._notificaciones: deque[NotificacionSaliente] = deque(maxlen=50)
+            self._transacciones_cache_lock = threading.Lock()
+            self._guardados_conversacionales_lock = threading.Lock()
+            self._alias_candidates_lock = threading.Lock()
+            self._notificaciones_lock = threading.Lock()
+            self._transacciones_lock_guard = threading.Lock()
+            self._transacciones_locks: dict[str, dict[str, object]] = {}
+            self._descanso_terminal_lock = threading.RLock()
+            self._descanso_terminal_pendiente: dict[str, str] | None = None
+            self.audit_writer = (
+                audit_writer if audit_writer is not None else AuditTraceJSONLWriter()
+            )
+            self.action_ledger = ActionLedger(action_ledger_path or ":memory:")
+            logger.info("Orchestrator inicializado.")
+        except BaseException:
+            try:
+                self.close()
+            except BaseException:
+                # close() registra el fallo secundario; conservar el error de construcción.
+                pass
+            raise
 
     def _conectar_aliases_aprendidos(self) -> None:
         proveedor = getattr(self.memory, "obtener_aliases_aprendidos", None)
@@ -3940,12 +3951,34 @@ class Orchestrator:
 
     def close(self) -> None:
         """Cierra recursos auxiliares persistentes del orquestador."""
-        close_ledger = getattr(getattr(self, "action_ledger", None), "close", None)
-        if callable(close_ledger):
-            close_ledger()
-        close_oracle_memory = getattr(getattr(self, "oracle_memory", None), "close", None)
-        if callable(close_oracle_memory):
-            close_oracle_memory()
+        with self._lifecycle_close_lock:
+            if self._lifecycle_close_attempted:
+                return
+            self._lifecycle_close_attempted = True
+        first_error: BaseException | None = None
+        for stage, resource in (
+            ("action_ledger", getattr(self, "action_ledger", None)),
+            ("oracle_memory", getattr(self, "oracle_memory", None)),
+        ):
+            close = getattr(resource, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except BaseException as error:
+                    if first_error is None:
+                        first_error = error
+                    try:
+                        log_safe_boundary_failure(
+                            logger,
+                            component=f"orchestrator.close.{stage}",
+                            code="RESOURCE_CLOSE_FAILED",
+                            error=error,
+                            level=logging.WARNING,
+                        )
+                    except Exception:
+                        pass
+        if first_error is not None:
+            raise first_error
 
     def obtener_constelacion_publica(self) -> dict:
         """Expone la constelacion cognitiva actual para depuracion o visualizacion."""

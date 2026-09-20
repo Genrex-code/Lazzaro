@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Optional
+import logging
 
 import httpx
 from google import genai
@@ -18,6 +19,7 @@ from ai_engine.llm_call_control import (
 from ai_engine.prompt_plan import PromptPlanV1
 from ai_engine.provider_prompt_projection import project_gemini_parts
 from core.logger import get_logger
+from core.safe_error_logging import log_safe_boundary_failure
 
 
 logger = get_logger(__name__)
@@ -100,16 +102,19 @@ class GeminiClient(BaseAIClient):
         # El AsyncClient pertenece al loop actual. Forzar HTTPX evita el retry
         # oculto del path aiohttp instalado. El SDK queda explícitamente en 1 intento.
         http_client = httpx.AsyncClient(timeout=timeout_ms / 1000.0)
-        sdk_client = genai.Client(
-            api_key=self.api_key,
-            http_options=types.HttpOptions(
-                timeout=int(timeout_ms),
-                retry_options=types.HttpRetryOptions(attempts=1),
-                httpx_async_client=http_client,
-            ),
-        )
-        aio_client = sdk_client.aio
+        sdk_client: Any | None = None
+        aio_client: Any | None = None
+        primary_error: BaseException | None = None
         try:
+            sdk_client = genai.Client(
+                api_key=self.api_key,
+                http_options=types.HttpOptions(
+                    timeout=int(timeout_ms),
+                    retry_options=types.HttpRetryOptions(attempts=1),
+                    httpx_async_client=http_client,
+                ),
+            )
+            aio_client = sdk_client.aio
             response = await aio_client.models.generate_content(
                 model=self.model_name,
                 contents=contents,
@@ -119,12 +124,38 @@ class GeminiClient(BaseAIClient):
             return "ok" if operation == "health" and "ok" in text.lower() else (
                 "" if operation == "health" else text
             )
+        except BaseException as error:
+            primary_error = error
+            raise
         finally:
-            try:
-                await aio_client.aclose()
-            finally:
+            cleanup_error: BaseException | None = None
+            for stage, resource, method_name in (
+                ("aio", aio_client, "aclose"),
+                ("sdk", sdk_client, "close"),
                 # google-genai considera caller-owned al cliente custom.
-                await http_client.aclose()
+                ("http", http_client, "aclose"),
+            ):
+                try:
+                    closer = getattr(resource, method_name, None)
+                    if not callable(closer):
+                        continue
+                    if stage == "sdk":
+                        closer()
+                    else:
+                        await closer()
+                except BaseException as error:
+                    if cleanup_error is None:
+                        cleanup_error = error
+                    try:
+                        log_safe_boundary_failure(
+                            logger, component=f"gemini.transport.close.{stage}",
+                            code="UPSTREAM_PROVIDER_FAILED", error=error,
+                            level=logging.WARNING,
+                        )
+                    except Exception:
+                        pass
+            if primary_error is None and cleanup_error is not None:
+                raise cleanup_error
 
     def close(self) -> None:
         """Idempotente: no hay transporte persistente que cerrar."""

@@ -12,11 +12,17 @@ from datetime import datetime, timezone
 from enum import Enum
 from hashlib import sha256
 import json
+import logging
 import math
 from pathlib import Path
 import sqlite3
 import threading
 from typing import Any
+
+from core.logger import get_logger
+from core.safe_error_logging import log_safe_boundary_failure
+
+logger = get_logger(__name__)
 
 
 LEDGER_SCHEMA_VERSION = 3
@@ -380,21 +386,40 @@ class ActionLedger:
         self.db_path = raw_path
         self._lock = threading.RLock()
         self._closed = False
+        connection: sqlite3.Connection | None = None
         try:
-            self._connection = sqlite3.connect(
+            connection = sqlite3.connect(
                 raw_path,
                 check_same_thread=False,
                 isolation_level=None,
                 timeout=10.0,
             )
-            self._connection.row_factory = sqlite3.Row
-            self._connection.execute("PRAGMA foreign_keys = ON")
-            self._connection.execute("PRAGMA busy_timeout = 10000")
+            self._connection = connection
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute("PRAGMA busy_timeout = 10000")
             if raw_path != ":memory:":
-                self._connection.execute("PRAGMA journal_mode = WAL")
+                connection.execute("PRAGMA journal_mode = WAL")
             self._initialize_schema()
-        except (OSError, sqlite3.Error) as exc:
-            raise ActionLedgerError("No se pudo abrir el action ledger") from exc
+        except BaseException as exc:
+            if connection is not None:
+                try:
+                    connection.close()
+                except BaseException as cleanup_error:
+                    try:
+                        log_safe_boundary_failure(
+                            logger,
+                            component="action_ledger.open.rollback",
+                            code="LEDGER_UNAVAILABLE",
+                            error=cleanup_error,
+                            level=logging.WARNING,
+                        )
+                    except Exception:
+                        pass
+            self._closed = True
+            if isinstance(exc, (OSError, sqlite3.Error)):
+                raise ActionLedgerError("No se pudo abrir el action ledger") from exc
+            raise
 
     def _initialize_schema(self) -> None:
         schema = """

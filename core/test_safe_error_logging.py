@@ -177,9 +177,11 @@ def test_07_startup_exception_is_redacted_without_changing_lifecycle() -> None:
     )
     try_position = main_source.index("    try:\n")
     settings_position = main_source.index("        settings = Settings()")
-    except_position = main_source.index("    except Exception as error:", settings_position)
-    boundary = main_source[try_position:except_position + 400]
+    except_position = main_source.index("    except BaseException as error:", settings_position)
+    boundary = main_source[try_position:except_position + 600]
     assert_true(try_position < settings_position < except_position, "Settings debe vivir dentro del boundary.")
+    assert_true("async with AsyncExitStack() as resources:" in boundary, "Rollback debe cubrir recursos adquiridos.")
+    assert_true("isinstance(error, Exception)" in boundary, "Cancelación no debe redactarse como fallo operacional.")
     assert_true("log_safe_boundary_failure(" in boundary, "Startup debe usar el helper probado con canario.")
     assert_true('component="startup"' in boundary, "Startup necesita component fijo.")
     assert_true("exc_info=True" not in boundary and "str(error)" not in boundary, "Startup no vuelca traceback/mensaje.")

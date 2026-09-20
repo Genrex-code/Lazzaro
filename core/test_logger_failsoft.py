@@ -231,3 +231,27 @@ def test_competing_root_configuration_does_not_leak_fallback(
     assert root.handlers == [external]
     assert len(fallback) == 1
     assert fallback[0] not in root.handlers
+
+
+def test_root022_cleanup_diagnostic_survives_file_failure(
+    isolated_logging, monkeypatch, capsys
+):
+    """ROOT-031 sigue diagnosticando el rollback sin filtrar excepciones crudas."""
+    from core.test_root022_lifecycle import _lifespan_fakes, _run_lifespan
+
+    root = isolated_logging()
+    monkeypatch.setattr(Path, "mkdir", _deny)
+    logger_module.get_logger("root022.cleanup")
+    events = _lifespan_fakes(monkeypatch, fail_at="health", close_fail={"ai"})
+    with pytest.raises(RuntimeError, match="PRIMARY_CANARY"):
+        _run_lifespan()
+    assert [event for event in events if event.startswith("close:")] == [
+        "close:ai", "close:memory", "close:chroma",
+    ]
+    diagnostic = capsys.readouterr().err
+    assert "file logging unavailable" in diagnostic
+    assert "startup.cleanup.ai" in diagnostic
+    assert "error_type=RuntimeError" in diagnostic
+    assert "PRIMARY_CANARY" not in diagnostic
+    assert "CLEANUP_CANARY" not in diagnostic
+    assert len(root.handlers) == 1

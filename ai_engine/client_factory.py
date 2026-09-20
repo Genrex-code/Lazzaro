@@ -5,12 +5,15 @@ Si mas adelante vuelves a Gemini o agregas otro backend, este es el primer
 archivo que conviene tocar.
 """
 
+import logging
+
 from ai_engine.ai_client import BaseAIClient
 from ai_engine.fallback_ai_client import FallbackAIClient
 from ai_engine.gemini_client import GeminiClient
 from ai_engine.ollama_client import OllamaClient
 from ai_engine.openai_compatible_client import OpenAICompatibleClient
 from core.logger import get_logger
+from core.safe_error_logging import log_safe_boundary_failure
 
 logger = get_logger(__name__)
 
@@ -23,27 +26,47 @@ def build_ai_client(settings) -> BaseAIClient:
     proveedores = _resolver_orden_proveedores(settings)
     clientes: list[BaseAIClient] = []
 
-    for proveedor in proveedores:
-        try:
-            cliente = _build_single_client(settings, proveedor)
-        except ValueError as e:
-            logger.info("Proveedor LLM %s omitido: %s", proveedor, e)
-            continue
-        clientes.append(cliente)
+    try:
+        for proveedor in proveedores:
+            try:
+                cliente = _build_single_client(settings, proveedor)
+            except ValueError as e:
+                logger.info("Proveedor LLM %s omitido: %s", proveedor, e)
+                continue
+            clientes.append(cliente)
 
-        if not getattr(settings, "LLM_FALLBACKS_ENABLED", True):
-            break
+            if not getattr(settings, "LLM_FALLBACKS_ENABLED", True):
+                break
 
-    if not clientes:
-        raise ValueError(
-            "No hay proveedores LLM configurados. Revisa AI_PROVIDER, AI_FALLBACK_ORDER y API keys."
+        if not clientes:
+            raise ValueError(
+                "No hay proveedores LLM configurados. Revisa AI_PROVIDER, AI_FALLBACK_ORDER y API keys."
+            )
+
+        logger.info(
+            "Acceso LLM controlado: %s",
+            " -> ".join(str(getattr(cliente, "provider_name", "?")) for cliente in clientes),
         )
-
-    logger.info(
-        "Acceso LLM controlado: %s",
-        " -> ".join(str(getattr(cliente, "provider_name", "?")) for cliente in clientes),
-    )
-    return FallbackAIClient(clientes, settings=settings)
+        return FallbackAIClient(clientes, settings=settings)
+    except BaseException:
+        # Hasta que FallbackAIClient sea devuelto, la fábrica posee los hijos.
+        for cliente in reversed(clientes):
+            close = getattr(cliente, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except BaseException as error:
+                    try:
+                        log_safe_boundary_failure(
+                            logger,
+                            component="llm_factory.rollback",
+                            code="UPSTREAM_PROVIDER_FAILED",
+                            error=error,
+                            level=logging.WARNING,
+                        )
+                    except Exception:
+                        pass
+        raise
 
 
 def _build_single_client(settings, proveedor: str) -> BaseAIClient:

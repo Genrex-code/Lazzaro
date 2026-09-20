@@ -7,7 +7,8 @@ Notas de arquitectura:
   - Esto permite cambiar entre Ollama y Gemini sin reescribir el flujo.
 """
 
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
+import logging
 
 from fastapi import FastAPI
 
@@ -34,6 +35,31 @@ import tools.simulated.movimiento_sim  # noqa: F401
 logger = get_logger(__name__)
 
 
+class _CleanupFailures:
+    """Retiene el primer fallo sin interrumpir los demas cierres."""
+
+    def __init__(self) -> None:
+        self.first: BaseException | None = None
+
+    def close(self, stage: str, resource: object) -> None:
+        try:
+            resource.close()
+        except BaseException as error:
+            if self.first is None:
+                self.first = error
+            try:
+                log_safe_boundary_failure(
+                    logger,
+                    component=f"startup.cleanup.{stage}",
+                    code="AGENT_UNAVAILABLE",
+                    error=error,
+                    level=logging.WARNING,
+                )
+            except Exception:
+                # El diagnostico secundario nunca sustituye la causa primaria.
+                pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -43,86 +69,89 @@ async def lifespan(app: FastAPI):
     logger.info("=== Iniciando Lazzaro ===")
     app.state.orchestrator = None
     app.state.ai_client = None
-    ai_client = None
-    memory_manager = None
-
+    cleanup = _CleanupFailures()
+    primary_error: BaseException | None = None
+    startup_complete = False
     try:
-        logger.info("Cargando configuracion...")
-        settings = Settings()
+        async with AsyncExitStack() as resources:
+            logger.info("Cargando configuracion...")
+            settings = Settings()
 
-        logger.info("Inicializando BehaviorCore...")
-        behavior_core = BehaviorCore()
-        static_self = build_static_self_v1()
-        identity_provider = IdentitySnapshotProvider(static_self, behavior_core)
+            logger.info("Inicializando BehaviorCore...")
+            behavior_core = BehaviorCore()
+            static_self = build_static_self_v1()
+            identity_provider = IdentitySnapshotProvider(static_self, behavior_core)
 
-        logger.info("Inicializando ChromaDB en '%s'...", settings.CHROMA_DB_PATH)
-        chroma_client = ChromaClient(db_path=settings.CHROMA_DB_PATH)
-        memory_manager = MemoryManager(
-            chroma_client=chroma_client,
-            memory_write_ledger_path=settings.MEMORY_WRITE_LEDGER_PATH,
-        )
-
-        # Punto principal para cambiar de backend en el futuro:
-        # 1. Cambia AI_PROVIDER en .env o en Settings
-        # 2. Si agregas otro proveedor, extiende ai_engine/client_factory.py
-        logger.info("Configurando backend LLM: %s", describe_ai_backend(settings))
-        ai_client = build_ai_client(settings)
-        app.state.ai_client = ai_client
-
-        if not await ai_client.health_check_async():
-            logger.warning(
-                "El health check del backend LLM activo fallo. "
-                "La app arrancara, pero el razonamiento podria responder vacio."
+            logger.info("Inicializando ChromaDB en '%s'...", settings.CHROMA_DB_PATH)
+            chroma_client = ChromaClient(db_path=settings.CHROMA_DB_PATH)
+            resources.callback(cleanup.close, "chroma", chroma_client)
+            memory_manager = MemoryManager(
+                chroma_client=chroma_client,
+                memory_write_ledger_path=settings.MEMORY_WRITE_LEDGER_PATH,
+                owns_chroma_client=False,
             )
+            resources.callback(cleanup.close, "memory", memory_manager)
 
-        logger.info("Inicializando ReasoningEngine...")
-        reasoning_engine = ReasoningEngine(ai_client=ai_client)
+            logger.info("Configurando backend LLM: %s", describe_ai_backend(settings))
+            ai_client = build_ai_client(settings)
+            resources.callback(cleanup.close, "ai", ai_client)
+            if not await ai_client.health_check_async():
+                logger.warning(
+                    "El health check del backend LLM activo fallo. "
+                    "La app arrancara, pero el razonamiento podria responder vacio."
+                )
 
-        herramientas_disponibles = ToolRegistry.listar_nombres()
-        logger.info(
-            "Herramientas registradas (%d): %s",
-            len(herramientas_disponibles),
-            herramientas_disponibles,
-        )
+            logger.info("Inicializando ReasoningEngine...")
+            reasoning_engine = ReasoningEngine(ai_client=ai_client)
+            herramientas_disponibles = ToolRegistry.listar_nombres()
+            logger.info(
+                "Herramientas registradas (%d): %s",
+                len(herramientas_disponibles),
+                herramientas_disponibles,
+            )
+            logger.info("Construyendo Orchestrator...")
+            orchestrator = Orchestrator(
+                behavior_core=behavior_core,
+                memory_manager=memory_manager,
+                reasoning_engine=reasoning_engine,
+                tool_registry=ToolRegistry,
+                identity_provider=identity_provider,
+                action_ledger_path=settings.ACTION_LEDGER_PATH,
+            )
+            resources.callback(cleanup.close, "orchestrator", orchestrator)
 
-        logger.info("Construyendo Orchestrator...")
-        orchestrator = Orchestrator(
-            behavior_core=behavior_core,
-            memory_manager=memory_manager,
-            reasoning_engine=reasoning_engine,
-            tool_registry=ToolRegistry,
-            identity_provider=identity_provider,
-            action_ledger_path=settings.ACTION_LEDGER_PATH,
-        )
-
-        app.state.orchestrator = orchestrator
-        logger.info("Lazzaro inicializado correctamente. Sistemas nominales.")
-        logger.info("Chingaderita jalando con madre 👍🍞")
-
-    except Exception as error:
-        log_safe_boundary_failure(
-            logger,
-            component="startup",
-            code="AGENT_UNAVAILABLE",
-            error=error,
-        )
-        if memory_manager is not None:
-            memory_manager.close()
-        if ai_client is not None:
-            ai_client.close()
+            app.state.ai_client = ai_client
+            app.state.orchestrator = orchestrator
+            logger.info("Lazzaro inicializado correctamente. Sistemas nominales.")
+            logger.info("Chingaderita jalando con madre 👍🍞")
+            startup_complete = True
+            try:
+                yield
+            finally:
+                app.state.orchestrator = None
+                app.state.ai_client = None
+                try:
+                    logger.info("=== Apagando Lazzaro ===")
+                except Exception:
+                    pass
+    except BaseException as error:
+        primary_error = error
+        if not startup_complete and isinstance(error, Exception):
+            try:
+                log_safe_boundary_failure(
+                    logger,
+                    component="startup",
+                    code="AGENT_UNAVAILABLE",
+                    error=error,
+                )
+            except Exception:
+                pass
         raise
-
-    yield # no se para que esta madre :3 
-    logger.info("=== Apagando Lazzaro ===")
-    orchestrator = getattr(app.state, "orchestrator", None)
-    if orchestrator is not None:
-        close = getattr(orchestrator, "close", None)
-        if callable(close):
-            close()
-    if memory_manager is not None:
-        memory_manager.close()
-    if ai_client is not None:
-        ai_client.close()
+    finally:
+        app.state.orchestrator = None
+        app.state.ai_client = None
+        if primary_error is None and cleanup.first is not None:
+            raise cleanup.first
 
 
 def create_app() -> FastAPI:
