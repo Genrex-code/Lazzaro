@@ -81,8 +81,6 @@ def _persona_raw(text: str = "Hola") -> str:
         {
             "version": 1,
             "acts": [{"kind": "SOCIAL", "template_id": "SOCIAL_HELLO"}],
-            "style_cues": [],
-            "verbosity": "STANDARD",
         }
     )
 
@@ -97,8 +95,6 @@ def _persona_salvage(text: str = "Hola") -> str:
             {"kind": "SOCIAL", "template_id": "SOCIAL_HELLO"},
             {"kind": "SOCIAL", "template_id": "SELF_NAME"},
         ],
-        "style_cues": [],
-        "verbosity": "STANDARD",
     })
 
 

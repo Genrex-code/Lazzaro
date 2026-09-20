@@ -620,8 +620,6 @@ def test_49_canonical_persona_adds_no_llm_call() -> None:
         json.dumps({
             "version": 1,
             "acts": [{"kind": "SOCIAL", "template_id": "SOCIAL_HELLO"}],
-            "style_cues": [],
-            "verbosity": "STANDARD",
         })
     ])
     event = EventoEntrante(

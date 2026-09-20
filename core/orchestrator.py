@@ -81,6 +81,7 @@ from core.material_attestation import (
     canonical_material_attestation,
     validate_material_attestation,
 )
+from core.operational_acknowledgement import manual_conversation_save_acknowledgement
 from core.tool_policy import ToolPolicy
 from memory.memory_manager import ManualConversationSaveResult
 from memory.memory_write_types import MemoryWriteReceipt, MemoryWriteStatus
@@ -2357,7 +2358,7 @@ class Orchestrator:
         self,
         evento: EventoEntrante,
     ) -> ActionResponse:
-        """Persiste la RAM pública y entrega a Persona un resultado ya confirmado."""
+        """Persiste RAM pública y emite un acuse operativo Memory/Core."""
         guardar = getattr(self.memory, "guardar_fotografia_conversacional", None)
         if not callable(guardar):
             resultado = ManualConversationSaveResult(
@@ -2378,52 +2379,7 @@ class Orchestrator:
                     error=str(exc),
                 )
 
-        datos_persona = PersonaEngine.construir_respuesta_guardado_conversacional(
-            status=resultado.status,
-            turn_count=resultado.turn_count,
-        )
-        action_response = self._action_response_desde_persona(
-            datos_persona,
-            outcome=DecisionOutcome(
-                disposition=DecisionDisposition.ACTION,
-                quality=DecisionQuality.VALIDATED,
-                attempt=DecisionAttempt.FIRST,
-                layer=DecisionLayer.PERSONA,
-                reason_codes=(DecisionReasonCode.PRIMARY_VALID,),
-                retry_count=0,
-            ),
-        )
-        metadata = dict(action_response.metadata or {})
-        metadata.update(
-            {
-                "manual_memory_save_control": True,
-                "manual_memory_save_status": resultado.status,
-                "manual_memory_save_turn_count": resultado.turn_count,
-            }
-        )
-        if resultado.fingerprint:
-            metadata["manual_memory_save_fingerprint"] = resultado.fingerprint
-        if resultado.memory_id:
-            metadata["manual_memory_save_id"] = resultado.memory_id
-
-        return action_response.model_copy(
-            update={
-                "metadata": metadata,
-                "error": resultado.error if resultado.status == "error" else None,
-                "outcome": (
-                    DecisionOutcome(
-                        disposition=DecisionDisposition.ERROR,
-                        quality=DecisionQuality.FAILED,
-                        attempt=DecisionAttempt.FIRST,
-                        layer=DecisionLayer.PERSONA,
-                        reason_codes=(DecisionReasonCode.PIPELINE_ERROR,),
-                        retry_count=0,
-                    )
-                    if resultado.status == "error"
-                    else action_response.outcome
-                ),
-            }
-        )
+        return manual_conversation_save_acknowledgement(resultado)
 
     def _reintentar_guardado_conversacional_pendiente(
         self,

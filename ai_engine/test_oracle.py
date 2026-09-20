@@ -214,8 +214,6 @@ def _persona_json(texto: str, template: str = "ORACLE_GENERATED") -> str:
             "version": 1,
             "acts": [{"kind": "ATTRIBUTED_TEXT", "evidence_id": "pe-0007",
                       "template_id": template, "display": "EXCERPT_240"}],
-            "style_cues": [],
-            "verbosity": "STANDARD",
         }
     )
 

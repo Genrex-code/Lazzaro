@@ -1359,8 +1359,6 @@ def test_oracle_invalid_external_response_is_correlated_as_fallback() -> None:
             {
                 "version": 1,
                 "acts": [{"kind": "CLARIFICATION", "template_id": "CLARIFY_UNKNOWN"}],
-                "style_cues": [],
-                "verbosity": "STANDARD",
             }
         ),
     )
@@ -1430,8 +1428,6 @@ def test_persona_invalid_output_and_existing_retry_are_observable() -> None:
                 {
                     "version": 1,
                     "acts": [{"kind": "SOCIAL", "template_id": "SOCIAL_ACKNOWLEDGE"}],
-                    "style_cues": [],
-                    "verbosity": "STANDARD",
                 }
             )
             return LLMCallResultV1(

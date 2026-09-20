@@ -62,45 +62,6 @@ class PersonaEngine:
     def __init__(self):
         self.prompt_builder = PersonaPromptBuilder()
 
-    @staticmethod
-    def construir_respuesta_guardado_conversacional(
-        status: str,
-        turn_count: int = 0,
-    ) -> Dict[str, Any]:
-        """
-        Verbaliza de forma determinista un resultado ya resuelto por memoria.
-
-        La respuesta no decide ni simula la persistencia: solamente comunica el
-        estado confirmado, evitando que un fallo del LLM anuncie un éxito falso.
-        """
-        if status == "saved":
-            texto = "Está bien, lo recordaré para después."
-            pensamiento = f"Quedaron persistidos {max(0, turn_count)} intercambios públicos."
-            razon = "Confirmar un guardado manual ya completado."
-        elif status == "already_saved":
-            texto = "Eso ya estaba guardado en mi mente; no hace falta duplicarlo."
-            pensamiento = "La fotografía conversacional ya tenía una copia persistente."
-            razon = "Confirmar idempotencia sin fingir una escritura nueva."
-        elif status == "empty":
-            texto = "Todavía no tengo una conversación reciente en RAM que pueda guardar."
-            pensamiento = "No había intercambios públicos previos en la RAM conversacional."
-            razon = "Explicar que no hubo contenido para persistir."
-        else:
-            texto = (
-                "No pude guardar lo que hablamos esta vez. "
-                "Prefiero decírtelo antes que fingir que lo recordé."
-            )
-            pensamiento = "La memoria persistente no confirmó el guardado solicitado."
-            razon = "Informar un fallo real sin anunciar éxito."
-
-        return {
-            "accion": "hablar",
-            "parametros": {"texto_a_comunicar": texto},
-            "pensamiento_privado": pensamiento,
-            "razon": razon,
-            "requiere_reintento": False,
-        }
-
     def preparar_interaccion(
         self,
         mensaje_usuario: str | None,

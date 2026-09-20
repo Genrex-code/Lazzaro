@@ -64,19 +64,6 @@ class PersonaTemplateIdV1(str, Enum):
     CLARIFY_UNKNOWN = "CLARIFY_UNKNOWN"
 
 
-class PersonaStyleCueV1(str, Enum):
-    DIRECT = "DIRECT"
-    WARM = "WARM"
-    DRY = "DRY"
-    PLAYFUL = "PLAYFUL"
-    REFLECTIVE = "REFLECTIVE"
-
-
-class PersonaVerbosityV1(str, Enum):
-    BRIEF = "BRIEF"
-    STANDARD = "STANDARD"
-
-
 class PersonaTextDisplayV1(str, Enum):
     EXACT_IF_FITS = "EXACT_IF_FITS"
     EXCERPT_240 = "EXCERPT_240"
@@ -124,8 +111,6 @@ class PersonaFactualPlanV1(BaseModel):
 
     version: StrictInt
     acts: tuple[PersonaRenderActV1, ...]
-    style_cues: tuple[PersonaStyleCueV1, ...] = ()
-    verbosity: PersonaVerbosityV1 = PersonaVerbosityV1.STANDARD
 
     @field_validator("version", mode="before")
     @classmethod
@@ -140,14 +125,6 @@ class PersonaFactualPlanV1(BaseModel):
         if not 1 <= len(value) <= 8:
             raise ValueError("Persona factual plan requires 1..8 acts")
         return value
-
-    @field_validator("style_cues")
-    @classmethod
-    def _closed_style(cls, value: tuple[PersonaStyleCueV1, ...]):
-        if len(value) > 2 or len(value) != len(set(value)):
-            raise ValueError("Persona style cues must be unique and bounded")
-        return value
-
 
 class PersonaFactualValidationStatusV1(str, Enum):
     ACCEPTED = "ACCEPTED"
@@ -326,7 +303,7 @@ class PersonaFactualBridgeV1:
                 _NO_FACT_TEXT, parsed.status, receipt, True
             )
         valid, receipt = self.validate(parsed.value, turn.registry)
-        rendered = self.render(valid, turn.registry, parsed.value.verbosity)
+        rendered = self.render(valid, turn.registry)
         exceeded_bound = (
             rendered == _NO_FACT_TEXT
             and valid
@@ -479,7 +456,6 @@ class PersonaFactualBridgeV1:
     def render(
         acts: tuple[PersonaRenderActV1, ...],
         registry: PersonaEvidenceRegistryV1,
-        verbosity: PersonaVerbosityV1 = PersonaVerbosityV1.STANDARD,
     ) -> str:
         """Only validated acts and frozen snapshots reach this deterministic renderer."""
         if not isinstance(registry, PersonaEvidenceRegistryV1):

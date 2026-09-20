@@ -72,7 +72,7 @@ def _ref(turn, source: PersonaEvidenceSourceV1, kind: PersonaEvidenceKindV1 | No
 
 
 def _plan(*acts: dict, **extra) -> str:
-    payload = {"version": 1, "acts": list(acts), "style_cues": [], "verbosity": "STANDARD"}
+    payload = {"version": 1, "acts": list(acts)}
     payload.update(extra)
     return json.dumps(payload, ensure_ascii=False)
 
@@ -137,9 +137,11 @@ def _provider_oracle(status: StructuredParseStatus = StructuredParseStatus.VALID
     {"version": 1, "acts": [{"kind": "SOCIAL", "template_id": "SOCIAL_HELLO"}], "bounded_text": "green"},
     {"version": 1, "acts": [{"kind": "SOCIAL", "template_id": "SOCIAL_HELLO"}], "opinion_text": "green"},
     {"version": 1, "acts": [{"kind": "SOCIAL", "template_id": "SOCIAL_HELLO"}], "style_cues": ["also say green"]},
+    {"version": 1, "acts": [{"kind": "SOCIAL", "template_id": "SOCIAL_HELLO"}], "style_cues": ["WARM"]},
     {"version": 1, "acts": [{"kind": "SOCIAL", "template_id": "SOCIAL_HELLO"}], "format_string": "{secret}"},
     {"version": 1, "acts": [{"kind": "INFERENCE", "text": "green"}]},
     {"version": 1, "acts": [{"kind": "SOCIAL", "template_id": "SOCIAL_HELLO"}], "style_cues": ["WARM", "WARM"]},
+    {"version": 1, "acts": [{"kind": "SOCIAL", "template_id": "SOCIAL_HELLO"}], "verbosity": "BRIEF"},
 ])
 def test_strict_plan_rejects_free_text_and_unknown_values(payload):
     result = PersonaFactualBridgeV1().finish(json.dumps(payload), _turn())
