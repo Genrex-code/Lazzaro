@@ -218,9 +218,10 @@ _MOTOR_ACTION_TOKENS = frozenset(
         "abre", "abrir", "abras", "abres", "abrí",
         "camina", "correr", "corre", "gira", "girar",
         "mira", "mirar", "mires", "mover", "moverte", "mueva",
-        "muevas", "mueve", "muévete", "muevete", "observa", "salta",
+        "muevas", "mueve", "muévete", "muevete", "observa", "salta", "usa",
     }
 )
+_BOUNDARY_SENSITIVE_MOTOR_TOKENS = frozenset({"abre", "mover", "mueve", "usa"})
 _MEMORY_UPDATE_TOKENS = frozenset(
     {"aprende", "guarda", "guardes", "memoriza", "recuerda", "recuerdes"}
 )
@@ -283,15 +284,18 @@ def _is_narrative_motor_context(view: LexicalView) -> bool:
 
 
 def _is_boundary_lookalike(view: LexicalView) -> bool:
-    return _contains_any_sequence(
-        view,
-        (
-            "promueve una conversación",
-            "el detergente remueve manchas",
-            "esta causa problemas",
-            "abre2 no es un comando",
-        ),
+    visible_values = tuple(
+        token.value for token in view.tokens if not token.protected
     )
+    contains_embedded_motor_lexeme = any(
+        atom != value and atom in value
+        for value in visible_values
+        for atom in _BOUNDARY_SENSITIVE_MOTOR_TOKENS
+    )
+    contains_explicit_motor_token = any(
+        value in _MOTOR_ACTION_TOKENS for value in visible_values
+    )
+    return contains_embedded_motor_lexeme and not contains_explicit_motor_token
 
 
 def _is_manual_save(view: LexicalView) -> bool:

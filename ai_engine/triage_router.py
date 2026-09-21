@@ -146,7 +146,19 @@ class TriageRouter:
 
             lexical_view, lexical_match = analyze_lexical_routing(texto_usuario)
 
-            if lexical_match.positive_rule_id == "control.manual_conversation_save":
+            positive_allowed = (
+                lexical_match.positive_intent is not None
+                and self._lexical_candidate_allowed(
+                    lexical_match.positive_intent,
+                    lexical_match,
+                )
+            )
+
+            if (
+                lexical_match.positive_rule_id
+                == "control.manual_conversation_save"
+                and positive_allowed
+            ):
                 return self._build_response(
                     intent=IntentType.CONVERSATION_SAVE.value,
                     route=route_for_intent(IntentType.CONVERSATION_SAVE).value,
@@ -166,7 +178,7 @@ class TriageRouter:
                     )
                 )
 
-            if lexical_match.positive_intent is not None:
+            if lexical_match.positive_intent is not None and positive_allowed:
                 lexical_intent = normalize_intent(lexical_match.positive_intent)
                 return self._build_response(
                     intent=lexical_intent.value,
