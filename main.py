@@ -22,6 +22,10 @@ from core.identity_snapshot import IdentitySnapshotProvider, build_static_self_v
 from core.logger import get_logger
 from core.orchestrator import Orchestrator
 from core.safe_error_logging import log_safe_boundary_failure
+from core.runtime_capabilities import (
+    RuntimeCapabilityHolder,
+    RuntimeOverall,
+)
 from memory.chroma_client import ChromaClient
 from memory.memory_manager import MemoryManager
 from tools.registry import ToolRegistry
@@ -67,6 +71,11 @@ async def lifespan(app: FastAPI):
     Todo lo que va antes del 'yield' es startup; lo de despues es shutdown.
     """
     logger.info("=== Iniciando Lazzaro ===")
+    readiness_holder = getattr(app.state, "runtime_capabilities", None)
+    if not isinstance(readiness_holder, RuntimeCapabilityHolder):
+        readiness_holder = RuntimeCapabilityHolder()
+        app.state.runtime_capabilities = readiness_holder
+    readiness_sink = readiness_holder.begin_generation()
     app.state.orchestrator = None
     app.state.ai_client = None
     cleanup = _CleanupFailures()
@@ -90,12 +99,39 @@ async def lifespan(app: FastAPI):
                 memory_write_ledger_path=settings.MEMORY_WRITE_LEDGER_PATH,
                 owns_chroma_client=False,
             )
+            set_memory_observer = getattr(
+                memory_manager,
+                "set_capability_observer",
+                None,
+            )
+            if callable(set_memory_observer):
+                set_memory_observer(readiness_sink)
+            readiness_sink.observe_memory_composition(
+                backend_available=bool(getattr(chroma_client, "disponible", False)),
+                ledger_open=bool(
+                    getattr(
+                        getattr(memory_manager, "memory_write_ledger", None),
+                        "is_open",
+                        False,
+                    )
+                ),
+            )
             resources.callback(cleanup.close, "memory", memory_manager)
 
             logger.info("Configurando backend LLM: %s", describe_ai_backend(settings))
             ai_client = build_ai_client(settings)
+            set_ai_observer = getattr(ai_client, "set_capability_observer", None)
+            if callable(set_ai_observer):
+                set_ai_observer(readiness_sink)
             resources.callback(cleanup.close, "ai", ai_client)
-            if not await ai_client.health_check_async():
+            typed_health_check = getattr(ai_client, "health_check_result_async", None)
+            if callable(typed_health_check):
+                health_result = await typed_health_check()
+                healthy = bool(getattr(health_result, "succeeded", False))
+            else:
+                healthy = bool(await ai_client.health_check_async())
+                readiness_sink.observe_llm_health_boolean(healthy)
+            if not healthy:
                 logger.warning(
                     "El health check del backend LLM activo fallo. "
                     "La app arrancara, pero el razonamiento podria responder vacio."
@@ -122,12 +158,24 @@ async def lifespan(app: FastAPI):
 
             app.state.ai_client = ai_client
             app.state.orchestrator = orchestrator
-            logger.info("Lazzaro inicializado correctamente. Sistemas nominales.")
+            readiness_sink.mark_orchestration_available()
+            readiness = readiness_holder.snapshot()
+            log_readiness = (
+                logger.warning
+                if readiness.overall is RuntimeOverall.DEGRADED
+                else logger.info
+            )
+            log_readiness(
+                "Lazzaro inicializado. readiness=%s verification=%s.",
+                readiness.overall.value,
+                readiness.verification.value,
+            )
             logger.info("Chingaderita jalando con madre 👍🍞")
             startup_complete = True
             try:
                 yield
             finally:
+                readiness_holder.close_generation(readiness_sink.generation_id)
                 app.state.orchestrator = None
                 app.state.ai_client = None
                 try:
@@ -148,6 +196,7 @@ async def lifespan(app: FastAPI):
                 pass
         raise
     finally:
+        readiness_holder.close_generation(readiness_sink.generation_id)
         app.state.orchestrator = None
         app.state.ai_client = None
         if primary_error is None and cleanup.first is not None:
@@ -164,6 +213,7 @@ def create_app() -> FastAPI:
     )
     app.state.orchestrator = None
     app.state.ai_client = None
+    app.state.runtime_capabilities = RuntimeCapabilityHolder()
     install_public_error_handlers(app)
     app.include_router(router)
     return app

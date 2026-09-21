@@ -3,7 +3,7 @@ api/routes.py - Endpoints REST para Roblox, Unity y otros clientes.
 Recibe eventos externos, los pasa al orquestador central y devuelve acciones.
 """
 
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, Response
 from fastapi.concurrency import run_in_threadpool
 
 from api.errors import (
@@ -19,7 +19,11 @@ from api.schemas import (
     NotificacionSaliente,
     PublicErrorCode,
     PublicErrorEnvelope,
+    CapabilityPublicaV1,
+    LivenessPublicaV1,
+    ReadinessPublicaV1,
 )
+from core.runtime_capabilities import RuntimeCapabilityHolder, RuntimeOverall
 from core.logger import get_logger
 from core.action_ledger import ActionLedgerError
 from core.safe_error_logging import log_safe_boundary_failure
@@ -51,6 +55,39 @@ async def get_orchestrator(request: Request):
     return orch
 
 # Endpoints principales
+
+@router.get("/health/live", response_model=LivenessPublicaV1)
+async def obtener_liveness() -> LivenessPublicaV1:
+    """Liveness sólo afirma que la API puede contestar esta solicitud."""
+
+    return LivenessPublicaV1()
+
+
+@router.get(
+    "/health/ready",
+    response_model=ReadinessPublicaV1,
+    responses={503: {"model": ReadinessPublicaV1}},
+)
+async def obtener_readiness(request: Request, response: Response) -> ReadinessPublicaV1:
+    """Publica la última evidencia efectiva de la generación del lifespan."""
+
+    holder = getattr(request.app.state, "runtime_capabilities", None)
+    if not isinstance(holder, RuntimeCapabilityHolder):
+        holder = RuntimeCapabilityHolder()
+    snapshot = holder.snapshot()
+    if snapshot.overall is RuntimeOverall.UNAVAILABLE:
+        response.status_code = 503
+    return ReadinessPublicaV1(
+        overall=snapshot.overall,
+        verification=snapshot.verification,
+        capabilities={
+            item.name: CapabilityPublicaV1(
+                status=item.status,
+                reason_code=item.reason_code,
+            )
+            for item in snapshot.capabilities
+        },
+    )
 
 @router.post(
     "/evento",

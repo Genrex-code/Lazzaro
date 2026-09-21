@@ -48,6 +48,7 @@ class FallbackAIClient(BaseAIClient):
         self.fallback_chain_name = "fallback:" + "->".join(self.provider_order)
         self._provider_local = threading.local()
         self.last_provider_used = None
+        self._capability_observer = None
         self._close_lock = threading.Lock()
         self._close_attempted = False
 
@@ -149,6 +150,16 @@ class FallbackAIClient(BaseAIClient):
     async def health_check_async(self) -> bool:
         return (await self._execute_async("health", "")).succeeded
 
+    async def health_check_result_async(self) -> LLMCallResultV1:
+        """Conserva el receipt tipado del mismo probe de startup."""
+
+        return await self._execute_async("health", "")
+
+    def set_capability_observer(self, observer: object | None) -> None:
+        """Conecta un sink generacional sin cambiar scheduling ni providers."""
+
+        self._capability_observer = observer
+
     def _execute_sync(
         self,
         operation: str,
@@ -166,6 +177,7 @@ class FallbackAIClient(BaseAIClient):
             generation=generation,
             audit_sink=self._record_llm_audit,
         )
+        self._publish_capability_evidence(operation, result)
         self._project_result(result)
         return result
 
@@ -186,8 +198,33 @@ class FallbackAIClient(BaseAIClient):
             generation=generation,
             audit_sink=self._record_llm_audit,
         )
+        self._publish_capability_evidence(operation, result)
         self._project_result(result)
         return result
+
+    def _publish_capability_evidence(
+        self,
+        operation: str,
+        result: LLMCallResultV1,
+    ) -> None:
+        observer = self._capability_observer
+        publish = getattr(observer, "observe_llm", None)
+        if not callable(publish):
+            return
+        try:
+            publish(operation, result)
+        except Exception as error:
+            # Readiness es observación fail-soft; nunca reemplaza el resultado LLM.
+            try:
+                log_safe_boundary_failure(
+                    logger,
+                    component="runtime_capabilities.llm",
+                    code="READINESS_UPDATE_FAILED",
+                    error=error,
+                    level=logging.WARNING,
+                )
+            except Exception:
+                pass
 
     def _project_result(self, result: LLMCallResultV1) -> None:
         self.last_provider_used = result.final_provider if result.succeeded else None

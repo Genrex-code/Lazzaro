@@ -20,6 +20,38 @@ from pydantic import (
 )
 
 from ai_engine.decision_outcome import DecisionDisposition, DecisionOutcome, DecisionReasonCode
+from core.runtime_capabilities import (
+    CapabilityName,
+    CapabilityReasonCode,
+    CapabilityStatus,
+    RuntimeOverall,
+    RuntimeVerification,
+)
+
+
+class LivenessPublicaV1(BaseModel):
+    version: Literal[1] = 1
+    status: Literal["LIVE"] = "LIVE"
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class CapabilityPublicaV1(BaseModel):
+    status: CapabilityStatus
+    reason_code: CapabilityReasonCode
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ReadinessPublicaV1(BaseModel):
+    """Proyección allowlisted; no contiene detalle de providers ni errores."""
+
+    version: Literal[1] = 1
+    overall: RuntimeOverall
+    verification: RuntimeVerification
+    capabilities: Dict[CapabilityName, CapabilityPublicaV1]
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class EventoEntrante(BaseModel):

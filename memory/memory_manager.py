@@ -135,6 +135,7 @@ class MemoryManager:
     ):
         self.client = chroma_client
         self._owns_chroma_client = owns_chroma_client
+        self._capability_observer = None
         self._lifecycle_close_lock = threading.Lock()
         self._lifecycle_close_attempted = False
         try:
@@ -192,6 +193,47 @@ class MemoryManager:
                         except Exception:
                             pass
             raise
+
+    def set_capability_observer(self, observer: object | None) -> None:
+        """Conecta el sink generacional de readiness sin poseerlo."""
+
+        self._capability_observer = observer
+
+    def _publish_memory_read(self, receipt: MemoryRetrievalReceipt) -> None:
+        observer = getattr(self, "_capability_observer", None)
+        publish = getattr(observer, "observe_memory_read", None)
+        if callable(publish):
+            try:
+                publish(receipt)
+            except Exception as error:
+                try:
+                    log_safe_boundary_failure(
+                        logger,
+                        component="runtime_capabilities.memory_read",
+                        code="READINESS_UPDATE_FAILED",
+                        error=error,
+                        level=logging.WARNING,
+                    )
+                except Exception:
+                    pass
+
+    def _publish_memory_write(self, receipt: MemoryWriteReceipt) -> None:
+        observer = getattr(self, "_capability_observer", None)
+        publish = getattr(observer, "observe_memory_write", None)
+        if callable(publish):
+            try:
+                publish(receipt)
+            except Exception as error:
+                try:
+                    log_safe_boundary_failure(
+                        logger,
+                        component="runtime_capabilities.memory_write",
+                        code="READINESS_UPDATE_FAILED",
+                        error=error,
+                        level=logging.WARNING,
+                    )
+                except Exception:
+                    pass
 
     def _obtener_ram_state_lock(self):
         """Obtiene el lock de RAM; el fallback soporta fakes legacy sin __init__."""
@@ -298,6 +340,7 @@ class MemoryManager:
             intent=intent,
             build_document=build,
         )
+        self._publish_memory_write(receipt)
         if (
             receipt.status is MemoryWriteStatus.CREATED
             and receipt.durable
@@ -436,7 +479,7 @@ class MemoryManager:
             )
             return self.encoder.a_documento(recuerdo)
 
-        return self.memory_write_coordinator.create_memory(
+        receipt = self.memory_write_coordinator.create_memory(
             operation_kind=operation_kind,
             source_identity=source_identity,
             intent=intent if logical_key is None else logical_key,
@@ -444,6 +487,8 @@ class MemoryManager:
             logical_identity=logical_key,
             legacy_candidates=legacy_candidates,
         )
+        self._publish_memory_write(receipt)
+        return receipt
 
     @staticmethod
     def _parse_memory_write_timestamp(timestamp_utc: str) -> datetime:
@@ -793,7 +838,7 @@ class MemoryManager:
     ) -> MemoryRetrievalReceipt:
         """Busca una vez y conserva salud por fuente y ranking final."""
         try:
-            return self.retriever.buscar_con_recibo(
+            receipt = self.retriever.buscar_con_recibo(
                 query=query,
                 limite=limite,
                 where_episodica=filtros_episodicos,
@@ -809,13 +854,15 @@ class MemoryManager:
                 health=RetrievalHealth.FAILED,
                 reason_codes=(RetrievalIssueCode.INTERNAL_FAILURE,),
             )
-            return MemoryRetrievalReceipt(
+            receipt = MemoryRetrievalReceipt(
                 health=RetrievalHealth.FAILED,
                 results=(),
                 episodic=failed,
                 semantic=failed,
                 reason_codes=(RetrievalIssueCode.INTERNAL_FAILURE,),
             )
+        self._publish_memory_read(receipt)
+        return receipt
 
     def obtener_contexto_memoria(
         self,
@@ -2188,7 +2235,7 @@ class MemoryManager:
             source_ids = operation.source_ids
             candidatos = self._candidatos_consolidacion_por_ids(source_ids)
             if candidatos is None and not operation.expected_fingerprint:
-                return MemoryWriteReceipt(
+                receipt = MemoryWriteReceipt(
                     operation_id=operation.operation_id,
                     idempotency_key="",
                     operation_kind=MemoryWriteKind.CONSOLIDATION,
@@ -2196,6 +2243,8 @@ class MemoryManager:
                     target_id=operation.target_id,
                     reconciliation_required=True,
                 )
+                self._publish_memory_write(receipt)
+                return receipt
             return self._ejecutar_consolidacion_verificable(
                 source_ids,
                 candidatos or [],
@@ -2256,6 +2305,7 @@ class MemoryManager:
             build_document=build,
             legacy_candidates=legacy_candidates,
         )
+        self._publish_memory_write(receipt)
         if receipt.status in {MemoryWriteStatus.CREATED, MemoryWriteStatus.ALREADY_EXISTS}:
             logger.info(
                 "Memory consolidation completed. operation_id=%s matched_count=%d changed_count=%d",
