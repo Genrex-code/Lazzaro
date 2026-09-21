@@ -28,6 +28,7 @@ def test_002_startup_incomplete_readiness_is_503() -> None:
     assert response.status_code == 503
     assert body["overall"] == "UNAVAILABLE"
     assert body["verification"] == "PARTIAL"
+    assert body["capabilities"]["orchestration"]["reason_code"] == "STARTUP_INCOMPLETE"
 
 
 def test_003_ready_partial_is_200_and_strictly_allowlisted() -> None:
@@ -63,7 +64,9 @@ def test_004_degraded_is_200_and_shutdown_is_503() -> None:
     sink.observe_llm_health_boolean(False)
     assert _client(holder).get("/api/v1/health/ready").status_code == 200
     holder.close_generation(sink.generation_id)
-    assert _client(holder).get("/api/v1/health/ready").status_code == 503
+    response = _client(holder).get("/api/v1/health/ready")
+    assert response.status_code == 503
+    assert response.json()["capabilities"]["orchestration"]["reason_code"] == "SHUTDOWN"
 
 
 def test_005_estado_remains_a_separate_domain_route() -> None:

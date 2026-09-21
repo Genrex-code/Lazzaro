@@ -184,13 +184,23 @@ class RuntimeCapabilityHolder:
             )
         return RuntimeCapabilityEvidenceSink(self, generation_id)
 
-    def close_generation(self, generation_id: str) -> bool:
+    def close_generation(
+        self,
+        generation_id: str,
+        *,
+        reason: CapabilityReasonCode = CapabilityReasonCode.SHUTDOWN,
+    ) -> bool:
+        if reason not in {
+            CapabilityReasonCode.STARTUP_INCOMPLETE,
+            CapabilityReasonCode.SHUTDOWN,
+        }:
+            raise ValueError("invalid orchestration close reason")
         return self._replace(
             generation_id,
             {
                 CapabilityName.ORCHESTRATION: (
                     CapabilityStatus.UNAVAILABLE,
-                    CapabilityReasonCode.SHUTDOWN,
+                    reason,
                 )
             },
             close=True,
@@ -392,8 +402,14 @@ class RuntimeCapabilityEvidenceSink:
             for receipt in result.receipts
             if receipt.failure_class is not None
         )
-        structurally_unavailable = bool(failures) and all(
-            failure in _STRUCTURAL_LLM_FAILURES for failure in failures
+        exhaustive_terminal = result.terminal in {
+            LLMCallTerminalV1.NON_RETRYABLE_FAILURE,
+            LLMCallTerminalV1.ALL_PROVIDERS_FAILED,
+        }
+        structurally_unavailable = (
+            exhaustive_terminal
+            and bool(failures)
+            and all(failure in _STRUCTURAL_LLM_FAILURES for failure in failures)
         )
         if structurally_unavailable:
             return self._set(

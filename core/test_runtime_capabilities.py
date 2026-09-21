@@ -15,6 +15,7 @@ from ai_engine.llm_call_control import (
 )
 from core.runtime_capabilities import (
     CapabilityName,
+    CapabilityReasonCode,
     CapabilityStatus,
     RuntimeCapabilityHolder,
     RuntimeOverall,
@@ -159,6 +160,10 @@ def test_004_startup_incomplete_and_shutdown_are_unavailable() -> None:
     assert holder.close_generation(sink.generation_id)
     assert holder.snapshot().overall is RuntimeOverall.UNAVAILABLE
     assert not holder.snapshot().generation_open
+    assert (
+        holder.snapshot().capability(CapabilityName.ORCHESTRATION).reason_code
+        is CapabilityReasonCode.SHUTDOWN
+    )
 
 
 def test_005_unknown_transitions_cover_success_partial_and_terminal_failure() -> None:
@@ -366,6 +371,29 @@ def test_019_structural_provider_failure_is_unavailable_and_success_recovers() -
     assert _status(sink, CapabilityName.LLM_GENERATION) is CapabilityStatus.AVAILABLE
 
 
+def test_019a_deadline_after_structural_receipt_does_not_prove_exhaustion() -> None:
+    deadline_after_auth = _llm_failure(
+        LLMCallTerminalV1.DEADLINE_EXCEEDED,
+        LLMFailureClassV1.DEADLINE_EXCEEDED,
+        receipts=(_attempt("primary", LLMFailureClassV1.AUTH_FAILURE),),
+    )
+    _, unknown = _ready_sink()
+    unknown.observe_llm("plan", deadline_after_auth)
+    assert _status(unknown, CapabilityName.LLM_PLAN) is CapabilityStatus.UNKNOWN
+
+    _, available = _ready_sink()
+    available.observe_llm("plan", _llm_success())
+    deadline_after_configuration = _llm_failure(
+        LLMCallTerminalV1.DEADLINE_EXCEEDED,
+        LLMFailureClassV1.DEADLINE_EXCEEDED,
+        receipts=(
+            _attempt("primary", LLMFailureClassV1.CONFIGURATION_ERROR),
+        ),
+    )
+    available.observe_llm("plan", deadline_after_configuration)
+    assert _status(available, CapabilityName.LLM_PLAN) is CapabilityStatus.AVAILABLE
+
+
 def test_020_memory_manager_publishes_existing_receipt_without_second_search() -> None:
     from memory.memory_manager import MemoryManager
 
@@ -474,6 +502,10 @@ def test_022_startup_failure_closes_generation() -> None:
         asyncio.run(exercise())
     assert holder.snapshot().overall is RuntimeOverall.UNAVAILABLE
     assert not holder.snapshot().generation_open
+    assert (
+        holder.snapshot().capability(CapabilityName.ORCHESTRATION).reason_code
+        is CapabilityReasonCode.STARTUP_INCOMPLETE
+    )
 
 
 def test_023_nominal_startup_claim_was_removed() -> None:

@@ -1,6 +1,6 @@
 # ROOT-023 — Truthful runtime readiness
 
-Estado de código: `IMPLEMENTATION_COMPLETE / HUMAN_REVIEW_PENDING`.
+Estado de código: `FIXES_COMPLETE / HUMAN_REVIEW_PENDING`.
 
 ROOT-023 separa liveness, readiness operacional y estado cognitivo. La API
 puede estar viva aunque alguna capacidad de LAZZARO esté reducida; a su vez,
@@ -18,7 +18,9 @@ AI y Memory reciben un `RuntimeCapabilityEvidenceSink` ligado al UUID de la
 generación. Todo update exige que ese UUID siga abierto y vigente. Al comenzar
 shutdown se cierra la generación antes de liberar recursos; resultados tardíos,
 resultados de una generación anterior y updates posteriores al cierre se
-rechazan. ROOT-022 conserva su ownership y cierre LIFO original.
+rechazan. Si startup no llegó a completarse, el cierre conserva
+`STARTUP_INCOMPLETE`; sólo una generación que alcanzó startup completo termina
+como `SHUTDOWN`. ROOT-022 conserva su ownership y cierre LIFO original.
 
 No hay polling, TTL, thread de monitorización, probe adicional ni segunda
 operación de memoria. El snapshot sólo expresa la última evidencia producida
@@ -71,9 +73,12 @@ El health de startup expone ese recibo tipado sin ejecutar un segundo probe.
 - Un primario fallido seguido de fallback compatible exitoso conserva la
   capacidad efectiva como `AVAILABLE`.
 - `NO_COMPATIBLE_PROVIDER` sólo vuelve `llm_plan` indisponible.
-- Una cadena completa cuyos receipts son exclusivamente `AUTH_FAILURE`,
-  `CONFIGURATION_ERROR` o `PROJECTION_UNSUPPORTED` demuestra indisponibilidad
+- Sólo `NON_RETRYABLE_FAILURE` o `ALL_PROVIDERS_FAILED`, cuyos receipts sean
+  exclusivamente `AUTH_FAILURE`, `CONFIGURATION_ERROR` o
+  `PROJECTION_UNSUPPORTED`, demuestran resolución exhaustiva e indisponibilidad
   de la capacidad correspondiente.
+- `DEADLINE_EXCEEDED` nunca prueba cobertura exhaustiva, aunque todos los
+  receipts alcanzados antes del deadline sean estructurales.
 - Deadline, rate limit, timeout, conexión y fallos HTTP transitorios son
   outcomes de request: no alteran una capacidad previamente disponible ni
   convierten un `UNKNOWN` en diagnóstico inventado.

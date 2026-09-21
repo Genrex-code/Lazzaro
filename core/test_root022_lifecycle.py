@@ -6,8 +6,15 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 import main
+from api.routes import router
+from core.runtime_capabilities import (
+    CapabilityName,
+    CapabilityReasonCode,
+)
 
 
 def _lifespan_fakes(monkeypatch, *, fail_at=None, close_fail=()):
@@ -73,6 +80,15 @@ def _run_lifespan(*, body_error=None):
     return asyncio.run(run())
 
 
+def _public_orchestration_reason() -> str:
+    app = FastAPI()
+    app.state.runtime_capabilities = main.app.state.runtime_capabilities
+    app.include_router(router)
+    return TestClient(app).get("/api/v1/health/ready").json()["capabilities"][
+        "orchestration"
+    ]["reason_code"]
+
+
 @pytest.mark.parametrize("stage,closed", [
     ("settings", []), ("behavior", []), ("static_identity", []),
     ("identity", []), ("chroma", []), ("memory", ["chroma"]),
@@ -90,6 +106,13 @@ def test_lifespan_startup_failure_rolls_back(monkeypatch, stage, closed):
     assert [e.removeprefix("close:") for e in events if e.startswith("close:")] == closed
     assert main.app.state.ai_client is None
     assert main.app.state.orchestrator is None
+    assert (
+        main.app.state.runtime_capabilities.snapshot()
+        .capability(CapabilityName.ORCHESTRATION)
+        .reason_code
+        is CapabilityReasonCode.STARTUP_INCOMPLETE
+    )
+    assert _public_orchestration_reason() == "STARTUP_INCOMPLETE"
 
 
 def test_lifespan_lifo_and_two_generations(monkeypatch):
@@ -98,6 +121,13 @@ def test_lifespan_lifo_and_two_generations(monkeypatch):
         _run_lifespan()
         assert main.app.state.ai_client is None
         assert main.app.state.orchestrator is None
+        assert (
+            main.app.state.runtime_capabilities.snapshot()
+            .capability(CapabilityName.ORCHESTRATION)
+            .reason_code
+            is CapabilityReasonCode.SHUTDOWN
+        )
+        assert _public_orchestration_reason() == "SHUTDOWN"
     assert [e for e in events if e.startswith("close:")] == [
         "close:orchestrator", "close:ai", "close:memory", "close:chroma",
     ] * 2
@@ -112,6 +142,12 @@ def test_primary_wins_all_cleanup_failures(monkeypatch):
     ]
     assert main.app.state.ai_client is None
     assert main.app.state.orchestrator is None
+    assert (
+        main.app.state.runtime_capabilities.snapshot()
+        .capability(CapabilityName.ORCHESTRATION)
+        .reason_code
+        is CapabilityReasonCode.SHUTDOWN
+    )
 
 
 def test_clean_body_propagates_first_cleanup_failure(monkeypatch):
@@ -136,6 +172,18 @@ def test_cancellation_rolls_back(monkeypatch, stage):
     assert [e.removeprefix("close:") for e in events if e.startswith("close:")] == expected
     assert main.app.state.ai_client is None
     assert main.app.state.orchestrator is None
+    expected_reason = (
+        CapabilityReasonCode.STARTUP_INCOMPLETE
+        if stage == "health_cancel"
+        else CapabilityReasonCode.SHUTDOWN
+    )
+    assert (
+        main.app.state.runtime_capabilities.snapshot()
+        .capability(CapabilityName.ORCHESTRATION)
+        .reason_code
+        is expected_reason
+    )
+    assert _public_orchestration_reason() == expected_reason.value
 
 
 @pytest.mark.parametrize("control_error", [KeyboardInterrupt, SystemExit])

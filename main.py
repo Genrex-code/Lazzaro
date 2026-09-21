@@ -23,6 +23,7 @@ from core.logger import get_logger
 from core.orchestrator import Orchestrator
 from core.safe_error_logging import log_safe_boundary_failure
 from core.runtime_capabilities import (
+    CapabilityReasonCode,
     RuntimeCapabilityHolder,
     RuntimeOverall,
 )
@@ -196,7 +197,14 @@ async def lifespan(app: FastAPI):
                 pass
         raise
     finally:
-        readiness_holder.close_generation(readiness_sink.generation_id)
+        readiness_holder.close_generation(
+            readiness_sink.generation_id,
+            reason=(
+                CapabilityReasonCode.SHUTDOWN
+                if startup_complete
+                else CapabilityReasonCode.STARTUP_INCOMPLETE
+            ),
+        )
         app.state.orchestrator = None
         app.state.ai_client = None
         if primary_error is None and cleanup.first is not None:
