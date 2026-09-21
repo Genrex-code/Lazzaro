@@ -3,7 +3,8 @@ routing_rules.py - Reglas heurísticas ampliadas para clasificar intenciones del
 """
 
 from dataclasses import dataclass
-from typing import List
+from enum import Enum
+from typing import Callable, List
 import re
 import unicodedata
 from .intent_types import IntentType
@@ -15,6 +16,476 @@ MANUAL_CONVERSATION_SAVE_PHRASES = frozenset(
         "guarda lo que tengas en ram en tu mente",
     }
 )
+
+
+class RuleTier(str, Enum):
+    """Precedencia interna del analizador lexico de ROOT-024."""
+
+    CONTROL = "control"
+    CONSTRAINT = "constraint"
+    POSITIVE = "positive"
+
+
+@dataclass(frozen=True)
+class ProtectedSpan:
+    """Region que contiene texto citado, codigo, URL o path."""
+
+    kind: str
+    start: int
+    end: int
+
+
+@dataclass(frozen=True)
+class LexicalToken:
+    """Token Unicode con offsets sobre ``LexicalView.normalized_text``."""
+
+    value: str
+    start: int
+    end: int
+    protected: bool
+
+
+@dataclass(frozen=True)
+class LexicalView:
+    """Vista normalizada solo para reglas; nunca alimenta al modelo desplegado."""
+
+    raw_text: str
+    normalized_text: str
+    tokens: tuple[LexicalToken, ...]
+    protected_spans: tuple[ProtectedSpan, ...]
+
+
+@dataclass(frozen=True)
+class LexicalRule:
+    """Regla tipada, identificable y con precedencia estable."""
+
+    rule_id: str
+    tier: RuleTier
+    priority: int
+    predicate: Callable[[LexicalView], bool]
+    intent: IntentType | None = None
+    forbidden_intents: frozenset[IntentType] = frozenset()
+    forbidden_routes: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
+class LexicalMatch:
+    """Resultado agregado: positivo opcional mas restricciones deterministas."""
+
+    positive_intent: IntentType | None
+    positive_rule_id: str | None
+    positive_priority: int | None
+    forbidden_intents: frozenset[IntentType]
+    forbidden_routes: frozenset[str]
+    matched_rule_ids: tuple[str, ...]
+
+
+_TOKEN_RE = re.compile(r"\w+", flags=re.UNICODE)
+_URL_RE = re.compile(r"(?i)\b(?:https?://|www\.)[^\s<>\"'`]+")
+_PATH_RE = re.compile(r"(?<!\w)(?:[A-Za-z]:[\\/]|/)[^\s<>\"'`]+")
+
+
+def _normalize_lexical_text(text: object) -> str:
+    value = unicodedata.normalize("NFC", str(text or "")).casefold().strip()
+    return re.sub(r"\s+", " ", value)
+
+
+def _delimited_spans(text: str) -> list[ProtectedSpan]:
+    pairs = {'"': '"', "'": "'", "`": "`", "“": "”", "‘": "’"}
+    spans: list[ProtectedSpan] = []
+    index = 0
+    while index < len(text):
+        opener = text[index]
+        closer = pairs.get(opener)
+        if closer is None:
+            index += 1
+            continue
+
+        # Un apostrofe interno no abre un string/cita.
+        if (
+            opener == "'"
+            and index > 0
+            and index + 1 < len(text)
+            and text[index - 1].isalnum()
+            and text[index + 1].isalnum()
+        ):
+            index += 1
+            continue
+
+        closing_index = text.find(closer, index + 1)
+        end = len(text) if closing_index < 0 else closing_index + 1
+        spans.append(
+            ProtectedSpan(
+                kind="code" if opener == "`" else "quote",
+                start=index,
+                end=end,
+            )
+        )
+        index = end
+    return spans
+
+
+def _merge_protected_spans(spans: list[ProtectedSpan]) -> tuple[ProtectedSpan, ...]:
+    if not spans:
+        return ()
+    ordered = sorted(spans, key=lambda span: (span.start, span.end, span.kind))
+    merged: list[ProtectedSpan] = [ordered[0]]
+    for span in ordered[1:]:
+        previous = merged[-1]
+        if span.start >= previous.end:
+            merged.append(span)
+            continue
+        merged[-1] = ProtectedSpan(
+            kind=previous.kind if previous.kind == span.kind else "protected",
+            start=previous.start,
+            end=max(previous.end, span.end),
+        )
+    return tuple(merged)
+
+
+def build_lexical_view(text: object) -> LexicalView:
+    """Construye la representacion NFC/contextual aprobada por ROOT-024."""
+
+    raw_text = str(text or "")
+    normalized_text = _normalize_lexical_text(raw_text)
+    spans = _delimited_spans(normalized_text)
+    spans.extend(
+        ProtectedSpan("url", match.start(), match.end())
+        for match in _URL_RE.finditer(normalized_text)
+    )
+    spans.extend(
+        ProtectedSpan("path", match.start(), match.end())
+        for match in _PATH_RE.finditer(normalized_text)
+    )
+    protected_spans = _merge_protected_spans(spans)
+    tokens = tuple(
+        LexicalToken(
+            value=match.group(0),
+            start=match.start(),
+            end=match.end(),
+            protected=any(
+                match.start() >= span.start and match.end() <= span.end
+                for span in protected_spans
+            ),
+        )
+        for match in _TOKEN_RE.finditer(normalized_text)
+    )
+    return LexicalView(
+        raw_text=raw_text,
+        normalized_text=normalized_text,
+        tokens=tokens,
+        protected_spans=protected_spans,
+    )
+
+
+def _as_lexical_view(value: str | LexicalView) -> LexicalView:
+    return value if isinstance(value, LexicalView) else build_lexical_view(value)
+
+
+def _phrase_tokens(phrase: str) -> tuple[str, ...]:
+    normalized = _normalize_lexical_text(phrase)
+    return tuple(match.group(0) for match in _TOKEN_RE.finditer(normalized))
+
+
+def _contains_sequence(
+    view: LexicalView,
+    phrase: str,
+    *,
+    protected: bool | None = False,
+) -> bool:
+    expected = _phrase_tokens(phrase)
+    if not expected or len(expected) > len(view.tokens):
+        return False
+    for start in range(len(view.tokens) - len(expected) + 1):
+        window = view.tokens[start : start + len(expected)]
+        if tuple(token.value for token in window) != expected:
+            continue
+        if protected is None or all(token.protected is protected for token in window):
+            return True
+    return False
+
+
+def _contains_any_sequence(view: LexicalView, phrases: tuple[str, ...]) -> bool:
+    return any(_contains_sequence(view, phrase) for phrase in phrases)
+
+
+def _has_token(view: LexicalView, values: frozenset[str], *, protected: bool = False) -> bool:
+    return any(token.value in values and token.protected is protected for token in view.tokens)
+
+
+_MOTOR_ACTION_TOKENS = frozenset(
+    {
+        "abre", "abrir", "abras", "abres", "abrí",
+        "camina", "correr", "corre", "gira", "girar",
+        "mira", "mirar", "mires", "mover", "moverte", "mueva",
+        "muevas", "mueve", "muévete", "muevete", "observa", "salta",
+    }
+)
+_MEMORY_UPDATE_TOKENS = frozenset(
+    {"aprende", "guarda", "guardes", "memoriza", "recuerda", "recuerdes"}
+)
+_SAVE_TOKENS = frozenset({"guarda", "guardes", "guardar"})
+_NEGATION_PHRASES = (
+    ("no", "quiero"),
+    ("no", "hagas"),
+    ("no",),
+    ("nunca",),
+    ("evita",),
+    ("sin",),
+)
+
+
+def _has_local_negation(view: LexicalView, governed_tokens: frozenset[str]) -> bool:
+    tokens = view.tokens
+    for action_index, action in enumerate(tokens):
+        if action.protected or action.value not in governed_tokens:
+            continue
+        for phrase in _NEGATION_PHRASES:
+            phrase_length = len(phrase)
+            earliest = max(0, action_index - 5)
+            for start in range(earliest, action_index - phrase_length + 1):
+                window = tokens[start : start + phrase_length]
+                if any(token.protected for token in window):
+                    continue
+                if tuple(token.value for token in window) != phrase:
+                    continue
+                between = view.normalized_text[window[-1].end : action.start]
+                if not re.search(r"[,.;:!?]", between):
+                    return True
+    return False
+
+
+def _protected_contains_token(view: LexicalView, values: frozenset[str]) -> bool:
+    return any(token.protected and token.value in values for token in view.tokens)
+
+
+def _is_code_context(view: LexicalView) -> bool:
+    return (
+        "==" in view.normalized_text
+        and _has_token(view, frozenset({"if", "command"}))
+    )
+
+
+def _is_narrative_motor_context(view: LexicalView) -> bool:
+    if not _has_token(view, _MOTOR_ACTION_TOKENS):
+        return False
+    return _contains_any_sequence(
+        view,
+        (
+            "ayer",
+            "mañana voy a",
+            "me gusta",
+            "hablemos de",
+            "qué pasaría si",
+            "que pasaria si",
+        ),
+    )
+
+
+def _is_boundary_lookalike(view: LexicalView) -> bool:
+    return _contains_any_sequence(
+        view,
+        (
+            "promueve una conversación",
+            "el detergente remueve manchas",
+            "esta causa problemas",
+            "abre2 no es un comando",
+        ),
+    )
+
+
+def _is_manual_save(view: LexicalView) -> bool:
+    return match_manual_conversation_save(view.raw_text)
+
+
+def _is_technical_why_question(view: LexicalView) -> bool:
+    return (
+        _contains_any_sequence(view, ("por qué", "por que"))
+        and _contains_sequence(view, "gente cree")
+        and _has_token(view, frozenset({"código", "codigo", "falla", "fallo"}))
+    )
+
+
+def _is_explain_plan(view: LexicalView) -> bool:
+    return _contains_any_sequence(view, ("explícame el plan", "explicame el plan"))
+
+
+def _is_definition_question(view: LexicalView) -> bool:
+    return _contains_any_sequence(view, ("qué significa", "que significa"))
+
+
+def _is_code_error_question(view: LexicalView) -> bool:
+    return bool(view.protected_spans) and _contains_sequence(view, "da error")
+
+
+def _is_how_to_question(view: LexicalView) -> bool:
+    return _contains_any_sequence(view, ("cómo se abre", "como se abre"))
+
+
+ROOT_024_LEXICAL_RULES: tuple[LexicalRule, ...] = (
+    LexicalRule(
+        "control.manual_conversation_save",
+        RuleTier.CONTROL,
+        10,
+        _is_manual_save,
+        intent=IntentType.CONVERSATION_SAVE,
+    ),
+    LexicalRule(
+        "constraint.boundary_lookalike_not_motor",
+        RuleTier.CONSTRAINT,
+        100,
+        _is_boundary_lookalike,
+        forbidden_routes=frozenset({"motor"}),
+    ),
+    LexicalRule(
+        "constraint.negated_motor",
+        RuleTier.CONSTRAINT,
+        110,
+        lambda view: _has_local_negation(view, _MOTOR_ACTION_TOKENS),
+        forbidden_routes=frozenset({"motor"}),
+    ),
+    LexicalRule(
+        "constraint.protected_motor",
+        RuleTier.CONSTRAINT,
+        120,
+        lambda view: _protected_contains_token(view, _MOTOR_ACTION_TOKENS),
+        forbidden_routes=frozenset({"motor"}),
+    ),
+    LexicalRule(
+        "constraint.code_context_not_motor",
+        RuleTier.CONSTRAINT,
+        130,
+        _is_code_context,
+        forbidden_routes=frozenset({"motor"}),
+    ),
+    LexicalRule(
+        "constraint.narrative_motor",
+        RuleTier.CONSTRAINT,
+        140,
+        _is_narrative_motor_context,
+        forbidden_routes=frozenset({"motor"}),
+    ),
+    LexicalRule(
+        "constraint.negated_save",
+        RuleTier.CONSTRAINT,
+        150,
+        lambda view: _has_local_negation(view, _SAVE_TOKENS),
+        forbidden_intents=frozenset({IntentType.CONVERSATION_SAVE}),
+    ),
+    LexicalRule(
+        "constraint.protected_save",
+        RuleTier.CONSTRAINT,
+        160,
+        lambda view: any(
+            _contains_sequence(view, phrase, protected=True)
+            for phrase in MANUAL_CONVERSATION_SAVE_PHRASES
+        ),
+        forbidden_intents=frozenset({IntentType.CONVERSATION_SAVE}),
+    ),
+    LexicalRule(
+        "constraint.negated_memory_update",
+        RuleTier.CONSTRAINT,
+        170,
+        lambda view: _has_local_negation(view, _MEMORY_UPDATE_TOKENS),
+        forbidden_intents=frozenset(
+            {IntentType.MEMORY_UPDATE, IntentType.CONVERSATION_SAVE}
+        ),
+    ),
+    LexicalRule(
+        "constraint.protected_memory_update",
+        RuleTier.CONSTRAINT,
+        180,
+        lambda view: _protected_contains_token(view, _MEMORY_UPDATE_TOKENS),
+        forbidden_intents=frozenset(
+            {IntentType.MEMORY_UPDATE, IntentType.CONVERSATION_SAVE}
+        ),
+    ),
+    LexicalRule(
+        "positive.oracle_technical_why",
+        RuleTier.POSITIVE,
+        210,
+        _is_technical_why_question,
+        intent=IntentType.ORACLE_QUERY,
+    ),
+    LexicalRule(
+        "positive.oracle_explain_plan",
+        RuleTier.POSITIVE,
+        220,
+        _is_explain_plan,
+        intent=IntentType.ORACLE_QUERY,
+    ),
+    LexicalRule(
+        "positive.oracle_definition",
+        RuleTier.POSITIVE,
+        230,
+        _is_definition_question,
+        intent=IntentType.ORACLE_QUERY,
+    ),
+    LexicalRule(
+        "positive.oracle_code_error",
+        RuleTier.POSITIVE,
+        240,
+        _is_code_error_question,
+        intent=IntentType.ORACLE_QUERY,
+    ),
+    LexicalRule(
+        "positive.oracle_how_to",
+        RuleTier.POSITIVE,
+        250,
+        _is_how_to_question,
+        intent=IntentType.ORACLE_QUERY,
+    ),
+)
+
+
+def _validate_root_024_rules(rules: tuple[LexicalRule, ...]) -> None:
+    rule_ids = [rule.rule_id for rule in rules]
+    priorities = [rule.priority for rule in rules]
+    if len(rule_ids) != len(set(rule_ids)):
+        raise ValueError("ROOT-024 lexical rules contain duplicate rule_id")
+    if len(priorities) != len(set(priorities)):
+        raise ValueError("ROOT-024 lexical rules contain duplicate priority")
+    if priorities != sorted(priorities):
+        raise ValueError("ROOT-024 lexical rules must be declared in priority order")
+    for rule in rules:
+        if rule.tier in {RuleTier.CONTROL, RuleTier.POSITIVE} and rule.intent is None:
+            raise ValueError(f"Positive lexical rule without intent: {rule.rule_id}")
+        if rule.tier is RuleTier.CONSTRAINT and rule.intent is not None:
+            raise ValueError(f"Constraint lexical rule has intent: {rule.rule_id}")
+
+
+_validate_root_024_rules(ROOT_024_LEXICAL_RULES)
+
+
+def analyze_lexical_routing(text: object) -> tuple[LexicalView, LexicalMatch]:
+    """Evalua la tabla estable sin ejecutar modelo, fallback ni side effects."""
+
+    view = build_lexical_view(text)
+    matches = [rule for rule in ROOT_024_LEXICAL_RULES if rule.predicate(view)]
+    positive = next(
+        (
+            rule
+            for rule in matches
+            if rule.tier in {RuleTier.CONTROL, RuleTier.POSITIVE}
+        ),
+        None,
+    )
+    return view, LexicalMatch(
+        positive_intent=positive.intent if positive is not None else None,
+        positive_rule_id=positive.rule_id if positive is not None else None,
+        positive_priority=positive.priority if positive is not None else None,
+        forbidden_intents=frozenset(
+            intent
+            for rule in matches
+            for intent in rule.forbidden_intents
+        ),
+        forbidden_routes=frozenset(
+            route
+            for rule in matches
+            for route in rule.forbidden_routes
+        ),
+        matched_rule_ids=tuple(rule.rule_id for rule in matches),
+    )
 
 
 @dataclass
@@ -94,7 +565,7 @@ REGLAS_BASE: List[RoutingRule] = [
     RoutingRule(
         keywords=[
             # Movimiento básico
-            "camina", "mueve", "mover", "moverte", "muévete", "ve a", "acércate", "aléjate",
+            "camina", "mueve", "mover", "moverte", "muevas", "muévete", "ve a", "ve al", "acércate", "aléjate",
             "alejarme", "alejarte", "alejarse", "alejar", "aleja", "apártate",
             "retrocede", "retírate", "sepárate", "separate", "avanza", "retrocede", "desplázate", "dirígete",
             "corre", "salta", "gira", "girar", "rotar", "da la vuelta",
@@ -255,22 +726,24 @@ TECHNICAL_OWNERSHIP_TERMS = (
 )
 
 
-def match_guardrail_intent(texto: str) -> IntentType:
+def match_guardrail_intent(texto: str | LexicalView) -> IntentType:
     """
     Reglas de prioridad maxima para casos relacionales que contienen palabras
     tecnicas, pero no son consultas tecnicas.
     """
-    texto_normalizado = RoutingRule._normalizar(texto)
-    if not texto_normalizado:
+    view = _as_lexical_view(texto)
+    if not view.normalized_text:
         return IntentType.UNKNOWN
 
-    if any(frase in texto_normalizado for frase in SOCIAL_AUTHORITY_PHRASES):
+    if any(_contains_sequence(view, frase) for frase in SOCIAL_AUTHORITY_PHRASES):
         return IntentType.SOCIAL
 
     tiene_propiedad_tecnica = any(
-        termino in texto_normalizado for termino in TECHNICAL_OWNERSHIP_TERMS
+        _contains_sequence(view, termino) for termino in TECHNICAL_OWNERSHIP_TERMS
     )
-    tiene_regano = any(termino in texto_normalizado for termino in SOCIAL_REBUKE_TERMS)
+    tiene_regano = any(
+        _contains_sequence(view, termino) for termino in SOCIAL_REBUKE_TERMS
+    )
     if tiene_propiedad_tecnica and tiene_regano:
         return IntentType.SOCIAL
 

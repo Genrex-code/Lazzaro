@@ -22,9 +22,10 @@ except ImportError:  # El fallback heuristico debe seguir vivo sin dependencias 
 
 from .intent_types import INTENT_TO_ROUTE, IntentType, normalize_intent, route_for_intent
 from .routing_rules import (
+    LexicalMatch,
+    analyze_lexical_routing,
     match_guardrail_intent,
     match_intent_by_keywords,
-    match_manual_conversation_save,
 )
 
 # hoy perdio el america asi que que hoy pierde la niña 
@@ -143,7 +144,9 @@ class TriageRouter:
                     reason="Comando vacío. Ignorado."
                 )
 
-            if match_manual_conversation_save(texto_usuario):
+            lexical_view, lexical_match = analyze_lexical_routing(texto_usuario)
+
+            if lexical_match.positive_rule_id == "control.manual_conversation_save":
                 return self._build_response(
                     intent=IntentType.CONVERSATION_SAVE.value,
                     route=route_for_intent(IntentType.CONVERSATION_SAVE).value,
@@ -151,7 +154,7 @@ class TriageRouter:
                     reason="Solicitud explícita de guardar la RAM conversacional.",
                 )
 
-            guardrail_intent = normalize_intent(match_guardrail_intent(texto_usuario))
+            guardrail_intent = normalize_intent(match_guardrail_intent(lexical_view))
             if guardrail_intent is not IntentType.UNKNOWN:
                 return self._build_response(
                     intent=guardrail_intent.value,
@@ -163,11 +166,42 @@ class TriageRouter:
                     )
                 )
 
+            if lexical_match.positive_intent is not None:
+                lexical_intent = normalize_intent(lexical_match.positive_intent)
+                return self._build_response(
+                    intent=lexical_intent.value,
+                    route=route_for_intent(lexical_intent).value,
+                    confidence=0.95,
+                    reason=(
+                        "Regla léxica determinista de Capa 0: "
+                        f"{lexical_match.positive_rule_id}."
+                    ),
+                )
+
             intent_str = self._predict_intent_with_ml(texto_usuario)
+
+            if intent_str is not None and not self._lexical_candidate_allowed(
+                intent_str,
+                lexical_match,
+            ):
+                self._last_reason = (
+                    self._last_reason
+                    + " Candidato ML descartado por una frontera léxica determinista."
+                )
+                intent_str = None
 
             # Si ML falló o dudó, usar fallback heurístico viejo.
             if intent_str is None:
                 intent_str = self._predict_intent_with_rules(texto_usuario)
+
+            if not self._lexical_candidate_allowed(intent_str, lexical_match):
+                self._last_confidence = min(self._last_confidence, 0.4)
+                self._last_reason = (
+                    self._last_reason
+                    + " Candidato fallback descartado por una frontera léxica; "
+                    "se conserva el no-match existente."
+                )
+                intent_str = IntentType.UNKNOWN.value
 
             intent = normalize_intent(intent_str)
             if intent is IntentType.UNKNOWN and str(intent_str or "").strip().upper() != "UNKNOWN":
@@ -202,6 +236,20 @@ class TriageRouter:
             route="noop",
             confidence=0.0,
             reason=f"Evento '{tipo_evento}' no soportado por Triage."
+        )
+
+    @staticmethod
+    def _lexical_candidate_allowed(
+        value: str | IntentType | None,
+        lexical_match: LexicalMatch,
+    ) -> bool:
+        """Aplica vetos internos sin inventar intent ni romper el mapping canonico."""
+
+        intent = normalize_intent(value)
+        route = route_for_intent(intent).value
+        return (
+            intent not in lexical_match.forbidden_intents
+            and route not in lexical_match.forbidden_routes
         )
 
     @staticmethod
