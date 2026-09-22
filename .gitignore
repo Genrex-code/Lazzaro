@@ -18,3 +18,6 @@ tmp_chroma_introspect/
 
 # Configuracion local accidental
 settings.py
+
+# una carpeta ramdon que creo que es de codex y en esta brach no me sirve mucho
+.vs/
