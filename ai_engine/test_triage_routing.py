@@ -105,6 +105,15 @@ def _load_root_024_fixture() -> list[dict]:
 
 def _assert_contract_predicates(case: dict, decision: dict) -> None:
     prefix = case["case_id"]
+    classification = decision.get("classification")
+    assert_true(
+        isinstance(classification, dict),
+        f"{prefix}: ROOT-025 exige classification autoritativa.",
+    )
+    assert_true(
+        classification.get("contract_version") == 1,
+        f"{prefix}: version ROOT-025 inesperada.",
+    )
     expected_intent = case["expected_intent"]
     expected_route = case["expected_route"]
     if expected_intent is not None:
