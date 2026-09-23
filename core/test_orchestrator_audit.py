@@ -27,6 +27,7 @@ from ai_engine.oracle_engine import OracleEngine
 from ai_engine.persona_engine import PersonaEngine
 from ai_engine.reasoning_engine import ReasoningEngine
 from ai_engine.schemas import ActionResponse
+from ai_engine.triage_contracts import TriageDecisionV1
 from api.schemas import AccionSaliente, EventoEntrante
 from core.audit_trace import AuditTrace
 from core.audit_writer import AuditTraceJSONLWriter
@@ -131,6 +132,17 @@ def _count_triage_calls(orchestrator: Orchestrator) -> dict[str, int]:
 
     orchestrator.triage_router.route_event = counted_route_event
     return counter
+
+
+def _bypass_root026_for_legacy_reasoning_fixture(orchestrator: Orchestrator) -> None:
+    """Aisla tests historicos de Reasoning de la frontera productiva ROOT-026."""
+
+    legacy = orchestrator.triage_router.route_event(
+        {"tipo_evento": "comando_usuario", "detalles": {"mensaje": "fixture"}},
+        {},
+    )
+    decision = TriageDecisionV1.model_validate(legacy["classification"])
+    orchestrator._evaluar_triage = lambda evento, estado: (decision, legacy)
 
 
 def _ranked_memory_results() -> list[MemoryResult]:
@@ -465,7 +477,7 @@ def test_normal_triage_preserves_original_contract_and_trace() -> None:
     writer = RecordingWriter()
     orchestrator, route_calls = _orquestador_aislado(
         "persona",
-        intent="SOCIAL_CONVERSATION",
+        intent="SOCIAL",
     )
     orchestrator.audit_writer = writer
     triage_calls = _count_triage_calls(orchestrator)
@@ -488,7 +500,7 @@ def test_normal_triage_preserves_original_contract_and_trace() -> None:
     )
 
     triage = writer.traces[1].triage
-    assert_true(triage["intent"] == "SOCIAL_CONVERSATION", "Debe conservar el intent original.")
+    assert_true(triage["intent"] == "SOCIAL", "Debe conservar el intent canonico original.")
     assert_true(triage["route"] == "persona", "Debe conservar la ruta original.")
     assert_true(
         triage["effective_route"] == "persona",
@@ -868,6 +880,7 @@ def test_decision_layer_tracks_the_executed_primary_branch() -> None:
 
     writer = RecordingWriter()
     reasoning, _ = _orquestador_aislado("legacy")
+    _bypass_root026_for_legacy_reasoning_fixture(reasoning)
     reasoning.audit_writer = writer
     legacy_reasoning = LegacyReasoning()
     reasoning.reasoning = legacy_reasoning
@@ -1223,6 +1236,7 @@ def test_all_llm_providers_fail_and_deterministic_rescue_is_observable() -> None
 def test_reasoning_invalid_llm_response_is_attributed_to_provider() -> None:
     writer = RecordingWriter()
     orchestrator, _ = _orquestador_aislado("legacy")
+    _bypass_root026_for_legacy_reasoning_fixture(orchestrator)
     orchestrator.audit_writer = writer
     provider = _ObservableFakeClient(
         "gemini",

@@ -50,6 +50,7 @@ from ai_engine.persona_factual_bridge import (
 from ai_engine.schemas import ActionResponse, OracleResult
 from ai_engine.structured_parse_types import StructuredParseStatus
 from ai_engine.subjective_effort import SubjectiveEffortCalculator
+from ai_engine.triage_contracts import TriageOutcomeV1
 from ai_engine.triage_router import TriageRouter
 from api.schemas import AccionSaliente, EstadoAgente, EventoEntrante, NotificacionSaliente
 from core.action_ledger import (
@@ -84,6 +85,12 @@ from core.material_attestation import (
 )
 from core.operational_acknowledgement import manual_conversation_save_acknowledgement
 from core.tool_policy import ToolPolicy
+from core.triage_boundary import (
+    TriageBoundaryFailureV1,
+    TriageEvaluationResultV1,
+    triage_evaluation_failure,
+    validate_triage_legacy_result,
+)
 from memory.memory_manager import ManualConversationSaveResult
 from memory.memory_write_types import MemoryWriteReceipt, MemoryWriteStatus
 from tools.executor import ActionExecutor
@@ -937,7 +944,39 @@ class Orchestrator:
         percepcion_resumida = str(respuesta_core.get("percepcion_resumida", ""))
 
         triage_started_ns = time.perf_counter_ns()
-        triage_original = self._evaluar_triage(evento, estado_actual)
+        triage_result, triage_original = self._evaluar_triage(evento, estado_actual)
+        if isinstance(triage_result, TriageBoundaryFailureV1):
+            triage_duration_ms = self._elapsed_ms(triage_started_ns)
+            self._registrar_triage_audit(
+                evento,
+                trace_id,
+                {
+                    "intent": None,
+                    "route": None,
+                    "effective_route": None,
+                    "confidence": None,
+                    "reason": None,
+                },
+                durations_ms={"triage": triage_duration_ms},
+            )
+            raise TurnProcessingError("triage", triage_result.code.value)
+
+        if triage_result.outcome is TriageOutcomeV1.FAILED:
+            triage_duration_ms = self._elapsed_ms(triage_started_ns)
+            self._registrar_triage_audit(
+                evento,
+                trace_id,
+                {
+                    "intent": None,
+                    "route": None,
+                    "effective_route": None,
+                    "confidence": triage_original.get("confidence"),
+                    "reason": triage_result.human_reason,
+                },
+                durations_ms={"triage": triage_duration_ms},
+            )
+            raise TurnProcessingError("triage", triage_result.reason_code.value)
+
         triage_snapshot = {
             "intent": triage_original.get("intent"),
             "route": triage_original.get("route"),
@@ -2004,29 +2043,45 @@ class Orchestrator:
             ),
         )
 
-    def _evaluar_triage(self, evento: EventoEntrante, estado_actual: dict) -> dict:
-        """Consulta Capa 0 para decidir si el evento debe llegar al LLM."""
+    def _evaluar_triage(
+        self,
+        evento: EventoEntrante,
+        estado_actual: dict,
+    ) -> tuple[TriageEvaluationResultV1, dict | None]:
+        """Evalua Capa 0 una vez y valida su proyeccion antes de autorizar."""
         try:
             decision = self.triage_router.route_event(
                 evento.model_dump(mode="python"),
                 estado_agente=estado_actual if isinstance(estado_actual, dict) else {},
             )
-        except Exception as e:
-            logger.error("Error en TriageRouter; se conserva flujo anterior: %s", e, exc_info=True)
-            return {}
+        except Exception as exc:
+            failure = triage_evaluation_failure(exc)
+            log_safe_boundary_failure(
+                logger,
+                component="orchestrator.triage",
+                code=failure.code.value,
+                error=exc,
+            )
+            return failure, None
 
-        if not isinstance(decision, dict):
-            logger.warning("TriageRouter devolvio una decision invalida: %r", decision)
-            return {}
+        result = validate_triage_legacy_result(decision)
+        if isinstance(result, TriageBoundaryFailureV1):
+            log_safe_boundary_failure(
+                logger,
+                component="orchestrator.triage",
+                code=result.code.value,
+            )
+            return result, None
+
+        assert isinstance(decision, dict)
 
         logger.info(
-            "Triage: intent=%s route=%s confidence=%s reason=%s",
+            "Triage: intent=%s route=%s confidence=%s",
             decision.get("intent"),
             decision.get("route"),
             decision.get("confidence"),
-            decision.get("reason"),
         )
-        return decision
+        return result, decision
 
     @staticmethod
     def _es_canal_terminal(evento: EventoEntrante) -> bool:

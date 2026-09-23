@@ -273,6 +273,25 @@ def test_18_openapi_declares_runtime_error_envelope() -> None:
         assert_true("PublicErrorEnvelope" in serialized, f"OpenAPI {status} contradice runtime.")
 
 
+def test_19_root026_reuses_conditional_public_error_mapping() -> None:
+    root026_canary = "ROOT026_CANARY_SECRET"
+    aborted = _client(_Raising(TurnProcessingError("triage", root026_canary))).post(
+        "/api/v1/evento",
+        json=_payload("root026-aborted-clean"),
+    )
+    partial = _client(_Raising(TurnReconciliationRequiredError(root026_canary))).post(
+        "/api/v1/evento",
+        json=_payload("root026-partial"),
+    )
+
+    _assert_error(aborted, http_status=500, code="TURN_PROCESSING_FAILED", status="error")
+    _assert_error(partial, http_status=409, code="RECONCILIATION_REQUIRED", status="pendiente")
+    assert_true(
+        root026_canary not in aborted.text + partial.text,
+        "El diagnostico privado no cruza HTTP.",
+    )
+
+
 def main() -> None:
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     for test in tests:

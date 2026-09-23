@@ -19,6 +19,16 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(project_root))
 
 from ai_engine.schemas import ActionResponse
+from ai_engine.intent_types import IntentType, Route, normalize_intent
+from ai_engine.triage_contracts import (
+    TriageDecisionV1,
+    TriageFallbackStatusV1,
+    TriageModelStatusV1,
+    TriageOperationalOverrideV1,
+    TriageOutcomeV1,
+    TriageReasonCodeV1,
+    TriageSourceV1,
+)
 from ai_engine.identity_projection import IdentityContextV1
 from ai_engine.identity_state import IdentityState
 from ai_engine.persona_engine import PersonaEngine
@@ -191,6 +201,62 @@ def test_cliente_no_expone_detalles_internos_de_http_500() -> None:
             raise AssertionError("Un HTTP 500 debe producir un error recuperable.")
     finally:
         http_client.close()
+
+
+def test_root026_repl_sigue_vivo_tras_fallo_publico_de_triage() -> None:
+    numero_solicitud = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal numero_solicitud
+        numero_solicitud += 1
+        if numero_solicitud == 1:
+            return httpx.Response(
+                500,
+                json={
+                    "version": 1,
+                    "status": "error",
+                    "error": {
+                        "code": "TURN_PROCESSING_FAILED",
+                        "message": "ROOT026_CANARY_SECRET",
+                        "correlation_id": "e09fc55c-b61e-463f-a20e-2173a5fca3d0",
+                    },
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "accion": {
+                    "nombre": "hablar",
+                    "parametros": {"texto_a_comunicar": "Turno posterior aceptado."},
+                },
+            },
+        )
+
+    entradas = iter(["primer turno", "segundo turno", "/salir"])
+    salidas: list[str] = []
+    http_client = httpx.Client(
+        transport=httpx.MockTransport(handler),
+        base_url="http://lazzaro.test",
+    )
+    client = TerminalChatClient(http_client=http_client)
+    try:
+        codigo = ejecutar_chat(
+            client,
+            input_fn=lambda prompt: next(entradas),
+            output_fn=salidas.append,
+        )
+    finally:
+        http_client.close()
+
+    assert_true(codigo == 0, "Un fallo de Triage no debe derribar el REPL.")
+    errores = [linea for linea in salidas if linea.startswith("[error]")]
+    assert_true(len(errores) == 1 and "HTTP 500" in errores[0], "Debe informar el fallo.")
+    assert_true("ROOT026_CANARY_SECRET" not in "\n".join(salidas), "No debe reflejar el body.")
+    assert_true(
+        "Lazzaro > Turno posterior aceptado." in salidas,
+        "El REPL debe procesar el turno siguiente.",
+    )
 
 
 def test_repl_se_recupera_de_fallos_de_conexion_y_timeout() -> None:
@@ -658,14 +724,45 @@ class _FakeTriage:
         self.intent = intent
 
     def route_event(self, evento: dict, estado_agente: dict) -> dict:
-        return {
-            "intent": self.intent or f"TEST_{self.route.upper()}",
-            "route": self.route,
-            "confidence": 0.99,
-            "requires_memory": self.route in {"persona", "oracle"},
-            "requires_oracle": self.route == "oracle",
-            "reason": "Decision de prueba.",
+        default_intents = {
+            "persona": IntentType.SOCIAL,
+            "oracle": IntentType.ORACLE_QUERY,
+            "motor": IntentType.MOTOR_SIMPLE,
+            "internal": IntentType.INTERNAL,
+            "noop": IntentType.NOOP,
         }
+        raw_intent = self.intent
+        if raw_intent == "SOCIAL_CONVERSATION":
+            semantic_intent = IntentType.SOCIAL
+        else:
+            semantic_intent = normalize_intent(
+                raw_intent or default_intents.get(self.route, IntentType.SOCIAL)
+            )
+        route = Route(self.route) if self.route in {item.value for item in Route} else Route.PERSONA
+        override = (
+            TriageOperationalOverrideV1.EVENT_ROUTE_OVERRIDE
+            if semantic_intent is IntentType.CORE_SYSTEM and route in {Route.NOOP, Route.MOTOR}
+            else None
+        )
+        decision = TriageDecisionV1(
+            outcome=TriageOutcomeV1.DECIDED,
+            source=TriageSourceV1.EVENT_RULE,
+            semantic_intent=semantic_intent,
+            route=route,
+            operational_override=override,
+            reason_code=TriageReasonCodeV1.EVENT_RULE_ACCEPTED,
+            model_status=TriageModelStatusV1.NOT_ATTEMPTED,
+            fallback_status=TriageFallbackStatusV1.NOT_ATTEMPTED,
+            accepted_rule_id="test.fake_triage",
+            human_reason="Decision de prueba.",
+        )
+        legacy = decision.to_legacy_dict(confidence=0.99)
+        if self.route == "legacy":
+            # Fixtures de Reasoning anteriores a ROOT-026 pueden reemplazar
+            # _evaluar_triage de forma explicita; una ruta legacy ya no es un
+            # resultado valido de la frontera productiva.
+            legacy["route"] = "legacy"
+        return legacy
 
 
 class _FakeIdentity:
