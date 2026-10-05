@@ -3,12 +3,15 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 
 if __package__ in (None, ""):
     project_root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(project_root))
 
 from ai_engine.fuzzy_object_resolver import FuzzyObjectResolver
+from ai_engine.motor_resolution import CandidateMatch
 from ai_engine.perception_models import PerceivedObject, PerceptionSnapshot
 
 
@@ -139,6 +142,129 @@ def test_action_not_allowed_when_affordance_missing() -> None:
     assert_true(result.status == "not_allowed", "Objeto claro sin agarrable debe ser not_allowed.")
     assert_true(result.target_id == "Tree_01", "Debe identificar el objeto rechazado.")
     assert_true(result.audit["status_reason"] == "affordance_block", "Debe auditar affordance faltante.")
+
+
+def test_hazard_approach_is_unsafe_regardless_of_ranking() -> None:
+    resolver = FuzzyObjectResolver()
+    fire = PerceivedObject(
+        id="Fire_01",
+        display_name="Fire_01",
+        aliases=["fuego"],
+        affordances=["mirar", "peligro"],
+    )
+
+    result = resolver.resolve("fuego", _snapshot(fire), action="navegar_a_objeto")
+
+    assert result.status == "unsafe"
+    decision = result.candidates[0].affordance_decision
+    assert decision["safety_assessment"] == {
+        "contract_version": 1,
+        "disposition": "UNSAFE",
+        "reason_code": "HAZARD_APPROACH",
+        "ranking_penalty": 20.0,
+    }
+
+    score_100_candidate = CandidateMatch(
+        target_id=fire.id,
+        display_name=fire.display_name,
+        confidence=100.0,
+        score_components={"name_score": 100.0, "alias_score": 100.0},
+        affordance_decision=decision,
+    )
+    assert resolver._blocking_affordance_status(score_100_candidate) == "unsafe"
+
+
+def test_hazard_retreat_remains_ready_without_historical_penalty() -> None:
+    resolver = FuzzyObjectResolver()
+    fire = PerceivedObject(
+        id="Fire_01",
+        display_name="Fire_01",
+        aliases=["fuego"],
+        affordances=["peligro", "obstaculo"],
+    )
+
+    result = resolver.resolve("fuego", _snapshot(fire), action="alejarse_de_objeto")
+
+    assert result.status == "ready"
+    candidate = result.candidates[0]
+    assert candidate.score_components["risk_penalty"] == 0.0
+    assert candidate.affordance_decision["safety_assessment"]["disposition"] == "SAFE"
+    assert candidate.affordance_decision["safety_assessment"]["reason_code"] == "HAZARD_AVOIDANCE"
+
+
+def test_generic_hazard_interaction_is_indeterminate_until_root_028() -> None:
+    resolver = FuzzyObjectResolver()
+    panel = PerceivedObject(
+        id="Panel_01",
+        display_name="Panel_01",
+        aliases=["panel"],
+        affordances=["mirar", "peligro"],
+    )
+
+    result = resolver.resolve("panel", _snapshot(panel), action="interactuar_objeto_3d")
+
+    assert result.status == "unsafe"
+    assessment = result.candidates[0].affordance_decision["safety_assessment"]
+    assert assessment["disposition"] == "INDETERMINATE"
+    assert assessment["reason_code"] == "HAZARD_INTERACTION_UNSPECIFIED"
+    assert assessment["ranking_penalty"] == 20.0
+
+
+def test_safety_assessment_is_stable_across_order_source_context_and_display_name() -> None:
+    resolver = FuzzyObjectResolver()
+    hazard_a = PerceivedObject(
+        id="Hazard",
+        display_name="Red Hazard",
+        aliases=["hazard"],
+        affordances=["mirar", "peligro"],
+        source="unity",
+    )
+    hazard_b = PerceivedObject(
+        id="Hazard",
+        display_name="Renamed Hazard",
+        aliases=["hazard"],
+        affordances=["mirar", "peligro"],
+        source="desktop",
+    )
+    neutral = PerceivedObject(id="Neutral", display_name="Neutral", aliases=["neutral"], affordances=["mirar"])
+
+    first = resolver._score_objects("hazard", [hazard_a, neutral], action="navegar_a_objeto", context={"estres": 0.0})
+    second = resolver._score_objects("hazard", [neutral, hazard_b], action="navegar_a_objeto", context={"estres": 1.0})
+    first_assessment = next(candidate for candidate in first if candidate.target_id == "Hazard").affordance_decision["safety_assessment"]
+    second_assessment = next(candidate for candidate in second if candidate.target_id == "Hazard").affordance_decision["safety_assessment"]
+    assert first_assessment == second_assessment
+    assert first_assessment["disposition"] == "UNSAFE"
+
+    rewritten_reason = resolver.affordances.validate(hazard_a, "navegar_a_objeto").to_dict()
+    rewritten_reason["reason"] = "diagnostico humano deliberadamente distinto"
+    candidate = CandidateMatch(
+        target_id=hazard_a.id,
+        display_name=hazard_a.display_name,
+        confidence=100.0,
+        score_components={"name_score": 100.0, "alias_score": 100.0},
+        affordance_decision=rewritten_reason,
+    )
+    assert resolver._blocking_affordance_status(candidate) == "unsafe"
+
+
+def test_unexpected_safety_exception_propagates_to_existing_motor_boundary() -> None:
+    class ExplodingAffordances:
+        def requested_from_query(self, query):
+            return set()
+
+        def validate(self, obj, action):
+            raise RuntimeError("synthetic safety defect")
+
+        def score(self, obj, **kwargs):
+            return 100.0
+
+    resolver = FuzzyObjectResolver(affordance_resolver=ExplodingAffordances())  # type: ignore[arg-type]
+    with pytest.raises(RuntimeError, match="synthetic safety defect"):
+        resolver.resolve(
+            "fuego",
+            _snapshot(PerceivedObject(id="Fire", display_name="Fire", aliases=["fuego"], affordances=["peligro"])),
+            action="navegar_a_objeto",
+        )
 
 
 def main() -> None:

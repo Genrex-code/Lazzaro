@@ -539,6 +539,10 @@ class FuzzyObjectResolver:
         decision = candidate.affordance_decision
         if decision.get("allowed", True):
             return None
+        assessment = decision.get("safety_assessment")
+        if isinstance(assessment, dict) and assessment.get("disposition") in {"UNSAFE", "INDETERMINATE"}:
+            status = str(decision.get("status") or "unsafe")
+            return "unsafe" if status == "unsafe" else "not_allowed"
         components = candidate.score_components
         if max(components.get("name_score", 0.0), components.get("alias_score", 0.0)) < 70.0:
             return None

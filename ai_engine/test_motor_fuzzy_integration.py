@@ -137,6 +137,94 @@ def test_legacy_alias_still_resolves_when_metadata_has_no_human_alias() -> None:
     assert_true(respuesta.parametros["nombre_objeto"] == "Cube", "Debe resolver cubo a Cube.")
 
 
+def test_hazard_approach_and_generic_interaction_never_dispatch() -> None:
+    perception = {
+        "snapshot_id": "snap-hazard-blocks",
+        "source": "unity",
+        "objetos_normalizados": [
+            {
+                "id": "Fire",
+                "display_name": "Fire",
+                "nombre": "Fire",
+                "aliases": ["fuego", "interactua fuego"],
+                "affordances": ["mirar", "peligro"],
+            }
+        ],
+    }
+
+    approach = _resolver_motor("ve al fuego", perception)
+    generic_interaction = _resolver_motor("interactua con el fuego", perception, intent="INTERACTION")
+
+    assert_true(approach.accion == "none", "UNSAFE no debe materializar accion fisica.")
+    assert_true(generic_interaction.accion == "none", "INDETERMINATE no debe materializar accion fisica.")
+    approach_assessment = approach.metadata["motor_resolution"]["candidates"][0]["affordance_decision"]["safety_assessment"]
+    interaction_assessment = generic_interaction.metadata["motor_resolution"]["candidates"][0]["affordance_decision"]["safety_assessment"]
+    assert_true(approach_assessment["disposition"] == "UNSAFE", "Aproximacion peligrosa debe quedar UNSAFE.")
+    assert_true(
+        interaction_assessment["disposition"] == "INDETERMINATE",
+        "Interaccion generica peligrosa debe permanecer indeterminada hasta ROOT-028.",
+    )
+
+
+def test_hazard_retreat_remains_physically_eligible_when_other_gates_allow() -> None:
+    perception = {
+        "snapshot_id": "snap-hazard-retreat",
+        "source": "unity",
+        "objetos_normalizados": [
+            {
+                "id": "Fire",
+                "display_name": "Fire",
+                "nombre": "Fire",
+                "aliases": ["fuego", "alejate fuego"],
+                "affordances": ["peligro", "obstaculo"],
+            }
+        ],
+    }
+
+    response = _resolver_motor("alejate del fuego", perception, intent="INTERACTION")
+
+    assert_true(response.accion == "alejarse_de_objeto", "Retirada segura debe seguir siendo ejecutable.")
+    candidate = response.metadata["motor_resolution"]["candidates"][0]
+    assert_true(candidate["score_components"]["risk_penalty"] == 0.0, "Retirada no debe perder 20 puntos.")
+    assert_true(candidate["affordance_decision"]["safety_assessment"]["reason_code"] == "HAZARD_AVOIDANCE", "Debe conservar evidencia de retirada.")
+
+
+def test_unexpected_safety_exception_uses_existing_motor_fail_closed_boundary() -> None:
+    perception = {
+        "snapshot_id": "snap-safety-exception",
+        "source": "unity",
+        "objetos_normalizados": [
+            {"id": "Fire", "display_name": "Fire", "aliases": ["fuego"], "affordances": ["peligro"]},
+        ],
+    }
+    orchestrator = _orquestador_minimo()
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("synthetic safety defect")
+
+    orchestrator.motor_engine.fuzzy_resolver.affordances.validate = explode
+    event = EventoEntrante(
+        origen="unity",
+        tipo_evento="comando_usuario",
+        id_transaccion="root-027-safety-exception",
+        detalles={"mensaje": "ve al fuego", **perception},
+    )
+    response = orchestrator._resolver_ruta_motor(
+        evento=event,
+        contexto_llm={},
+        memoria_texto="",
+        herramientas=["navegar_a_objeto", "hablar"],
+        herramientas_detalle={},
+        politica="exploradora",
+        tarea=None,
+        triage_decision={"intent": "MOTOR_SIMPLE", "route": "motor"},
+    )
+
+    assert_true(response.accion == "hablar", "La excepcion inesperada debe usar el boundary fail-closed existente.")
+    assert_true(response.metadata["motor_resolution"]["status"] == "requires_clarification", "No debe fingir assessment exitoso.")
+    assert_true(response.metadata["motor_audit"]["status_reason"] == "resolver_exception", "Debe conservar causalidad del boundary.")
+
+
 def main() -> None:
     print("=== INICIANDO PRUEBA DE INTEGRACION MOTOR + FUZZY ===\n")
     test_ready_uses_fuzzy_target_and_legacy_name()

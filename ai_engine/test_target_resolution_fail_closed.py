@@ -273,10 +273,12 @@ def test_danger_singleton_no_longer_promotes_clarification() -> None:
     original = motor.fuzzy_resolver.resolve("ve al cubo", perception, action="navegar_a_objeto")
     response, _state, reasoning = _route("ve al cubo", perception, motor=motor)
 
-    assert_true(original.status == "requires_clarification", "El fixture de peligro debe quedar no-ready.")
-    assert_true(response.accion == "hablar", "El peligro puede pedir aclaracion, no navegar.")
+    assert_true(original.status == "unsafe", "El peligro debe quedar bloqueado por autoridad de seguridad.")
+    assert_true(response.accion == "none", "El peligro debe producir no-op, no navegar.")
     assert_true(response.accion not in PHYSICAL_TARGET_ACTIONS, "El singleton peligroso no debe despacharse fisicamente.")
-    assert_true(response.metadata["motor_resolution"]["status"] == "requires_clarification", "Debe conservar la causa.")
+    assert_true(response.metadata["motor_resolution"]["status"] == "unsafe", "Debe conservar la causa legacy.")
+    assessment = response.metadata["motor_resolution"]["candidates"][0]["affordance_decision"]["safety_assessment"]
+    assert_true(assessment["disposition"] == "UNSAFE", "Debe conservar la autoridad tipada.")
     assert_true(reasoning.calls == 0, "No debe caer a reinterpretacion interna.")
 
 
