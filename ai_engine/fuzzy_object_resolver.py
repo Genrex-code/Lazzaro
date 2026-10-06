@@ -177,7 +177,23 @@ class FuzzyObjectResolver:
         best = matches[0] if matches else None
         second = matches[1] if len(matches) > 1 else None
 
-        blocking_status = self._blocking_affordance_status(best) if best else None
+        interaction_type_missing = (
+            action == "interactuar_objeto_3d" and interaction_type is None
+        )
+        safety_block = (
+            self._has_blocking_safety_assessment(best)
+            if interaction_type_missing and best
+            else False
+        )
+        blocking_status = (
+            "unsafe"
+            if safety_block
+            else (
+                self._blocking_affordance_status(best)
+                if best and not interaction_type_missing
+                else None
+            )
+        )
         if blocking_status:
             return self._resolution(
                 status=blocking_status,
@@ -191,6 +207,22 @@ class FuzzyObjectResolver:
                     "selected_candidate": best.to_dict(),
                     "rejected_candidates": [candidate.to_dict() for candidate in matches[1:4]],
                     "status_reason": "affordance_block",
+                },
+            )
+
+        if interaction_type_missing and best is not None:
+            return self._resolution(
+                status="requires_clarification",
+                action=action,
+                interaction_type=None,
+                match=best,
+                candidates=candidates,
+                reason="La interaccion requiere un tipo de accion explicito.",
+                audit={
+                    **audit_base,
+                    "selected_candidate": best.to_dict(),
+                    "rejected_candidates": [candidate.to_dict() for candidate in matches[1:4]],
+                    "status_reason": "interaction_type_missing",
                 },
             )
 
@@ -247,22 +279,6 @@ class FuzzyObjectResolver:
                     "candidate_correction": candidate_correction.to_dict(),
                     "rejected_candidates": [candidate.to_dict() for candidate in matches[1:4]],
                     "status_reason": "candidate_correction",
-                },
-            )
-
-        if action == "interactuar_objeto_3d" and interaction_type is None:
-            return self._resolution(
-                status="requires_clarification",
-                action=action,
-                interaction_type=None,
-                match=best,
-                candidates=candidates,
-                reason="La interaccion requiere un tipo de accion explicito.",
-                audit={
-                    **audit_base,
-                    "selected_candidate": best.to_dict(),
-                    "rejected_candidates": [candidate.to_dict() for candidate in matches[1:4]],
-                    "status_reason": "interaction_type_missing",
                 },
             )
 
@@ -602,6 +618,14 @@ class FuzzyObjectResolver:
             return None
         status = str(decision.get("status") or "not_allowed")
         return "unsafe" if status == "unsafe" else "not_allowed"
+
+    @staticmethod
+    def _has_blocking_safety_assessment(candidate: CandidateMatch) -> bool:
+        assessment = candidate.affordance_decision.get("safety_assessment")
+        return isinstance(assessment, dict) and assessment.get("disposition") in {
+            "UNSAFE",
+            "INDETERMINATE",
+        }
 
     @staticmethod
     def _candidate_reason(components: dict[str, float]) -> str:

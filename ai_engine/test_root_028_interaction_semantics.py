@@ -143,6 +143,42 @@ def test_motor_resolution_serializes_absence_as_none() -> None:
     assert resolution.to_dict()["interaction_type"] is None
 
 
+def test_ready_interaction_resolution_rejects_missing_type() -> None:
+    with pytest.raises(
+        ValueError,
+        match="ready interactuar_objeto_3d resolution requires interaction_type",
+    ):
+        MotorResolution(
+            status="ready",
+            action="interactuar_objeto_3d",
+            interaction_type=None,
+            reason="invalid fixture",
+        )
+
+
+def test_nonready_interaction_resolution_may_omit_type() -> None:
+    resolution = MotorResolution(
+        status="requires_clarification",
+        action="interactuar_objeto_3d",
+        interaction_type=None,
+        reason="incomplete semantics",
+    )
+    assert resolution.interaction_type is None
+
+
+def test_noninteraction_resolution_still_rejects_interaction_type() -> None:
+    with pytest.raises(
+        ValueError,
+        match="interaction_type is only valid for interactuar_objeto_3d",
+    ):
+        MotorResolution(
+            status="ready",
+            action="navegar_a_objeto",
+            interaction_type=InteractionType.TOCAR,
+            reason="invalid fixture",
+        )
+
+
 def test_motor_and_tool_schemas_require_the_same_closed_vocabulary() -> None:
     assert InteractObjectParams.model_fields["tipo_accion"].is_required()
     assert InteractuarObjeto3DParams.model_fields["tipo_accion"].is_required()
@@ -265,6 +301,52 @@ def test_generic_nonhazard_is_safe_but_incomplete_and_nonphysical() -> None:
     assert diagnosis.parametros is None
 
 
+@pytest.mark.parametrize("affordances", [["empujable"], ["agarrable"], []])
+def test_generic_nonhazard_affordance_mismatch_still_requires_interaction_type(
+    affordances: list[str],
+) -> None:
+    result = FuzzyObjectResolver().resolve(
+        "panel",
+        _snapshot(
+            PerceivedObject(
+                id="Panel",
+                display_name="Panel",
+                aliases=["panel"],
+                affordances=affordances,
+            )
+        ),
+        action="interactuar_objeto_3d",
+        interaction_type=None,
+    )
+
+    assert result.status == "requires_clarification"
+    assert result.interaction_type is None
+    assert result.audit["status_reason"] == "interaction_type_missing"
+
+
+def test_generic_hazard_without_interaction_affordance_preserves_safety_block() -> None:
+    result = FuzzyObjectResolver().resolve(
+        "fuego",
+        _snapshot(
+            PerceivedObject(
+                id="Fire",
+                display_name="Fire",
+                aliases=["fuego"],
+                affordances=["peligro"],
+            )
+        ),
+        action="interactuar_objeto_3d",
+        interaction_type=None,
+    )
+
+    assert result.status == "unsafe"
+    assert result.interaction_type is None
+    assert result.audit["status_reason"] == "affordance_block"
+    assessment = result.candidates[0].affordance_decision["safety_assessment"]
+    assert assessment["disposition"] == "INDETERMINATE"
+    assert assessment["reason_code"] == "HAZARD_INTERACTION_UNSPECIFIED"
+
+
 def test_absent_structured_type_without_lexical_evidence_is_clarification() -> None:
     result = MotorEngine().procesar_comando_motor(
         "interactuar_objeto_3d",
@@ -376,6 +458,48 @@ def test_explicit_compatible_and_incompatible_nonhazard_affordances() -> None:
     assert incompatible.status == "not_allowed"
     assert compatible.interaction_type is InteractionType.TOCAR
     assert incompatible.interaction_type is InteractionType.TOCAR
+
+
+@pytest.mark.parametrize(
+    ("text", "interaction_type", "affordances"),
+    [
+        ("mira el panel", InteractionType.MIRAR, ["mirar"]),
+        ("toca el panel", InteractionType.TOCAR, ["tocar"]),
+        ("inspecciona el panel", InteractionType.INSPECCIONAR, ["inspeccionable"]),
+        ("golpea el panel", InteractionType.GOLPEAR, ["tocar"]),
+        ("usa el panel", InteractionType.USAR, ["activable"]),
+        ("activa el panel", InteractionType.ACTIVAR, ["activable"]),
+    ],
+)
+def test_interaction_type_survives_python_end_to_end_projection(
+    text: str,
+    interaction_type: InteractionType,
+    affordances: list[str],
+) -> None:
+    engine = MotorEngine()
+    diagnosis = engine.diagnosticar_comando_usuario(
+        text,
+        _perception(affordances=affordances),
+        intent="INTERACTION",
+    )
+    assert diagnosis.estado == "lista"
+    assert diagnosis.resolucion_motor is not None
+
+    motor_action = engine.procesar_diagnostico_motor(diagnosis)
+    action_response = Orchestrator._action_response_desde_motor(
+        motor_action,
+        pensamiento="",
+    )
+    orchestrator = object.__new__(Orchestrator)
+    orchestrator.tool_registry = None
+    outgoing = orchestrator._a_accion_saliente(action_response, "autonoma")
+
+    expected = interaction_type.value
+    assert diagnosis.resolucion_motor.interaction_type is interaction_type
+    assert diagnosis.metadata["motor_resolution"]["interaction_type"] == expected
+    assert motor_action["parametros"]["tipo_accion"] == expected
+    assert action_response.parametros["tipo_accion"] == expected
+    assert outgoing.parametros["tipo_accion"] == expected
 
 
 class SpyAffordances(AffordanceResolver):

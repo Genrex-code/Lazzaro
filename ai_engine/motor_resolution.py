@@ -115,6 +115,14 @@ class MotorResolution:
             raise ValueError(
                 "interaction_type is only valid for interactuar_objeto_3d"
             )
+        if (
+            self.status == "ready"
+            and self.action == "interactuar_objeto_3d"
+            and self.interaction_type is None
+        ):
+            raise ValueError(
+                "ready interactuar_objeto_3d resolution requires interaction_type"
+            )
 
     @property
     def ready(self) -> bool:

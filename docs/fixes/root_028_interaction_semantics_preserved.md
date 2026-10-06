@@ -124,6 +124,15 @@ queda `requires_clarification`: seguridad permitida no completa la intencion.
 Una generica peligrosa conserva el bloqueo mas fuerte `unsafe` derivado de
 `INDETERMINATE`.
 
+La decision de completitud precede al bloqueo por affordance generica. Si falta
+el subtipo, una affordance `empujable`, `agarrable` o incluso la ausencia de una
+affordance generica no puede convertir la resolucion en `not_allowed`: el
+resultado sigue siendo `requires_clarification / interaction_type_missing`.
+La unica precedencia mas fuerte es un `SafetyAssessmentV1` anidado con
+`UNSAFE` o `INDETERMINATE`, que conserva `unsafe` y permanece no fisico. Las
+interacciones con subtipo explicito siguen aplicando el bloqueo normal de
+affordance.
+
 Score, aliases y orden de candidatos no pueden crear ni cambiar el subtipo.
 
 ## Construccion y schemas
@@ -131,6 +140,11 @@ Score, aliases y orden de candidatos no pueden crear ni cambiar el subtipo.
 `_parametros_desde_resolucion()` ya no vuelve a interpretar el mensaje. Solo
 proyecta `MotorResolution.interaction_type`. Si falta el subtipo, no construye
 parametros de interaccion despachables.
+
+Como defensa estructural, `MotorResolution` rechaza toda construccion `ready`
+de `interactuar_objeto_3d` cuyo `interaction_type` sea `None`. Las resoluciones
+no listas pueden conservar `None` para representar aclaracion o bloqueo, y las
+acciones no interactivas siguen rechazando cualquier subtipo.
 
 `InteractObjectParams.tipo_accion` y el schema de
 `tools/simulated/interaccion_sim.py` son requeridos, cerrados y no tienen
