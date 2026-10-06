@@ -133,6 +133,12 @@ La unica precedencia mas fuerte es un `SafetyAssessmentV1` anidado con
 interacciones con subtipo explicito siguen aplicando el bloqueo normal de
 affordance.
 
+La completitud no sustituye el grounding del objetivo. Tras un bloqueo de
+seguridad, las decisiones `below_clarify_threshold`, `close_candidates` y
+`candidate_correction` conservan su causalidad original; solo un candidato ya
+plausible, no ambiguo y sin correccion pendiente puede terminar en
+`interaction_type_missing`.
+
 Score, aliases y orden de candidatos no pueden crear ni cambiar el subtipo.
 
 ## Construccion y schemas

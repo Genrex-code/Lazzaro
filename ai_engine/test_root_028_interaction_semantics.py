@@ -301,6 +301,70 @@ def test_generic_nonhazard_is_safe_but_incomplete_and_nonphysical() -> None:
     assert diagnosis.parametros is None
 
 
+def test_generic_unrelated_target_remains_not_found_before_completeness() -> None:
+    result = FuzzyObjectResolver().resolve(
+        "unicornio",
+        _snapshot(
+            PerceivedObject(
+                id="Panel",
+                display_name="Panel",
+                aliases=["panel"],
+                affordances=["mirar"],
+            )
+        ),
+        action="interactuar_objeto_3d",
+        interaction_type=None,
+    )
+
+    assert result.status == "not_found"
+    assert result.audit["status_reason"] == "below_clarify_threshold"
+
+
+def test_generic_close_candidates_remain_ambiguous_before_completeness() -> None:
+    result = FuzzyObjectResolver().resolve(
+        "panel",
+        _snapshot(
+            PerceivedObject(
+                id="PanelA",
+                display_name="PanelA",
+                aliases=["panel"],
+                affordances=["mirar"],
+            ),
+            PerceivedObject(
+                id="PanelB",
+                display_name="PanelB",
+                aliases=["panel"],
+                affordances=["mirar"],
+            ),
+        ),
+        action="interactuar_objeto_3d",
+        interaction_type=None,
+    )
+
+    assert result.status == "requires_clarification"
+    assert result.audit["status_reason"] == "close_candidates"
+
+
+def test_generic_candidate_correction_precedes_subtype_completeness() -> None:
+    result = FuzzyObjectResolver().resolve(
+        "panel rojo",
+        _snapshot(
+            PerceivedObject(
+                id="Panel",
+                display_name="Panel",
+                aliases=["panel"],
+                affordances=["mirar"],
+            )
+        ),
+        action="interactuar_objeto_3d",
+        interaction_type=None,
+    )
+
+    assert result.status == "requires_clarification"
+    assert result.audit["status_reason"] == "candidate_correction"
+    assert result.candidate_correction is not None
+
+
 @pytest.mark.parametrize("affordances", [["empujable"], ["agarrable"], []])
 def test_generic_nonhazard_affordance_mismatch_still_requires_interaction_type(
     affordances: list[str],

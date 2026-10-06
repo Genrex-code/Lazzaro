@@ -180,6 +180,16 @@ class FuzzyObjectResolver:
         interaction_type_missing = (
             action == "interactuar_objeto_3d" and interaction_type is None
         )
+        best_threshold_score = (
+            self._target_grounding_score(best)
+            if interaction_type_missing and best is not None
+            else (best.confidence if best is not None else 0.0)
+        )
+        second_threshold_score = (
+            self._target_grounding_score(second)
+            if interaction_type_missing and second is not None
+            else (second.confidence if second is not None else 0.0)
+        )
         safety_block = (
             self._has_blocking_safety_assessment(best)
             if interaction_type_missing and best
@@ -210,23 +220,7 @@ class FuzzyObjectResolver:
                 },
             )
 
-        if interaction_type_missing and best is not None:
-            return self._resolution(
-                status="requires_clarification",
-                action=action,
-                interaction_type=None,
-                match=best,
-                candidates=candidates,
-                reason="La interaccion requiere un tipo de accion explicito.",
-                audit={
-                    **audit_base,
-                    "selected_candidate": best.to_dict(),
-                    "rejected_candidates": [candidate.to_dict() for candidate in matches[1:4]],
-                    "status_reason": "interaction_type_missing",
-                },
-            )
-
-        if best is None or best.confidence < clarify_threshold:
+        if best is None or best_threshold_score < clarify_threshold:
             return self._resolution(
                 status="not_found",
                 action=action,
@@ -244,9 +238,9 @@ class FuzzyObjectResolver:
 
         if (
             second is not None
-            and best.confidence >= clarify_threshold
-            and second.confidence >= clarify_threshold
-            and abs(best.confidence - second.confidence) <= 8
+            and best_threshold_score >= clarify_threshold
+            and second_threshold_score >= clarify_threshold
+            and abs(best_threshold_score - second_threshold_score) <= 8
         ):
             return self._resolution(
                 status="requires_clarification",
@@ -279,6 +273,22 @@ class FuzzyObjectResolver:
                     "candidate_correction": candidate_correction.to_dict(),
                     "rejected_candidates": [candidate.to_dict() for candidate in matches[1:4]],
                     "status_reason": "candidate_correction",
+                },
+            )
+
+        if interaction_type_missing:
+            return self._resolution(
+                status="requires_clarification",
+                action=action,
+                interaction_type=None,
+                match=best,
+                candidates=candidates,
+                reason="La interaccion requiere un tipo de accion explicito.",
+                audit={
+                    **audit_base,
+                    "selected_candidate": best.to_dict(),
+                    "rejected_candidates": [candidate.to_dict() for candidate in matches[1:4]],
+                    "status_reason": "interaction_type_missing",
                 },
             )
 
@@ -626,6 +636,16 @@ class FuzzyObjectResolver:
             "UNSAFE",
             "INDETERMINATE",
         }
+
+    @staticmethod
+    def _target_grounding_score(candidate: CandidateMatch) -> float:
+        components = candidate.score_components
+        scores = (
+            components.get("name_score"),
+            components.get("alias_score"),
+        )
+        available = [float(score) for score in scores if score is not None]
+        return max(available) if available else float(candidate.confidence)
 
     @staticmethod
     def _candidate_reason(components: dict[str, float]) -> str:
