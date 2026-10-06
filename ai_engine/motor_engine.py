@@ -17,7 +17,7 @@ from core.logger import get_logger
 
 from .fuzzy_object_resolver import FuzzyObjectResolver
 from .motor_schemas import ACTION_SCHEMA_MAP, MotorAction, validar_parametros_fisicos
-from .motor_resolution import MotorDiagnosis, MotorResolution
+from .motor_resolution import InteractionType, MotorDiagnosis, MotorResolution
 from .perception_models import PerceptionSnapshot, normalize_perception
 from .spatial_reasoner import SpatialReasoner
 
@@ -45,6 +45,23 @@ class MotorEngine:
         "roca": ("roca",),
         "hongo": ("hongo",),
     }
+    INTERACTION_LEXICON = {
+        "mira": InteractionType.MIRAR,
+        "mirar": InteractionType.MIRAR,
+        "observa": InteractionType.MIRAR,
+        "observar": InteractionType.MIRAR,
+        "inspecciona": InteractionType.INSPECCIONAR,
+        "inspeccionar": InteractionType.INSPECCIONAR,
+        "toca": InteractionType.TOCAR,
+        "tocar": InteractionType.TOCAR,
+        "golpea": InteractionType.GOLPEAR,
+        "golpear": InteractionType.GOLPEAR,
+        "usa": InteractionType.USAR,
+        "usar": InteractionType.USAR,
+        "activa": InteractionType.ACTIVAR,
+        "activar": InteractionType.ACTIVAR,
+    }
+    GENERIC_INTERACTION_TOKENS = frozenset({"interactua", "interactuar"})
 
     def __init__(self):
         self.spatial = SpatialReasoner()
@@ -82,7 +99,13 @@ class MotorEngine:
         Clasifica un comando motor sin llamar al LLM.
         Permite distinguir entre "no es motor" y "es motor, pero falta objetivo".
         """
-        accion = self._inferir_accion(mensaje)
+        interaction_requested, interaction_type = self._analizar_interaccion_textual(
+            mensaje
+        )
+        accion = self._inferir_accion(
+            mensaje,
+            interaction_requested=interaction_requested,
+        )
         if accion is None:
             return MotorDiagnosis(estado="sin_intencion")
 
@@ -98,6 +121,7 @@ class MotorEngine:
                 percepcion=percepcion,
                 intent=intent,
                 contexto_motor=contexto_motor or {},
+                interaction_type=interaction_type,
             )
 
         parametros = self._construir_parametros_desde_texto(accion, mensaje, percepcion)
@@ -134,12 +158,24 @@ class MotorEngine:
             logger.warning("Accion motora desconocida: %s. Se devuelve none.", accion)
             return self._none(f"Accion '{accion}' no reconocida por el Motor.")
 
+        interaction_type: InteractionType | None = None
+        if accion == "interactuar_objeto_3d":
+            valid_interaction, interaction_type = self._canonicalizar_interaccion_estructurada(
+                parametros_limpios,
+                contexto_motor or {},
+            )
+            if not valid_interaction:
+                return self._none(
+                    "Parametros invalidos. Accion bloqueada por Capa 1."
+                )
+
         parametros_limpios, metadata = self._enriquecer_parametros(
             accion,
             parametros_limpios,
             percepcion_limpia,
             intent=intent,
             contexto_motor=contexto_motor or {},
+            interaction_type=interaction_type,
         )
         if metadata.get("motor_resolution", {}).get("status") not in {None, "ready"}:
             estado = str(metadata.get("motor_resolution", {}).get("status", "none"))
@@ -219,6 +255,12 @@ class MotorEngine:
             if selected is not None and selected.affordance_decision.get("allowed") is False:
                 return False
 
+            if accion == "interactuar_objeto_3d":
+                if resolucion.interaction_type is None:
+                    return False
+                if parametros.get("tipo_accion") != resolucion.interaction_type.value:
+                    return False
+
         return True
 
     @staticmethod
@@ -251,7 +293,12 @@ class MotorEngine:
     def _none(razon: str, metadata: dict[str, Any] | None = None) -> Dict[str, Any]:
         return MotorAction(accion="none", parametros={}, razon=razon, metadata=metadata or {}).model_dump()
 
-    def _inferir_accion(self, mensaje: str) -> Optional[str]:
+    def _inferir_accion(
+        self,
+        mensaje: str,
+        *,
+        interaction_requested: bool,
+    ) -> Optional[str]:
         texto = self.spatial.normalizar_texto(mensaje)
         if not texto:
             return None
@@ -278,7 +325,7 @@ class MotorEngine:
             return "alejarse_de_objeto"
         if self._es_comando_giro(texto):
             return "girar_avatar"
-        if any(token in texto for token in ("inspecciona", "interactua", "toca", "mira", "observa", "golpea", "usa", "activa")):
+        if interaction_requested:
             return "interactuar_objeto_3d"
         if self._parsear_coordenadas(texto) is not None:
             return "navegar_a_posicion"
@@ -313,8 +360,6 @@ class MotorEngine:
             parametros: Dict[str, Any] = {"nombre_objeto": nombre}
             if accion == "alejarse_de_objeto":
                 parametros["distancia"] = 2.0
-            if accion == "interactuar_objeto_3d":
-                parametros["tipo_accion"] = self._inferir_tipo_interaccion(mensaje)
             return parametros
 
         return None
@@ -327,6 +372,7 @@ class MotorEngine:
         percepcion: Dict[str, Any],
         intent: str,
         contexto_motor: dict[str, Any],
+        interaction_type: InteractionType | None,
     ) -> MotorDiagnosis:
         resolucion = self._resolver_objetivo_fuzzy(
             query=mensaje,
@@ -334,12 +380,13 @@ class MotorEngine:
             percepcion=percepcion,
             intent=intent,
             contexto_motor=contexto_motor,
+            interaction_type=interaction_type,
         )
         if resolucion is not None:
             metadata = resolucion.to_metadata()
             self._adjuntar_contexto_alias(metadata, contexto_motor, accion)
             if resolucion.status == "ready":
-                parametros = self._parametros_desde_resolucion(accion, mensaje, resolucion)
+                parametros = self._parametros_desde_resolucion(accion, resolucion)
                 return MotorDiagnosis(
                     estado="lista",
                     accion=accion,
@@ -355,22 +402,67 @@ class MotorEngine:
                 resolucion_motor=resolucion,
             )
 
-        parametros = self._construir_parametros_legacy_con_objeto(accion, mensaje, percepcion)
+        parametros = self._construir_parametros_legacy_con_objeto(
+            accion,
+            mensaje,
+            percepcion,
+            interaction_type=interaction_type,
+        )
         if parametros is None:
             logger.info("Motor determinista no encontro objeto objetivo en: %s", mensaje)
             return MotorDiagnosis(estado="falta_objetivo", accion=accion)
 
-        return MotorDiagnosis(
-            estado="lista",
-            accion=accion,
-            parametros=parametros,
-        )
+        if accion == "interactuar_objeto_3d":
+            target = str(parametros.get("nombre_objeto") or "").strip()
+            status = "ready" if interaction_type is not None else "requires_clarification"
+            legacy_resolution = MotorResolution(
+                status=status,
+                action=accion,
+                interaction_type=interaction_type,
+                target_id=target or None,
+                target_display_name=target or None,
+                legacy_nombre_objeto=target or None,
+                reason=(
+                    "Objetivo legacy resuelto con semantica de interaccion explicita."
+                    if interaction_type is not None
+                    else "La interaccion requiere un tipo de accion explicito."
+                ),
+                audit={
+                    "status_reason": (
+                        "legacy_target_ready"
+                        if interaction_type is not None
+                        else "interaction_type_missing"
+                    )
+                },
+            )
+            metadata = legacy_resolution.to_metadata()
+            if interaction_type is None:
+                return MotorDiagnosis(
+                    estado="requires_clarification",
+                    accion=accion,
+                    metadata=metadata,
+                    resolucion_motor=legacy_resolution,
+                )
+            return MotorDiagnosis(
+                estado="lista",
+                accion=accion,
+                parametros=self._parametros_desde_resolucion(
+                    accion,
+                    legacy_resolution,
+                ),
+                metadata=metadata,
+                resolucion_motor=legacy_resolution,
+            )
+
+        return MotorDiagnosis(estado="lista", accion=accion, parametros=parametros)
 
     def _construir_parametros_legacy_con_objeto(
         self,
         accion: str,
         mensaje: str,
         percepcion: Dict[str, Any],
+        *,
+        interaction_type: InteractionType | None,
     ) -> Optional[Dict[str, Any]]:
         nombre = self._extraer_objeto_objetivo(mensaje, percepcion)
         if not nombre:
@@ -380,13 +472,13 @@ class MotorEngine:
         if accion == "alejarse_de_objeto":
             parametros["distancia"] = 2.0
         if accion == "interactuar_objeto_3d":
-            parametros["tipo_accion"] = self._inferir_tipo_interaccion(mensaje)
+            if interaction_type is not None:
+                parametros["tipo_accion"] = interaction_type.value
         return parametros
 
     def _parametros_desde_resolucion(
         self,
         accion: str,
-        mensaje: str,
         resolucion: MotorResolution,
     ) -> Dict[str, Any]:
         nombre = resolucion.legacy_nombre_objeto or resolucion.target_display_name or resolucion.target_id or ""
@@ -394,7 +486,8 @@ class MotorEngine:
         if accion == "alejarse_de_objeto":
             parametros["distancia"] = 2.0
         if accion == "interactuar_objeto_3d":
-            parametros["tipo_accion"] = self._inferir_tipo_interaccion(mensaje)
+            if resolucion.interaction_type is not None:
+                parametros["tipo_accion"] = resolucion.interaction_type.value
         return parametros
 
     @staticmethod
@@ -461,6 +554,7 @@ class MotorEngine:
         *,
         intent: str = "MOTOR_SIMPLE",
         contexto_motor: dict[str, Any] | None = None,
+        interaction_type: InteractionType | None = None,
     ) -> tuple[Dict[str, Any], dict[str, Any]]:
         metadata: dict[str, Any] = {}
         if accion not in self.ACCIONES_CON_OBJETO:
@@ -476,6 +570,7 @@ class MotorEngine:
             percepcion=percepcion,
             intent=intent,
             contexto_motor=contexto_motor or {},
+            interaction_type=interaction_type,
         )
         if resolucion is not None:
             metadata = resolucion.to_metadata()
@@ -487,6 +582,8 @@ class MotorEngine:
                     or resolucion.target_id
                     or nombre
                 )
+                if accion == "interactuar_objeto_3d" and resolucion.interaction_type is not None:
+                    parametros["tipo_accion"] = resolucion.interaction_type.value
             return parametros, metadata
 
         nombre_normalizado = self.spatial.normalizar_texto(nombre)
@@ -494,11 +591,38 @@ class MotorEngine:
             cercano = self._nombre_objeto_mas_cercano(percepcion)
             if cercano:
                 parametros["nombre_objeto"] = cercano
-            return parametros, metadata
+        else:
+            nombre_visible = self._resolver_alias_visible(nombre, percepcion)
+            if nombre_visible:
+                parametros["nombre_objeto"] = nombre_visible
 
-        nombre_visible = self._resolver_alias_visible(nombre, percepcion)
-        if nombre_visible:
-            parametros["nombre_objeto"] = nombre_visible
+        if accion == "interactuar_objeto_3d":
+            target = str(parametros.get("nombre_objeto") or nombre).strip()
+            status = "ready" if interaction_type is not None else "requires_clarification"
+            legacy_resolution = MotorResolution(
+                status=status,
+                action=accion,
+                interaction_type=interaction_type,
+                target_id=target or None,
+                target_display_name=target or None,
+                legacy_nombre_objeto=target or None,
+                reason=(
+                    "Objetivo legacy resuelto con semantica de interaccion explicita."
+                    if interaction_type is not None
+                    else "La interaccion requiere un tipo de accion explicito."
+                ),
+                audit={
+                    "status_reason": (
+                        "legacy_target_ready"
+                        if interaction_type is not None
+                        else "interaction_type_missing"
+                    )
+                },
+            )
+            metadata = legacy_resolution.to_metadata()
+            self._adjuntar_contexto_alias(metadata, contexto_motor or {}, accion)
+            if interaction_type is not None:
+                parametros["tipo_accion"] = interaction_type.value
         return parametros, metadata
 
     def _resolver_objetivo_fuzzy(
@@ -509,6 +633,7 @@ class MotorEngine:
         percepcion: Dict[str, Any],
         intent: str,
         contexto_motor: dict[str, Any],
+        interaction_type: InteractionType | None,
     ) -> MotorResolution | None:
         if not self._percepcion_tiene_objetos_normalizados(percepcion):
             return None
@@ -520,6 +645,7 @@ class MotorEngine:
                 percepcion_resoluble,
                 intent=intent,
                 action=accion,
+                interaction_type=interaction_type,
                 context=contexto_motor,
             )
         except Exception as exc:
@@ -531,6 +657,7 @@ class MotorEngine:
             return MotorResolution(
                 status="requires_clarification",
                 action=accion,
+                interaction_type=interaction_type,
                 reason="No fue posible verificar el objetivo contra la percepcion actual.",
                 audit={
                     "status_reason": "resolver_exception",
@@ -655,20 +782,54 @@ class MotorEngine:
             "action": accion,
         }
 
-    @staticmethod
-    def _inferir_tipo_interaccion(mensaje: str) -> str:
+    @classmethod
+    def _analizar_interaccion_textual(
+        cls,
+        mensaje: str,
+    ) -> tuple[bool, InteractionType | None]:
+        """Extrae evidencia por tokens completos; nunca inventa un subtipo."""
+
         texto = SpatialReasoner.normalizar_texto(mensaje)
-        if "golpea" in texto:
-            return "golpear"
-        if "toca" in texto:
-            return "tocar"
-        if "usa" in texto:
-            return "usar"
-        if "activa" in texto:
-            return "activar"
-        if "mira" in texto or "observa" in texto:
-            return "mirar"
-        return "inspeccionar"
+        tokens = re.findall(r"[a-z0-9]+", texto)
+        tipos = {
+            cls.INTERACTION_LEXICON[token]
+            for token in tokens
+            if token in cls.INTERACTION_LEXICON
+        }
+        interaction_requested = bool(tipos) or any(
+            token in cls.GENERIC_INTERACTION_TOKENS for token in tokens
+        )
+        if len(tipos) != 1:
+            return interaction_requested, None
+        return interaction_requested, next(iter(tipos))
+
+    @classmethod
+    def _inferir_tipo_interaccion(cls, mensaje: str) -> InteractionType | None:
+        """Compatibilidad privada para probes: proyecta el parser canonico."""
+
+        return cls._analizar_interaccion_textual(mensaje)[1]
+
+    @classmethod
+    def _canonicalizar_interaccion_estructurada(
+        cls,
+        parametros: dict[str, Any],
+        contexto_motor: dict[str, Any],
+    ) -> tuple[bool, InteractionType | None]:
+        """Distingue ausencia de contrato presente-invalido antes de grounding."""
+
+        if "tipo_accion" in parametros:
+            raw_value = parametros["tipo_accion"]
+            if isinstance(raw_value, InteractionType):
+                return True, raw_value
+            if type(raw_value) is not str:
+                return False, None
+            try:
+                return True, InteractionType(raw_value)
+            except ValueError:
+                return False, None
+
+        user_query = str(contexto_motor.get("user_query") or "")
+        return True, cls._inferir_tipo_interaccion(user_query)
 
     @staticmethod
     def _parsear_coordenadas(mensaje: str) -> Optional[Dict[str, float]]:

@@ -7,6 +7,8 @@ from typing import Annotated, Any, Literal, Optional
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
+from .motor_resolution import InteractionType
+
 
 def _validar_numero_fisico_finito(value: Any) -> Any:
     """Rechaza bool y no-finitos antes de que Pydantic convierta a float."""
@@ -49,9 +51,11 @@ class NavigateToPositionParams(StrictParams):
 
 
 class InteractObjectParams(StrictParams):
+    model_config = ConfigDict(extra="forbid", use_enum_values=True)
+
     nombre_objeto: str = Field(..., description="Objeto con el que se va a interactuar.")
-    tipo_accion: Literal["mirar", "tocar", "inspeccionar", "golpear", "usar", "activar"] = Field(
-        "mirar",
+    tipo_accion: InteractionType = Field(
+        ...,
         description="Tipo de interaccion fisica permitida.",
     )
 

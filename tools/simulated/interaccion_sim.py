@@ -3,6 +3,7 @@ tools/simulated/interaccion_sim.py - Herramientas de interacción con objetos en
 """
 
 from pydantic import BaseModel, Field
+from ai_engine.motor_resolution import InteractionType
 from tools.registry import ToolRegistry
 
 
@@ -13,7 +14,10 @@ class AgarrarObjetoParams(BaseModel):
 
 class InteractuarObjeto3DParams(BaseModel):
     nombre_objeto: str = Field(..., description="Nombre del objeto con el que se quiere interactuar")
-    tipo_accion: str = Field("mirar", description="Tipo de interaccion: mirar, tocar, golpear, inspeccionar")
+    tipo_accion: InteractionType = Field(
+        ...,
+        description="Tipo de interaccion: mirar, tocar, inspeccionar, golpear, usar o activar",
+    )
 
 
 class SoltarObjetoParams(BaseModel):
@@ -39,7 +43,7 @@ class HablarParams(BaseModel):
     params_schema=InteractuarObjeto3DParams
 )
 def interactuar_objeto_3d(params: InteractuarObjeto3DParams) -> str:
-    return f"[Mundo Virtual] Lazzaro ejecuta '{params.tipo_accion}' sobre '{params.nombre_objeto}'."
+    return f"[Mundo Virtual] Lazzaro ejecuta '{params.tipo_accion.value}' sobre '{params.nombre_objeto}'."
 
 
 @ToolRegistry.register(

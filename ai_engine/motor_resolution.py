@@ -7,7 +7,19 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Literal
+
+
+class InteractionType(str, Enum):
+    """Vocabulario canonico de interacciones fisicas despachables."""
+
+    MIRAR = "mirar"
+    TOCAR = "tocar"
+    INSPECCIONAR = "inspeccionar"
+    GOLPEAR = "golpear"
+    USAR = "usar"
+    ACTIVAR = "activar"
 
 
 ResolutionStatus = Literal["ready", "requires_clarification", "not_found", "not_allowed", "unsafe"]
@@ -80,6 +92,7 @@ class CandidateCorrection:
 class MotorResolution:
     status: ResolutionStatus
     action: str | None = None
+    interaction_type: InteractionType | None = None
     target_id: str | None = None
     target_display_name: str | None = None
     legacy_nombre_objeto: str | None = None
@@ -89,6 +102,20 @@ class MotorResolution:
     reason: str = ""
     audit: dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        if self.interaction_type is not None and not isinstance(
+            self.interaction_type,
+            InteractionType,
+        ):
+            raise TypeError("interaction_type must be InteractionType or None")
+        if (
+            self.interaction_type is not None
+            and self.action != "interactuar_objeto_3d"
+        ):
+            raise ValueError(
+                "interaction_type is only valid for interactuar_objeto_3d"
+            )
+
     @property
     def ready(self) -> bool:
         return self.status == "ready"
@@ -97,6 +124,11 @@ class MotorResolution:
         return {
             "status": self.status,
             "action": self.action,
+            "interaction_type": (
+                self.interaction_type.value
+                if self.interaction_type is not None
+                else None
+            ),
             "target_id": self.target_id,
             "target_display_name": self.target_display_name,
             "legacy_nombre_objeto": self.legacy_nombre_objeto,

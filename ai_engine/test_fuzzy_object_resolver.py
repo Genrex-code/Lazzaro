@@ -192,7 +192,7 @@ def test_hazard_retreat_remains_ready_without_historical_penalty() -> None:
     assert candidate.affordance_decision["safety_assessment"]["reason_code"] == "HAZARD_AVOIDANCE"
 
 
-def test_generic_hazard_interaction_is_indeterminate_until_root_028() -> None:
+def test_generic_hazard_interaction_without_explicit_type_is_indeterminate() -> None:
     resolver = FuzzyObjectResolver()
     panel = PerceivedObject(
         id="Panel_01",
@@ -252,7 +252,7 @@ def test_unexpected_safety_exception_propagates_to_existing_motor_boundary() -> 
         def requested_from_query(self, query):
             return set()
 
-        def validate(self, obj, action):
+        def validate(self, obj, action, *, interaction_type=None):
             raise RuntimeError("synthetic safety defect")
 
         def score(self, obj, **kwargs):

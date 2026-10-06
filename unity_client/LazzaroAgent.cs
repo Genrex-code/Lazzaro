@@ -1002,7 +1002,42 @@ REGLAS FISICAS Y DE ENTORNO:
     {
         JObject parametros = contexto.Parametros;
         string objeto = parametros?["nombre_objeto"]?.ToString() ?? "objeto_desconocido";
-        string tipo = parametros?["tipo_accion"]?.ToString() ?? "mirar";
+        JToken tipoToken = parametros?["tipo_accion"];
+        if (
+            tipoToken == null
+            || tipoToken.Type == JTokenType.Null
+            || (tipoToken.Type == JTokenType.String && string.IsNullOrWhiteSpace(tipoToken.Value<string>()))
+        )
+        {
+            ReportarResultadoMaterial(
+                contexto,
+                MaterialEffectReceipt.Unsupported(
+                    contexto.IdAccion,
+                    MaterialEffectKind.Interact,
+                    objeto,
+                    "interaction_type_missing",
+                    "La accion interactuar_objeto_3d no incluyo un tipo de interaccion explicito."
+                )
+            );
+            return;
+        }
+
+        if (tipoToken.Type != JTokenType.String)
+        {
+            ReportarResultadoMaterial(
+                contexto,
+                MaterialEffectReceipt.Unsupported(
+                    contexto.IdAccion,
+                    MaterialEffectKind.Interact,
+                    objeto,
+                    "interaction_type_unsupported",
+                    "El tipo de interaccion no pertenece al contrato canonico."
+                )
+            );
+            return;
+        }
+
+        string tipo = tipoToken.Value<string>();
         if (!EsTipoInteraccionCanonico(tipo))
         {
             ReportarResultadoMaterial(

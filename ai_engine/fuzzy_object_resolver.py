@@ -15,7 +15,12 @@ from thefuzz import fuzz
 from core.logger import get_logger
 
 from .affordance_resolver import AffordanceResolver
-from .motor_resolution import CandidateCorrection, CandidateMatch, MotorResolution
+from .motor_resolution import (
+    CandidateCorrection,
+    CandidateMatch,
+    InteractionType,
+    MotorResolution,
+)
 from .perception_models import PerceivedObject, PerceptionSnapshot, normalize_perception, normalize_text
 
 logger = get_logger(__name__)
@@ -74,13 +79,27 @@ QUERY_STOPWORDS = {
     "lo",
     "los",
     "mira",
+    "mirar",
     "muevete",
+    "observa",
+    "observar",
+    "inspecciona",
+    "inspeccionar",
+    "interactua",
+    "interactuar",
     "para",
     "recoge",
     "te",
     "toca",
+    "tocar",
+    "golpea",
+    "golpear",
     "usa",
+    "usar",
+    "activa",
+    "activar",
     "ve",
+    "y",
 }
 
 
@@ -104,6 +123,7 @@ class FuzzyObjectResolver:
         *,
         intent: str = "MOTOR_SIMPLE",
         action: str | None = None,
+        interaction_type: InteractionType | None = None,
         context: dict[str, Any] | None = None,
     ) -> MotorResolution:
         snapshot = self._coerce_snapshot(objects)
@@ -131,6 +151,7 @@ class FuzzyObjectResolver:
             return self._resolution(
                 status="not_found",
                 action=action,
+                interaction_type=interaction_type,
                 reason="Query vacia para resolver objeto.",
                 audit={**audit_base, "status_reason": "empty_query"},
             )
@@ -139,6 +160,7 @@ class FuzzyObjectResolver:
             return self._resolution(
                 status="not_found",
                 action=action,
+                interaction_type=interaction_type,
                 reason="No hay objetos percibidos para resolver.",
                 audit={**audit_base, "status_reason": "empty_snapshot"},
             )
@@ -147,6 +169,7 @@ class FuzzyObjectResolver:
             normalized_query,
             objects,
             action=action,
+            interaction_type=interaction_type,
             context=context or {},
             affective_hints=affective_memory_hits,
         )
@@ -159,6 +182,7 @@ class FuzzyObjectResolver:
             return self._resolution(
                 status=blocking_status,
                 action=action,
+                interaction_type=interaction_type,
                 match=best,
                 candidates=candidates,
                 reason=str(best.affordance_decision.get("reason") or "La accion no aplica al objeto seleccionado."),
@@ -174,6 +198,7 @@ class FuzzyObjectResolver:
             return self._resolution(
                 status="not_found",
                 action=action,
+                interaction_type=interaction_type,
                 confidence=best.confidence if best else 0.0,
                 candidates=candidates,
                 reason="Ningun objeto supera el umbral de aclaracion.",
@@ -194,6 +219,7 @@ class FuzzyObjectResolver:
             return self._resolution(
                 status="requires_clarification",
                 action=action,
+                interaction_type=interaction_type,
                 match=best,
                 candidates=candidates,
                 reason="Candidatos cercanos en score requieren aclaracion.",
@@ -210,6 +236,7 @@ class FuzzyObjectResolver:
             return self._resolution(
                 status="requires_clarification",
                 action=action,
+                interaction_type=interaction_type,
                 match=best,
                 candidates=candidates,
                 candidate_correction=candidate_correction,
@@ -223,10 +250,27 @@ class FuzzyObjectResolver:
                 },
             )
 
+        if action == "interactuar_objeto_3d" and interaction_type is None:
+            return self._resolution(
+                status="requires_clarification",
+                action=action,
+                interaction_type=None,
+                match=best,
+                candidates=candidates,
+                reason="La interaccion requiere un tipo de accion explicito.",
+                audit={
+                    **audit_base,
+                    "selected_candidate": best.to_dict(),
+                    "rejected_candidates": [candidate.to_dict() for candidate in matches[1:4]],
+                    "status_reason": "interaction_type_missing",
+                },
+            )
+
         if best.confidence < execute_threshold:
             return self._resolution(
                 status="requires_clarification",
                 action=action,
+                interaction_type=interaction_type,
                 match=best,
                 candidates=candidates,
                 reason="El mejor candidato esta en zona de aclaracion.",
@@ -241,6 +285,7 @@ class FuzzyObjectResolver:
         return self._resolution(
             status="ready",
             action=action,
+            interaction_type=interaction_type,
             match=best,
             candidates=candidates,
             reason="Objeto resuelto con confianza suficiente.",
@@ -260,7 +305,8 @@ class FuzzyObjectResolver:
         objects: list[PerceivedObject],
         *,
         action: str | None,
-        context: dict[str, Any],
+        interaction_type: InteractionType | None = None,
+        context: dict[str, Any] | None = None,
         affective_hints: dict[str, list[dict[str, Any]]] | None = None,
     ) -> list[CandidateMatch]:
         requested_affordances = self.affordances.requested_from_query(normalized_query)
@@ -273,11 +319,19 @@ class FuzzyObjectResolver:
             )
             name_score = self._name_score(normalized_query, obj)
             alias_score = self._alias_score(normalized_query, obj)
-            affordance_decision = self.affordances.validate(obj, action)
+            canonical_interaction = (
+                interaction_type.value if interaction_type is not None else None
+            )
+            affordance_decision = self.affordances.validate(
+                obj,
+                action,
+                interaction_type=canonical_interaction,
+            )
             affordance_score = self.affordances.score(
                 obj,
                 action=action,
                 requested_affordances=requested_affordances,
+                interaction_type=canonical_interaction,
             )
 
             if requested_affordances:
@@ -287,7 +341,7 @@ class FuzzyObjectResolver:
             matching_affective_hints = self._matching_affective_hints(obj, affective_hints or {})
             context_bonus, context_components = self._context_bonus_components(
                 obj,
-                context,
+                context or {},
                 action=action,
                 affective_hints=matching_affective_hints,
             )
@@ -577,6 +631,7 @@ class FuzzyObjectResolver:
         *,
         status: str,
         action: str | None,
+        interaction_type: InteractionType | None,
         reason: str,
         audit: dict[str, Any],
         match: CandidateMatch | None = None,
@@ -587,6 +642,7 @@ class FuzzyObjectResolver:
         resolution = MotorResolution(
             status=status,  # type: ignore[arg-type]
             action=action,
+            interaction_type=interaction_type,
             target_id=match.target_id if match else None,
             target_display_name=match.display_name if match else None,
             legacy_nombre_objeto=match.legacy_nombre_objeto if match else None,
