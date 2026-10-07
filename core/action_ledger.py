@@ -25,7 +25,7 @@ from core.safe_error_logging import log_safe_boundary_failure
 logger = get_logger(__name__)
 
 
-LEDGER_SCHEMA_VERSION = 3
+LEDGER_SCHEMA_VERSION = 4
 MAX_JSON_BYTES = 64 * 1024
 _SENSITIVE_KEY_PARTS = (
     "api_key",
@@ -198,6 +198,9 @@ class ActionRecord:
     decision_valid: bool | None = None
     action_state: ActionState = ActionState.LEGACY_UNKNOWN
     state_updated_at: str | None = None
+    authority_decision_id: str | None = None
+    authority_reference: dict[str, Any] | None = None
+    action_binding_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -450,6 +453,9 @@ class ActionLedger:
             decision_valid INTEGER CHECK(decision_valid IN (0, 1) OR decision_valid IS NULL),
             action_state TEXT NOT NULL DEFAULT 'legacy_unknown',
             state_updated_at TEXT,
+            authority_decision_id TEXT,
+            authority_reference_json TEXT,
+            action_binding_sha256 TEXT,
             FOREIGN KEY(transaction_id) REFERENCES transactions(transaction_id)
         );
         CREATE TABLE IF NOT EXISTS outcomes (
@@ -489,7 +495,12 @@ class ActionLedger:
                 meta = self._connection.execute(
                     "SELECT value FROM ledger_meta WHERE key = 'schema_version'"
                 ).fetchone()
-            elif meta is not None and meta["value"] != str(LEDGER_SCHEMA_VERSION):
+            if meta is not None and meta["value"] == "3":
+                self._migrate_v3_to_v4()
+                meta = self._connection.execute(
+                    "SELECT value FROM ledger_meta WHERE key = 'schema_version'"
+                ).fetchone()
+            if meta is not None and meta["value"] != str(LEDGER_SCHEMA_VERSION):
                 raise ActionLedgerError("Version de action ledger incompatible")
             self._create_v2_tables()
             self._create_v3_tables()
@@ -573,7 +584,7 @@ class ActionLedger:
             self._create_v3_tables()
             self._connection.execute(
                 "UPDATE ledger_meta SET value = ? WHERE key = 'schema_version'",
-                (str(LEDGER_SCHEMA_VERSION),),
+                ("3",),
             )
             self._commit()
         except (OSError, sqlite3.Error):
@@ -624,6 +635,32 @@ class ActionLedger:
             "CREATE INDEX IF NOT EXISTS idx_turn_effects_status "
             "ON turn_effects(transaction_id, status)"
         )
+
+    def _migrate_v3_to_v4(self) -> None:
+        """Agrega evidencia ROOT-029 sin reinterpretar acciones historicas."""
+        try:
+            self._begin()
+            columns = {
+                row["name"]
+                for row in self._connection.execute("PRAGMA table_info(actions)").fetchall()
+            }
+            for name in (
+                "authority_decision_id",
+                "authority_reference_json",
+                "action_binding_sha256",
+            ):
+                if name not in columns:
+                    self._connection.execute(
+                        f"ALTER TABLE actions ADD COLUMN {name} TEXT"
+                    )
+            self._connection.execute(
+                "UPDATE ledger_meta SET value = ? WHERE key = 'schema_version'",
+                (str(LEDGER_SCHEMA_VERSION),),
+            )
+            self._commit()
+        except (OSError, sqlite3.Error):
+            self._rollback()
+            raise
 
     def _begin(self) -> None:
         self._connection.execute("BEGIN IMMEDIATE")
@@ -997,6 +1034,9 @@ class ActionLedger:
         intended_client: str,
         outcome_expected: bool,
         decision_valid: bool | None = None,
+        authority_decision_id: str | None = None,
+        authority_reference: dict[str, Any] | None = None,
+        action_binding_sha256: str | None = None,
     ) -> ActionRecordResult:
         action_id = _clean_id(action_id, "action_id")
         transaction_id = _clean_id(transaction_id, "transaction_id")
@@ -1004,6 +1044,28 @@ class ActionLedger:
         intended_client = _clean_id(intended_client, "intended_client")
         task_instance_id = str(task_instance_id).strip() if task_instance_id else None
         parameters_json = _canonical_json(parameters or {})
+        authority_decision_id = (
+            _clean_id(authority_decision_id, "authority_decision_id")
+            if authority_decision_id is not None
+            else None
+        )
+        action_binding_sha256 = (
+            _clean_id(action_binding_sha256, "action_binding_sha256")
+            if action_binding_sha256 is not None
+            else None
+        )
+        authority_reference_json = (
+            _canonical_json(authority_reference)
+            if authority_reference is not None
+            else None
+        )
+        supplied_authority = (
+            authority_decision_id is not None,
+            authority_reference_json is not None,
+            action_binding_sha256 is not None,
+        )
+        if any(supplied_authority) and not all(supplied_authority):
+            raise ValueError("authority binding fields must be supplied together")
         if decision_valid is not None and type(decision_valid) is not bool:
             raise TypeError("decision_valid debe ser bool estricto o None")
         created_at = _utc_now()
@@ -1023,6 +1085,9 @@ class ActionLedger:
             "outcome_expected": int(outcome_expected),
             "decision_valid": None if decision_valid is None else int(decision_valid),
             "action_state": initial_state.value,
+            "authority_decision_id": authority_decision_id,
+            "authority_reference_json": authority_reference_json,
+            "action_binding_sha256": action_binding_sha256,
         }
         with self._lock:
             try:
@@ -1057,8 +1122,9 @@ class ActionLedger:
                         action_id, transaction_id, action_name, parameters_json,
                         requires_confirmation, task_instance_id, intended_client,
                         outcome_expected, created_at, decision_valid, action_state,
-                        state_updated_at
-                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        state_updated_at, authority_decision_id,
+                        authority_reference_json, action_binding_sha256
+                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         action_id,
@@ -1073,6 +1139,9 @@ class ActionLedger:
                         None if decision_valid is None else int(decision_valid),
                         initial_state.value,
                         created_at if initial_state == ActionState.CREATED else None,
+                        authority_decision_id,
+                        authority_reference_json,
+                        action_binding_sha256,
                     ),
                 )
                 if initial_state == ActionState.CREATED:
@@ -1798,6 +1867,13 @@ class ActionLedger:
             ),
             action_state=ActionState(row["action_state"]),
             state_updated_at=row["state_updated_at"],
+            authority_decision_id=row["authority_decision_id"],
+            authority_reference=(
+                _decode_object(row["authority_reference_json"])
+                if row["authority_reference_json"]
+                else None
+            ),
+            action_binding_sha256=row["action_binding_sha256"],
         )
 
     @staticmethod

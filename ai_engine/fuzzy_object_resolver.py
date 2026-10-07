@@ -395,6 +395,8 @@ class FuzzyObjectResolver:
                 CandidateMatch(
                     target_id=obj.id,
                     display_name=obj.display_name,
+                    producer_object_id=obj.producer_object_id,
+                    runtime_object_id=obj.runtime_object_id,
                     legacy_nombre_objeto=obj.display_name,
                     confidence=final_score,
                     score_components=components,
@@ -462,6 +464,8 @@ class FuzzyObjectResolver:
                 PerceivedObject(
                     id=obj.id,
                     display_name=obj.display_name,
+                    producer_object_id=obj.producer_object_id,
+                    runtime_object_id=obj.runtime_object_id,
                     aliases=aliases,
                     position=obj.position,
                     screen_position=obj.screen_position,
@@ -689,6 +693,8 @@ class FuzzyObjectResolver:
             interaction_type=interaction_type,
             target_id=match.target_id if match else None,
             target_display_name=match.display_name if match else None,
+            target_producer_object_id=match.producer_object_id if match else None,
+            target_runtime_object_id=match.runtime_object_id if match else None,
             legacy_nombre_objeto=match.legacy_nombre_objeto if match else None,
             confidence=confidence if confidence is not None else (match.confidence if match else 0.0),
             candidates=candidates or [],

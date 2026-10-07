@@ -153,7 +153,7 @@ def _outcome_event(transaction_id: str, action_id: str) -> EventoEntrante:
     )
 
 
-def test_01_v2_to_v3_preserves_history_and_marks_legacy_unknown() -> None:
+def test_01_v2_to_v4_preserves_history_and_marks_legacy_unknown() -> None:
     with TemporaryDirectory(prefix="root007-migration-") as directory:
         path = Path(directory) / "ledger.sqlite3"
         old = ActionLedger(path)
@@ -188,8 +188,15 @@ def test_01_v2_to_v3_preserves_history_and_marks_legacy_unknown() -> None:
         version = migrated._connection.execute(
             "SELECT value FROM ledger_meta WHERE key = 'schema_version'"
         ).fetchone()["value"]
-        assert_true(version == "3", "La migracion debe terminar en schema v3.")
+        assert_true(version == "4", "La migracion debe terminar en schema v4.")
         assert_true(action is not None and action.action_state == ActionState.REPORTED_SUCCESS, "Debe preservar action y lifecycle.")
+        assert_true(
+            action is not None
+            and action.authority_decision_id is None
+            and action.authority_reference is None
+            and action.action_binding_sha256 is None,
+            "La migracion no debe fabricar autoridad perceptiva para acciones historicas.",
+        )
         assert_true(len(migrated.get_action_transitions("legacy-action")) == transition_count, "Debe preservar transiciones.")
         assert_true(
             migrated._connection.execute("SELECT COUNT(*) AS n FROM transition_receipts").fetchone()["n"] == receipt_count,
@@ -700,7 +707,7 @@ def test_20_failure_matrix_covers_f0_through_f17_without_root015_claims() -> Non
 
 
 TESTS = [
-    test_01_v2_to_v3_preserves_history_and_marks_legacy_unknown,
+    test_01_v2_to_v4_preserves_history_and_marks_legacy_unknown,
     test_02_effect_receipts_are_terminal_and_commit_is_atomic,
     test_03_required_failure_prevents_commit,
     test_04_behavior_owner_rolls_back_mutate_then_raise,

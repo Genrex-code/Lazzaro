@@ -53,6 +53,22 @@ public class MovementController : MonoBehaviour
         IniciarNavegacionA(actionId, destino, objetivo.name);
     }
 
+    public void NavegarAObjetivoExacto(string actionId, Collider objetivo)
+    {
+        if (!PuedeNavegar(out string mensajeError))
+        {
+            RechazarMovimiento(actionId, mensajeError);
+            return;
+        }
+        if (objetivo == null)
+        {
+            RechazarMovimiento(actionId, "El objetivo exacto ya no existe.");
+            return;
+        }
+        Vector3 destino = objetivo.ClosestPoint(transform.position);
+        IniciarNavegacionA(actionId, destino, objetivo.name);
+    }
+
     public void NavegarAPosicion(string actionId, Vector3 destino, string etiquetaDestino = "destino")
     {
         if (!PuedeNavegar(out string mensajeError))
@@ -89,6 +105,30 @@ public class MovementController : MonoBehaviour
         }
 
         Vector3 destino = transform.position + direccionEscape.normalized * Mathf.Clamp(distancia, 0.5f, 5f);
+        IniciarNavegacionA(actionId, destino, $"alejarme de {objetivo.name}");
+    }
+
+    public void AlejarseDeObjetivoExacto(string actionId, Collider objetivo, float distancia)
+    {
+        if (!PuedeNavegar(out string mensajeError))
+        {
+            RechazarMovimiento(actionId, mensajeError);
+            return;
+        }
+        if (objetivo == null)
+        {
+            RechazarMovimiento(actionId, "El objetivo exacto ya no existe.");
+            return;
+        }
+        Vector3 puntoCercano = objetivo.ClosestPoint(transform.position);
+        Vector3 direccionEscape = transform.position - puntoCercano;
+        direccionEscape.y = 0f;
+        if (direccionEscape.sqrMagnitude < 0.01f)
+        {
+            direccionEscape = -transform.forward;
+        }
+        Vector3 destino = transform.position
+            + direccionEscape.normalized * Mathf.Clamp(distancia, 0.5f, 5f);
         IniciarNavegacionA(actionId, destino, $"alejarme de {objetivo.name}");
     }
 

@@ -41,6 +41,8 @@ class CandidateMatch:
     target_id: str
     display_name: str
     confidence: float
+    producer_object_id: str | None = None
+    runtime_object_id: str | None = None
     score_components: dict[str, float] = field(default_factory=dict)
     reason: str = ""
     legacy_nombre_objeto: str | None = None
@@ -54,6 +56,8 @@ class CandidateMatch:
         return {
             "target_id": self.target_id,
             "display_name": self.display_name,
+            "producer_object_id": self.producer_object_id,
+            "runtime_object_id": self.runtime_object_id,
             "legacy_nombre_objeto": self.legacy_nombre_objeto or self.display_name,
             "confidence": round(float(self.confidence), 4),
             "score_components": dict(self.score_components),
@@ -95,6 +99,8 @@ class MotorResolution:
     interaction_type: InteractionType | None = None
     target_id: str | None = None
     target_display_name: str | None = None
+    target_producer_object_id: str | None = None
+    target_runtime_object_id: str | None = None
     legacy_nombre_objeto: str | None = None
     confidence: float = 0.0
     candidates: list[CandidateMatch] = field(default_factory=list)
@@ -139,6 +145,8 @@ class MotorResolution:
             ),
             "target_id": self.target_id,
             "target_display_name": self.target_display_name,
+            "target_producer_object_id": self.target_producer_object_id,
+            "target_runtime_object_id": self.target_runtime_object_id,
             "legacy_nombre_objeto": self.legacy_nombre_objeto,
             "confidence": round(float(self.confidence), 4),
             "candidates": [candidate.to_dict() for candidate in self.candidates],

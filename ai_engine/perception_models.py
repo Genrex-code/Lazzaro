@@ -47,6 +47,8 @@ ALLOWED_AFFORDANCES = {
 class PerceivedObject:
     id: str
     display_name: str
+    producer_object_id: str | None = None
+    runtime_object_id: str | None = None
     aliases: list[str] = field(default_factory=list)
     position: dict[str, float] | None = None
     screen_position: dict[str, float] | None = None
@@ -59,6 +61,8 @@ class PerceivedObject:
         return {
             "id": self.id,
             "display_name": self.display_name,
+            "producer_object_id": self.producer_object_id,
+            "runtime_object_id": self.runtime_object_id,
             "aliases": list(self.aliases),
             "position": dict(self.position) if self.position is not None else None,
             "screen_position": dict(self.screen_position) if self.screen_position is not None else None,
@@ -187,7 +191,15 @@ def _object_from_mapping(
     if not display_name:
         return None
 
-    object_id = str(raw.get("id") or raw.get("object_id") or raw.get("nombre") or display_name).strip()
+    producer_object_id = _optional_text(raw.get("producer_object_id"))
+    runtime_object_id = _optional_text(raw.get("runtime_object_id"))
+    object_id = str(
+        raw.get("id")
+        or raw.get("object_id")
+        or producer_object_id
+        or raw.get("nombre")
+        or display_name
+    ).strip()
     aliases = _normalize_aliases(raw.get("aliases") or raw.get("alias") or raw.get("nombres") or [])
     if display_name not in aliases:
         aliases.insert(0, display_name)
@@ -198,10 +210,14 @@ def _object_from_mapping(
     return PerceivedObject(
         id=object_id,
         display_name=display_name,
+        producer_object_id=producer_object_id,
+        runtime_object_id=runtime_object_id,
         aliases=_unique_preserve_order(aliases),
-        position=_normalize_position(raw.get("position") or raw.get("posicion") or raw),
-        screen_position=_normalize_position(raw.get("screen_position") or raw.get("posicion_pantalla")),
-        distance=_normalize_float(raw.get("distance") or raw.get("distancia")),
+        position=_normalize_position(_first_present(raw, "position", "posicion") or raw),
+        screen_position=_normalize_screen_position(
+            _first_present(raw, "screen_position", "posicion_pantalla")
+        ),
+        distance=_normalize_float(_first_present(raw, "distance", "distancia")),
         affordances=affordances,
         source=source,
         confidence=_clamp_confidence(raw.get("confidence", raw.get("confianza", 1.0))),
@@ -273,6 +289,30 @@ def _normalize_position(value: Any) -> dict[str, float] | None:
         return {key: float(value[key]) for key in keys}
     except (TypeError, ValueError):
         return None
+
+
+def _normalize_screen_position(value: Any) -> dict[str, float] | None:
+    if not isinstance(value, dict) or not all(key in value for key in ("x", "y")):
+        return None
+    keys = ("x", "y", "z") if "z" in value else ("x", "y")
+    try:
+        return {key: float(value[key]) for key in keys}
+    except (TypeError, ValueError):
+        return None
+
+
+def _first_present(mapping: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in mapping and mapping[key] is not None:
+            return mapping[key]
+    return None
+
+
+def _optional_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    cleaned = str(value).strip()
+    return cleaned or None
 
 
 def _normalize_float(value: Any) -> float | None:

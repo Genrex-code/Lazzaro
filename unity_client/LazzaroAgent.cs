@@ -12,12 +12,14 @@ using TMPro;    // Corregido para UI
 [RequireComponent(typeof(MovementController))]
 [RequireComponent(typeof(SomatoSensorySystem))]
 [RequireComponent(typeof(ObjectMaterializationController))]
+[RequireComponent(typeof(ExactTargetResolver))]
 public class LazzaroAgent : MonoBehaviour
 {
     private ApiClient api;
     private PerceptionSystem percepcion;
     private MovementController movimiento;
     private ObjectMaterializationController materializacion;
+    private ExactTargetResolver exactTargetResolver;
     private readonly LinkedList<EventoEntrante> colaEventos = new LinkedList<EventoEntrante>();
     private readonly Queue<string> colaTareasUsuario = new Queue<string>();
     private bool procesandoCola = false;
@@ -50,12 +52,14 @@ public class LazzaroAgent : MonoBehaviour
         public readonly JObject Parametros;
         public readonly Dictionary<string, object> DetallesResultado;
         public readonly string ObjetoInvolucrado;
+        public readonly PerceptionAuthorityReferenceV1 PerceptionAuthority;
 
         public ContextoAccion(
             string idAccion,
             string idTransaccionOrigen,
             string nombre,
-            JObject parametros
+            JObject parametros,
+            PerceptionAuthorityReferenceV1 perceptionAuthority = null
         )
         {
             IdAccion = idAccion;
@@ -64,6 +68,7 @@ public class LazzaroAgent : MonoBehaviour
             Parametros = parametros;
             DetallesResultado = new Dictionary<string, object>();
             ObjetoInvolucrado = "ninguno";
+            PerceptionAuthority = perceptionAuthority;
         }
 
         private ContextoAccion(
@@ -72,7 +77,8 @@ public class LazzaroAgent : MonoBehaviour
             string nombre,
             JObject parametros,
             Dictionary<string, object> detallesResultado,
-            string objetoInvolucrado
+            string objetoInvolucrado,
+            PerceptionAuthorityReferenceV1 perceptionAuthority
         )
         {
             IdAccion = idAccion;
@@ -81,6 +87,7 @@ public class LazzaroAgent : MonoBehaviour
             Parametros = parametros;
             DetallesResultado = detallesResultado;
             ObjetoInvolucrado = objetoInvolucrado;
+            PerceptionAuthority = perceptionAuthority;
         }
 
         public ContextoAccion ConDetalles(
@@ -94,7 +101,8 @@ public class LazzaroAgent : MonoBehaviour
                 Nombre,
                 Parametros,
                 detalles ?? new Dictionary<string, object>(),
-                string.IsNullOrWhiteSpace(objetoInvolucrado) ? "ninguno" : objetoInvolucrado
+                string.IsNullOrWhiteSpace(objetoInvolucrado) ? "ninguno" : objetoInvolucrado,
+                PerceptionAuthority
             );
         }
     }
@@ -127,6 +135,7 @@ public class LazzaroAgent : MonoBehaviour
         percepcion = GetComponent<PerceptionSystem>();
         movimiento = GetComponent<MovementController>();
         materializacion = GetComponent<ObjectMaterializationController>();
+        exactTargetResolver = GetComponent<ExactTargetResolver>();
         movimiento.OnMovimientoCompletado += ManejarMovimientoCompletado;
     }
 
@@ -693,7 +702,8 @@ public class LazzaroAgent : MonoBehaviour
                 ? idTransaccionSolicitud
                 : respuesta.accion.id_transaccion_origen,
             respuesta.accion.nombre,
-            respuesta.accion.parametros
+            respuesta.accion.parametros,
+            respuesta.accion.perception_authority
         );
 
         string estadoEjecucion = respuesta.accion.estado_ejecucion ?? "";
@@ -864,7 +874,20 @@ REGLAS FISICAS Y DE ENTORNO:
             { "nombre_objeto", objeto },
         }, objeto);
         accionesMovimientoPendientes[contexto.IdAccion] = movimientoContexto;
-        movimiento.NavegarAObjeto(contexto.IdAccion, objeto);
+        if (contexto.PerceptionAuthority != null)
+        {
+            if (!TryResolverObjetivoAutorizado(contexto, out Collider exacto, out string error))
+            {
+                accionesMovimientoPendientes.Remove(contexto.IdAccion);
+                ReportarResultadoAccion(contexto, false, error);
+                return;
+            }
+            movimiento.NavegarAObjetivoExacto(contexto.IdAccion, exacto);
+        }
+        else
+        {
+            movimiento.NavegarAObjeto(contexto.IdAccion, objeto);
+        }
     }
 
     private void EjecutarNavegarAPosicion(ContextoAccion contexto)
@@ -922,7 +945,20 @@ REGLAS FISICAS Y DE ENTORNO:
         }, objeto);
 
         accionesMovimientoPendientes[contexto.IdAccion] = movimientoContexto;
-        movimiento.AlejarseDeObjeto(contexto.IdAccion, objeto, distancia);
+        if (contexto.PerceptionAuthority != null)
+        {
+            if (!TryResolverObjetivoAutorizado(contexto, out Collider exacto, out string error))
+            {
+                accionesMovimientoPendientes.Remove(contexto.IdAccion);
+                ReportarResultadoAccion(contexto, false, error);
+                return;
+            }
+            movimiento.AlejarseDeObjetivoExacto(contexto.IdAccion, exacto, distancia);
+        }
+        else
+        {
+            movimiento.AlejarseDeObjeto(contexto.IdAccion, objeto, distancia);
+        }
     }
 
     private void EjecutarGirarAvatar(ContextoAccion contexto)
@@ -1275,7 +1311,24 @@ REGLAS FISICAS Y DE ENTORNO:
             return false;
         }
 
-        objetivo = percepcion.BuscarObjeto(nombreObjeto);
+        if (contexto.PerceptionAuthority != null)
+        {
+            if (!TryResolverObjetivoAutorizado(contexto, out objetivo, out string authorityError))
+            {
+                failureReceipt = MaterialEffectReceipt.Failed(
+                    contexto.IdAccion,
+                    effectKind,
+                    nombreObjeto,
+                    "authority_target_binding_failed",
+                    authorityError
+                );
+                return false;
+            }
+        }
+        else
+        {
+            objetivo = percepcion.BuscarObjeto(nombreObjeto);
+        }
         if (objetivo == null)
         {
             failureReceipt = MaterialEffectReceipt.Failed(
@@ -1302,6 +1355,87 @@ REGLAS FISICAS Y DE ENTORNO:
             return false;
         }
 
+        return true;
+    }
+
+    private bool TryResolverObjetivoAutorizado(
+        ContextoAccion contexto,
+        out Collider objetivo,
+        out string mensajeError
+    )
+    {
+        objetivo = null;
+        mensajeError = "La referencia de autoridad perceptiva es invalida.";
+        PerceptionAuthorityReferenceV1 authority = contexto.PerceptionAuthority;
+        if (
+            authority == null
+            || authority.version != 1
+            || authority.id_accion != contexto.IdAccion
+            || authority.action_name != contexto.Nombre
+            || authority.target == null
+            || string.IsNullOrWhiteSpace(authority.authority_decision_id)
+            || string.IsNullOrWhiteSpace(authority.action_binding_sha256)
+            || string.IsNullOrWhiteSpace(authority.generation_binding_mode)
+        )
+        {
+            return false;
+        }
+        JToken boundParameters;
+        try
+        {
+            boundParameters = JToken.Parse(authority.canonical_parameters_json);
+        }
+        catch (Exception)
+        {
+            mensajeError = "Los parametros ligados a la autoridad no son JSON valido.";
+            return false;
+        }
+        if (!JToken.DeepEquals(boundParameters, contexto.Parametros))
+        {
+            mensajeError = "Los parametros cambiaron despues de la autorizacion.";
+            return false;
+        }
+        if (
+            authority.producer_capture_id != authority.target.producer_capture_id
+            || authority.generation != authority.target.generation
+        )
+        {
+            mensajeError = "La captura ligada a la accion no coincide con el objetivo.";
+            return false;
+        }
+        if (!exactTargetResolver.IsGenerationBindingValid(
+            authority.target,
+            authority.generation_binding_mode
+        ))
+        {
+            mensajeError = "La generacion perceptiva ya no satisface el modo autorizado.";
+            return false;
+        }
+        string interactionType = contexto.Parametros?["tipo_accion"]?.ToString();
+        if (
+            authority.action_name == "interactuar_objeto_3d"
+            && authority.interaction_type != interactionType
+        )
+        {
+            mensajeError = "El subtipo de interaccion cambio despues de la autorizacion.";
+            return false;
+        }
+        if (
+            string.IsNullOrWhiteSpace(authority.safety_disposition)
+            || string.IsNullOrWhiteSpace(authority.safety_reason_code)
+        )
+        {
+            mensajeError = "La evidencia de seguridad ligada esta incompleta.";
+            return false;
+        }
+        ExactTargetResolution resolution = exactTargetResolver.Resolve(authority.target);
+        if (!resolution.IsResolved)
+        {
+            mensajeError = $"Fallo de objetivo exacto: {resolution.ReasonCode}.";
+            return false;
+        }
+        objetivo = resolution.Target;
+        mensajeError = "";
         return true;
     }
 

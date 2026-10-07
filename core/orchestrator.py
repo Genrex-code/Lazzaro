@@ -13,6 +13,7 @@ from typing import List, Optional
 import uuid
 
 from ai_engine.ai_client import LLMCallAudit
+from ai_engine.affordance_resolver import SafetyDisposition, SafetyReasonCode
 from ai_engine.identity_projection import IdentityContextV1
 from ai_engine.decision_outcome import (
     DecisionAttempt,
@@ -37,6 +38,12 @@ from ai_engine.knowledge_provenance import (
 )
 from ai_engine.motor_engine import MotorEngine
 from ai_engine.motor_schemas import PHYSICAL_NUMERIC_ACTIONS, validar_parametros_fisicos
+from ai_engine.perception_contracts import (
+    PerceptionIdentityReceiptV1,
+    PerceptionParseReceiptV1,
+    evaluate_perception_identity,
+    parse_perception_payload,
+)
 from ai_engine.oracle_client import OracleClient
 from ai_engine.oracle_engine import OracleEngine
 from ai_engine.oracle_memory import OracleMemory
@@ -78,6 +85,30 @@ from core.audit_trace import AuditTrace, safe_preview
 from core.audit_writer import AuditTraceJSONLWriter
 from core.logger import get_logger
 from core.identity_snapshot import IdentityComponentsV1, IdentitySnapshotProvider
+from core.perception_authority import (
+    AuthorityStatusV1,
+    AuthorizedPhysicalActionV1,
+    PerceptionAuthorityEvaluator,
+    PerceptionAuthorityPolicyV1,
+    PerceptionAuthorityReferenceV1,
+    PhysicalActionCandidateV1,
+    TargetReferenceV1,
+    canonical_json,
+    derive_parameter_provenance,
+    physical_action_class,
+)
+from core.perception_freshness import (
+    FreshnessPolicyV1,
+    PerceptionFreshnessEvaluator,
+    PerceptionFreshnessReceiptV1,
+    PerceptionIngestionMetadataV1,
+    SystemUtcClock,
+)
+from core.perception_lifecycle import (
+    LifecycleStatusV1,
+    PerceptionLifecycleReceiptV1,
+    PerceptionLifecycleTracker,
+)
 from core.safe_error_logging import log_safe_boundary_failure
 from core.material_attestation import (
     canonical_material_attestation,
@@ -116,6 +147,10 @@ class Orchestrator:
         identity_provider: IdentitySnapshotProvider,
         audit_writer: AuditTraceJSONLWriter | None = None,
         action_ledger_path: str | None = None,
+        perception_lifecycle_tracker: PerceptionLifecycleTracker | None = None,
+        perception_freshness_policy: FreshnessPolicyV1 | None = None,
+        perception_authority_policy: PerceptionAuthorityPolicyV1 | None = None,
+        perception_clock: object | None = None,
     ):
         self.behavior = behavior_core
         self.memory = memory_manager
@@ -131,6 +166,14 @@ class Orchestrator:
         self.subjective_effort = SubjectiveEffortCalculator()
         self.persona_engine = PersonaEngine()
         self.persona_factual_bridge = PersonaFactualBridgeV1()
+        self.perception_lifecycle_tracker = (
+            perception_lifecycle_tracker or PerceptionLifecycleTracker()
+        )
+        self.perception_freshness_policy = perception_freshness_policy
+        self.perception_authority_policy = perception_authority_policy
+        self.perception_clock = perception_clock or SystemUtcClock()
+        self.perception_freshness_evaluator = PerceptionFreshnessEvaluator()
+        self.perception_authority_evaluator = PerceptionAuthorityEvaluator()
         self.llm_adapter = LLMGenerationAdapter(
             getattr(reasoning_engine, "ai_client", None),
             getattr(reasoning_engine, "policy_manager", None),
@@ -872,6 +915,8 @@ class Orchestrator:
             else TurnEffectStatus.SKIPPED,
         )
 
+        evento = self._adjuntar_ingreso_perceptivo(evento)
+
         behavior_started_ns = time.perf_counter_ns()
         behavior_effect_key = (
             "outcome:behavior_task"
@@ -1244,7 +1289,18 @@ class Orchestrator:
             "decision:layer",
             TurnEffectStatus.APPLIED,
         )
-        accion_saliente = self._a_accion_saliente(action_response, politica)
+        action_id = str(uuid.uuid4())
+        action_response, authority_reference = self._aplicar_autoridad_perceptiva(
+            evento,
+            action_response,
+            action_id=action_id,
+        )
+        accion_saliente = self._a_accion_saliente(
+            action_response,
+            politica,
+            action_id=action_id,
+            perception_authority=authority_reference,
+        )
         if outcome_action is None:
             self._iniciar_efecto_uow(
                 evento.id_transaccion,
@@ -2911,6 +2967,7 @@ class Orchestrator:
     ) -> ActionResponse:
         """Usa Capa 1 para resolver/validar acciones fisicas."""
         percepcion = self._extraer_percepcion_motor(evento, contexto_llm)
+        root029_context = self._observar_percepcion_root029(percepcion, evento=evento)
         mensaje = str(evento.detalles.get("mensaje", ""))
         triage_info = triage_decision if isinstance(triage_decision, dict) else {}
         intent = str(triage_info.get("intent") or "MOTOR_SIMPLE")
@@ -2931,14 +2988,23 @@ class Orchestrator:
             accion_motora = self.motor_engine.procesar_diagnostico_motor(
                 diagnostico_motor
             )
-            return self._action_response_desde_motor(
-                accion_motora,
-                pensamiento="",
+            return self._adjuntar_contexto_root029(
+                self._action_response_desde_motor(
+                    accion_motora,
+                    pensamiento="",
+                ),
+                root029_context,
             )
         if diagnostico_motor["estado"] in {"falta_objetivo", "ambigua"}:
-            return self._respuesta_aclaracion_motor(diagnostico_motor)
+            return self._adjuntar_contexto_root029(
+                self._respuesta_aclaracion_motor(diagnostico_motor),
+                root029_context,
+            )
         if diagnostico_motor["estado"] in {"requires_clarification", "not_found", "not_allowed", "unsafe"}:
-            return self._respuesta_resolucion_motor(diagnostico_motor)
+            return self._adjuntar_contexto_root029(
+                self._respuesta_resolucion_motor(diagnostico_motor),
+                root029_context,
+            )
 
         try:
             action_response = self.reasoning.process(
@@ -2962,7 +3028,7 @@ class Orchestrator:
                     "decision_error_observed_ns",
                     time.perf_counter_ns(),
                 )
-            return ActionResponse(
+            return self._adjuntar_contexto_root029(ActionResponse(
                 pensamiento="Error al razonar accion motora.",
                 accion="none",
                 parametros={},
@@ -2977,7 +3043,7 @@ class Orchestrator:
                     reason_codes=(DecisionReasonCode.MOTOR_RESOLUTION_FAILED,),
                     retry_count=0,
                 ),
-            )
+            ), root029_context)
 
         if action_response.accion in self.motor_engine.ACCIONES_MOTORAS:
             accion_validada = self.motor_engine.procesar_comando_motor(
@@ -2987,9 +3053,12 @@ class Orchestrator:
                 intent=intent,
                 contexto_motor=contexto_motor,
             )
-            return self._action_response_desde_motor(
-                accion_validada,
-                pensamiento=action_response.pensamiento,
+            return self._adjuntar_contexto_root029(
+                self._action_response_desde_motor(
+                    accion_validada,
+                    pensamiento=action_response.pensamiento,
+                ),
+                root029_context,
             )
 
         return action_response
@@ -3002,8 +3071,19 @@ class Orchestrator:
             percepcion.update(percepcion_contexto)
 
         claves_percepcion = {
+            "contract_version",
+            "source_kind",
+            "producer_instance_id",
+            "stream_id",
+            "producer_epoch_id",
+            "logical_world_id",
+            "producer_capture_id",
+            "generation",
+            "captured_at_utc_ms",
+            "objects",
             "objetos_visibles",
             "objetos_normalizados",
+            "perception_ingestion",
             "resumen_percepcion",
             "objeto_mas_cercano",
             "cantidad_objetos_visibles",
@@ -3019,6 +3099,348 @@ class Orchestrator:
             if clave in evento.detalles:
                 percepcion[clave] = evento.detalles[clave]
         return percepcion
+
+    @staticmethod
+    def _adjuntar_ingreso_perceptivo(evento: EventoEntrante) -> EventoEntrante:
+        """Estampa una sola vez evidencia receiver-owned en el primer boundary."""
+
+        detalles = dict(evento.detalles or {})
+        modern_signal = any(
+            key in detalles
+            for key in (
+                "producer_capture_id",
+                "producer_epoch_id",
+                "captured_at_utc_ms",
+                "objects",
+                "objetos_normalizados",
+            )
+        )
+        if not modern_signal:
+            return evento
+        detalles["perception_ingestion"] = {
+            "contract_version": 1,
+            "local_ingest_id": evento.local_ingest_id,
+            "received_at_utc_ms": evento.received_at_utc_ms,
+        }
+        return evento.model_copy(update={"detalles": detalles})
+
+    def _observar_percepcion_root029(
+        self,
+        percepcion: dict,
+        *,
+        evento: EventoEntrante,
+    ) -> dict[str, dict]:
+        ingestion_raw = (
+            percepcion.get("perception_ingestion")
+            if isinstance(percepcion, dict)
+            and isinstance(percepcion.get("perception_ingestion"), dict)
+            else {}
+        )
+        local_ingest_id = str(
+            ingestion_raw.get("local_ingest_id") or evento.local_ingest_id
+        )
+        received_at = ingestion_raw.get("received_at_utc_ms")
+        if type(received_at) is not int:
+            received_at = evento.received_at_utc_ms
+        ingestion = PerceptionIngestionMetadataV1(
+            local_ingest_id=local_ingest_id,
+            received_at_utc_ms=received_at,
+        )
+        parse_receipt = parse_perception_payload(
+            percepcion,
+            local_ingest_id=local_ingest_id,
+        )
+        tracker = getattr(self, "perception_lifecycle_tracker", None)
+        if not isinstance(tracker, PerceptionLifecycleTracker):
+            tracker = PerceptionLifecycleTracker()
+            self.perception_lifecycle_tracker = tracker
+        lifecycle = tracker.observe_and_classify(parse_receipt)
+        clock = getattr(self, "perception_clock", None) or SystemUtcClock()
+        self.perception_clock = clock
+        now = clock.now_utc_ms()
+        evaluator = getattr(self, "perception_freshness_evaluator", None)
+        if not isinstance(evaluator, PerceptionFreshnessEvaluator):
+            evaluator = PerceptionFreshnessEvaluator()
+            self.perception_freshness_evaluator = evaluator
+        freshness = evaluator.evaluate(
+            parse_receipt,
+            ingestion,
+            lifecycle,
+            policy=getattr(self, "perception_freshness_policy", None),
+            evaluated_at_utc_ms=now,
+        )
+        return {
+            "parse": parse_receipt.model_dump(mode="json"),
+            "lifecycle": lifecycle.model_dump(mode="json"),
+            "freshness": freshness.model_dump(mode="json"),
+            "ingestion": ingestion.model_dump(mode="json"),
+        }
+
+    @staticmethod
+    def _adjuntar_contexto_root029(
+        response: ActionResponse,
+        context: dict[str, dict],
+    ) -> ActionResponse:
+        parse_receipt = context.get("parse") if isinstance(context, dict) else None
+        if (
+            not isinstance(parse_receipt, dict)
+            or parse_receipt.get("status") != "CANONICAL"
+        ):
+            return response
+        metadata = dict(response.metadata or {})
+        metadata["root029_perception"] = deepcopy(context)
+        return response.model_copy(update={"metadata": metadata})
+
+    def _aplicar_autoridad_perceptiva(
+        self,
+        evento: EventoEntrante,
+        action_response: ActionResponse,
+        *,
+        action_id: str,
+    ) -> tuple[ActionResponse, PerceptionAuthorityReferenceV1 | None]:
+        """Compone A-E una vez; nunca vuelve a resolver el objetivo."""
+
+        action_name = str(action_response.accion or "none")
+        metadata = dict(action_response.metadata or {})
+        resolution = (
+            metadata.get("motor_resolution")
+            if isinstance(metadata.get("motor_resolution"), dict)
+            else None
+        )
+        provenance = derive_parameter_provenance(
+            action_name,
+            motor_resolution_present=resolution is not None,
+            body_event=bool(
+                evento.tipo_evento == "alerta_dolor_fisico"
+                and action_name == "alejarse_de_objeto"
+            ),
+        )
+        metadata["parameter_provenance"] = provenance.model_dump(mode="json")
+
+        if action_name not in {
+            "navegar_a_objeto",
+            "alejarse_de_objeto",
+            "interactuar_objeto_3d",
+            "agarrar_objeto",
+            "aplicar_fuerza",
+        } or provenance.kind.value == "BODY_EVENT":
+            return action_response.model_copy(update={"metadata": metadata}), None
+
+        context = (
+            metadata.get("root029_perception")
+            if isinstance(metadata.get("root029_perception"), dict)
+            else {}
+        )
+        parse_receipt = self._root029_model(
+            PerceptionParseReceiptV1,
+            context.get("parse"),
+        )
+        lifecycle = self._root029_model(
+            PerceptionLifecycleReceiptV1,
+            context.get("lifecycle"),
+        )
+        freshness = self._root029_model(
+            PerceptionFreshnessReceiptV1,
+            context.get("freshness"),
+        )
+
+        runtime_id = (
+            str(resolution.get("target_runtime_object_id") or "").strip()
+            if resolution
+            else ""
+        )
+        producer_object_id = (
+            str(resolution.get("target_producer_object_id") or "").strip()
+            if resolution
+            else ""
+        )
+        lifecycle_resolved = bool(
+            lifecycle is not None
+            and lifecycle.status is LifecycleStatusV1.RESOLVED
+        )
+        identity = (
+            evaluate_perception_identity(
+                parse_receipt,
+                runtime_object_id=runtime_id or None,
+                producer_object_id=producer_object_id or None,
+                lifecycle_resolved=lifecycle_resolved,
+            )
+            if parse_receipt is not None
+            else None
+        )
+        target = self._construir_target_reference(
+            parse_receipt,
+            runtime_id=runtime_id,
+            producer_object_id=producer_object_id,
+        )
+        affordance = self._affordance_seleccionada(resolution)
+        safety = (
+            affordance.get("safety_assessment")
+            if isinstance(affordance.get("safety_assessment"), dict)
+            else {}
+        )
+        try:
+            safety_disposition = (
+                SafetyDisposition(str(safety.get("disposition")))
+                if safety.get("disposition")
+                else None
+            )
+            safety_reason = (
+                SafetyReasonCode(str(safety.get("reason_code")))
+                if safety.get("reason_code")
+                else None
+            )
+        except ValueError:
+            safety_disposition = None
+            safety_reason = None
+        interaction_type = (
+            str(resolution.get("interaction_type") or "").strip() or None
+            if resolution
+            else None
+        )
+        try:
+            bound_parameters = validar_parametros_fisicos(
+                action_name,
+                dict(action_response.parametros or {}),
+            )
+            schema_valid = True
+        except (KeyError, TypeError, ValueError):
+            bound_parameters = dict(action_response.parametros or {})
+            schema_valid = False
+        candidate = PhysicalActionCandidateV1(
+            id_accion=action_id,
+            action_name=action_name,
+            canonical_parameters_json=canonical_json(
+                bound_parameters
+            ),
+            parameter_provenance=provenance,
+            action_class=physical_action_class(action_name, interaction_type),
+            target_reference=target,
+            interaction_type=interaction_type,
+            grounding_status=(
+                str(resolution.get("status") or "").strip() or None
+                if resolution
+                else None
+            ),
+            affordance_allowed=(
+                affordance.get("allowed")
+                if type(affordance.get("allowed")) is bool
+                else None
+            ),
+            safety_disposition=safety_disposition,
+            safety_reason_code=safety_reason,
+            schema_valid=schema_valid,
+        )
+        authority_evaluator = getattr(self, "perception_authority_evaluator", None)
+        if not isinstance(authority_evaluator, PerceptionAuthorityEvaluator):
+            authority_evaluator = PerceptionAuthorityEvaluator()
+            self.perception_authority_evaluator = authority_evaluator
+        receipt, authorized = authority_evaluator.evaluate(
+            candidate,
+            parse_receipt=parse_receipt,
+            identity_receipt=identity,
+            lifecycle_receipt=lifecycle,
+            freshness_receipt=freshness,
+            policy=getattr(self, "perception_authority_policy", None),
+        )
+        metadata["perception_authority_receipt"] = receipt.model_dump(mode="json")
+        if authorized is not None and receipt.status is AuthorityStatusV1.AUTHORIZED:
+            if not authorized.binding_is_intact():
+                return self._bloquear_por_autoridad(
+                    action_response,
+                    metadata,
+                    "BINDING_MISMATCH",
+                ), None
+            return (
+                action_response.model_copy(
+                    update={
+                        "parametros": authorized.parameters_copy(),
+                        "metadata": metadata,
+                    }
+                ),
+                authorized.authority_reference,
+            )
+        return (
+            self._bloquear_por_autoridad(
+                action_response,
+                metadata,
+                receipt.reason_code.value,
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _root029_model(model_cls, value):
+        if not isinstance(value, dict):
+            return None
+        try:
+            return model_cls.model_validate(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _construir_target_reference(
+        parse_receipt: PerceptionParseReceiptV1 | None,
+        *,
+        runtime_id: str,
+        producer_object_id: str,
+    ) -> TargetReferenceV1 | None:
+        data = parse_receipt.data if parse_receipt is not None else None
+        if data is None or not runtime_id:
+            return None
+        try:
+            return TargetReferenceV1(
+                producer_instance_id=data.producer_instance_id,
+                stream_id=data.stream_id,
+                producer_epoch_id=data.producer_epoch_id,
+                logical_world_id=data.logical_world_id,
+                producer_capture_id=data.producer_capture_id,
+                generation=data.generation,
+                producer_object_id=producer_object_id or None,
+                runtime_object_id=runtime_id,
+            )
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _affordance_seleccionada(resolution: dict | None) -> dict:
+        if not isinstance(resolution, dict):
+            return {}
+        target_id = resolution.get("target_id")
+        candidates = resolution.get("candidates")
+        if not isinstance(candidates, list):
+            return {}
+        for candidate in candidates:
+            if not isinstance(candidate, dict) or candidate.get("target_id") != target_id:
+                continue
+            decision = candidate.get("affordance_decision")
+            return decision if isinstance(decision, dict) else {}
+        return {}
+
+    @staticmethod
+    def _bloquear_por_autoridad(
+        response: ActionResponse,
+        metadata: dict,
+        reason_code: str,
+    ) -> ActionResponse:
+        metadata["perception_authority_block"] = reason_code
+        outcome_updates = {
+            "disposition": DecisionDisposition.BLOCKED,
+            "reason_codes": (DecisionReasonCode.UNSAFE_BLOCK,),
+        }
+        if response.outcome.layer is DecisionLayer.MOTOR:
+            outcome_updates["motor_status"] = MotorOutcomeStatus.UNSAFE
+        return response.model_copy(
+            update={
+                "accion": "none",
+                "parametros": {},
+                "razon": "Autoridad perceptiva ROOT-029 no satisfecha.",
+                "valido": True,
+                "error": None,
+                "metadata": metadata,
+                "outcome": response.outcome.evolve(**outcome_updates),
+            }
+        )
 
     def _contexto_motor_estado(
         self,
@@ -3891,6 +4313,21 @@ class Orchestrator:
             intended_client=str(evento.origen),
             outcome_expected=self._accion_requiere_outcome(evento, accion),
             decision_valid=decision_valid,
+            authority_decision_id=(
+                accion.perception_authority.authority_decision_id
+                if accion.perception_authority is not None
+                else None
+            ),
+            authority_reference=(
+                accion.perception_authority.model_dump(mode="json")
+                if accion.perception_authority is not None
+                else None
+            ),
+            action_binding_sha256=(
+                accion.perception_authority.action_binding_sha256
+                if accion.perception_authority is not None
+                else None
+            ),
         )
         if receipt.status == ActionRecordStatus.CONFLICT:
             raise TransactionConflictError(
@@ -3920,6 +4357,11 @@ class Orchestrator:
             "estado_ejecucion": accion.estado_ejecucion,
             "id_transaccion_origen": accion.id_transaccion_origen,
             "decision_outcome": accion.decision_outcome.model_dump(mode="json"),
+            "perception_authority": (
+                accion.perception_authority.model_dump(mode="json")
+                if accion.perception_authority is not None
+                else None
+            ),
         }
 
     def _restaurar_accion_desde_ledger(
@@ -3942,6 +4384,13 @@ class Orchestrator:
             ),
             id_transaccion_origen=(
                 str(payload.get("id_transaccion_origen") or "").strip() or None
+            ),
+            perception_authority=(
+                PerceptionAuthorityReferenceV1.model_validate(
+                    payload["perception_authority"]
+                )
+                if isinstance(payload.get("perception_authority"), dict)
+                else None
             ),
         )
         accion.attach_decision_outcome(
@@ -3979,6 +4428,13 @@ class Orchestrator:
             requiere_confirmacion=record.requires_confirmation,
             estado_ejecucion=record.action_state.value,
             id_transaccion_origen=record.transaction_id,
+            perception_authority=(
+                PerceptionAuthorityReferenceV1.model_validate(
+                    record.authority_reference
+                )
+                if isinstance(record.authority_reference, dict)
+                else None
+            ),
         ).attach_decision_outcome(DecisionOutcome.legacy_for_action(record.action_name))
 
     def _completar_transaccion_ledger(
@@ -4325,7 +4781,14 @@ class Orchestrator:
             logger.error("Error calculando esfuerzo subjetivo: %s", e, exc_info=True)
             return action_response
 
-    def _a_accion_saliente(self, action_response: ActionResponse, politica: str) -> AccionSaliente:
+    def _a_accion_saliente(
+        self,
+        action_response: ActionResponse,
+        politica: str,
+        *,
+        action_id: str | None = None,
+        perception_authority: PerceptionAuthorityReferenceV1 | None = None,
+    ) -> AccionSaliente:
         """Convierte la ActionResponse interna en el modelo de API."""
         requiere_confirmacion = False
         tool_info = self.tool_registry.get_tool(action_response.accion) if self.tool_registry else None
@@ -4333,10 +4796,11 @@ class Orchestrator:
             requiere_confirmacion = True
 
         return AccionSaliente(
-            id_accion=str(uuid.uuid4()),
+            id_accion=action_id or str(uuid.uuid4()),
             nombre=action_response.accion,
             parametros=action_response.parametros,
             requiere_confirmacion=requiere_confirmacion,
+            perception_authority=perception_authority,
         ).attach_decision_outcome(action_response.outcome)
 
     @staticmethod

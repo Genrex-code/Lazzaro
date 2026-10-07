@@ -799,13 +799,19 @@ def test_decision_layer_tracks_the_executed_primary_branch() -> None:
     writer = RecordingWriter()
     motor, motor_calls = _orquestador_aislado("motor")
     motor.audit_writer = writer
+    registry_get_tool = motor.tool_registry.get_tool
+    motor.tool_registry.get_tool = lambda name: (
+        {"requires_confirmation": False}
+        if name == "girar_avatar"
+        else registry_get_tool(name)
+    )
 
     def resolver_motor_fisico(**kwargs) -> ActionResponse:
         motor_calls["motor"] += 1
         return ActionResponse(
             pensamiento="SECRET_MOTOR_THOUGHT",
-            accion="navegar_a_objeto",
-            parametros={"nombre_objeto": "Cube"},
+            accion="girar_avatar",
+            parametros={"grados": 90},
             razon="SECRET_MOTOR_REASON",
             valido=True,
         )
@@ -814,12 +820,12 @@ def test_decision_layer_tracks_the_executed_primary_branch() -> None:
     motor_result = motor.procesar_evento(
         _full_flow_event("unity", "obs-006-motor-physical")
     )
-    assert_true(motor_result is not None and motor_result.nombre == "navegar_a_objeto", "Motor debe conservar la acción física.")
+    assert_true(motor_result is not None and motor_result.nombre == "girar_avatar", "Motor debe conservar la acción física no perceptiva.")
     assert_true(motor_calls["motor"] == 1, "Motor debe resolverse una sola vez.")
     motor_decision = _trace_for_stage(writer, "decision")
     assert_true(
         motor_decision.decision
-        == {"layer": "motor", "action": "navegar_a_objeto", "valid": True},
+        == {"layer": "motor", "action": "girar_avatar", "valid": True},
         "La acción física debe atribuirse a Motor.",
     )
     assert_true("SECRET_MOTOR" not in motor_decision.to_json(), "Decision no debe guardar pensamiento ni razón.")

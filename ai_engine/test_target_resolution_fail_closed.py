@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,11 @@ from ai_engine.motor_resolution import CandidateMatch, MotorResolution
 from ai_engine.schemas import ActionResponse
 from api.schemas import EventoEntrante
 from core.orchestrator import Orchestrator
+from core.perception_authority import (
+    GenerationBindingModeV1,
+    PerceptionAuthorityPolicyV1,
+)
+from core.perception_freshness import FreshnessPolicyV1
 from terminal_client.test_chat import _orquestador_aislado
 
 
@@ -369,6 +375,37 @@ def _audited_turn(message: str, perception: dict[str, Any], transaction_id: str)
     orchestrator, _calls = _orquestador_aislado("motor", intent="MOTOR_SIMPLE")
     del orchestrator.__dict__["_resolver_ruta_motor"]
     orchestrator.motor_engine = MotorEngine()
+    now_ms = time.time_ns() // 1_000_000
+    objects = []
+    for item in perception.get("objetos_normalizados", []):
+        modern = dict(item)
+        modern["runtime_object_id"] = f"runtime-{item['id']}"
+        modern["producer_object_id"] = None
+        objects.append(modern)
+    perception = {
+        **perception,
+        "contract_version": 1,
+        "source_kind": "UNITY",
+        "producer_instance_id": "root-001-test-producer",
+        "stream_id": "root-001-test-stream",
+        "producer_epoch_id": f"epoch-{transaction_id}",
+        "logical_world_id": None,
+        "producer_capture_id": f"capture-{transaction_id}",
+        "generation": 0,
+        "captured_at_utc_ms": now_ms,
+        "objects": objects,
+        "objetos_normalizados": objects,
+    }
+    orchestrator.perception_freshness_policy = FreshnessPolicyV1(
+        policy_id="root-001-test-freshness",
+        max_capture_age_ms=5_000,
+        max_future_skew_ms=100,
+    )
+    orchestrator.perception_authority_policy = PerceptionAuthorityPolicyV1(
+        policy_id="root-001-test-authority",
+        freshness_policy_id="root-001-test-freshness",
+        generation_binding_mode=GenerationBindingModeV1.REQUIRE_AUTHORIZED_GENERATION,
+    )
     writer = _RecordingWriter()
     orchestrator.audit_writer = writer
     event = EventoEntrante(

@@ -6,8 +6,9 @@ asi como la devolucion de acciones estructuradas que el agente decide ejecutar.
 
 from datetime import datetime
 from enum import Enum
+import time
 from typing import Any, Dict, List, Literal, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import (
     BaseModel,
@@ -27,6 +28,7 @@ from core.runtime_capabilities import (
     RuntimeOverall,
     RuntimeVerification,
 )
+from core.perception_authority import PerceptionAuthorityReferenceV1
 
 
 class LivenessPublicaV1(BaseModel):
@@ -89,6 +91,16 @@ class EventoEntrante(BaseModel):
         default_factory=dict,
         description="Payload flexible con informacion especifica del evento.",
     )
+    _received_at_utc_ms: int = PrivateAttr(default_factory=lambda: time.time_ns() // 1_000_000)
+    _local_ingest_id: str = PrivateAttr(default_factory=lambda: str(uuid4()))
+
+    @property
+    def received_at_utc_ms(self) -> int:
+        return self._received_at_utc_ms
+
+    @property
+    def local_ingest_id(self) -> str:
+        return self._local_ingest_id
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -210,6 +222,12 @@ class AccionSaliente(BaseModel):
     parametros_descripcion: List[ParametroHerramienta] = Field(
         default_factory=list,
         description="Metadatos opcionales que describen los parametros esperados.",
+    )
+    perception_authority: Optional[PerceptionAuthorityReferenceV1] = Field(
+        None,
+        description=(
+            "Referencia ROOT-029 minima para una accion fisica ligada a percepcion."
+        ),
     )
     _decision_outcome: DecisionOutcome = PrivateAttr()
 

@@ -19,6 +19,12 @@ from api.routes import router
 from config.settings import Settings
 from core.behavior_core import BehaviorCore
 from core.identity_snapshot import IdentitySnapshotProvider, build_static_self_v1
+from core.perception_authority import (
+    GenerationBindingModeV1,
+    PerceptionAuthorityPolicyV1,
+)
+from core.perception_freshness import FreshnessPolicyV1
+from core.perception_lifecycle import PerceptionLifecycleTracker
 from core.logger import get_logger
 from core.orchestrator import Orchestrator
 from core.safe_error_logging import log_safe_boundary_failure
@@ -147,6 +153,31 @@ async def lifespan(app: FastAPI):
                 herramientas_disponibles,
             )
             logger.info("Construyendo Orchestrator...")
+            freshness_policy = None
+            authority_policy = None
+            perception_config = (
+                getattr(settings, "PERCEPTION_FRESHNESS_POLICY_ID", None),
+                getattr(settings, "PERCEPTION_MAX_CAPTURE_AGE_MS", None),
+                getattr(settings, "PERCEPTION_MAX_FUTURE_SKEW_MS", None),
+                getattr(settings, "PERCEPTION_AUTHORITY_POLICY_ID", None),
+                getattr(settings, "PERCEPTION_GENERATION_BINDING_MODE", None),
+            )
+            if all(
+                value is not None
+                for value in perception_config
+            ):
+                freshness_policy = FreshnessPolicyV1(
+                    policy_id=perception_config[0],
+                    max_capture_age_ms=perception_config[1],
+                    max_future_skew_ms=perception_config[2],
+                )
+                authority_policy = PerceptionAuthorityPolicyV1(
+                    policy_id=perception_config[3],
+                    freshness_policy_id=freshness_policy.policy_id,
+                    generation_binding_mode=GenerationBindingModeV1(
+                        perception_config[4]
+                    ),
+                )
             orchestrator = Orchestrator(
                 behavior_core=behavior_core,
                 memory_manager=memory_manager,
@@ -154,6 +185,9 @@ async def lifespan(app: FastAPI):
                 tool_registry=ToolRegistry,
                 identity_provider=identity_provider,
                 action_ledger_path=settings.ACTION_LEDGER_PATH,
+                perception_lifecycle_tracker=PerceptionLifecycleTracker(),
+                perception_freshness_policy=freshness_policy,
+                perception_authority_policy=authority_policy,
             )
             resources.callback(cleanup.close, "orchestrator", orchestrator)
 

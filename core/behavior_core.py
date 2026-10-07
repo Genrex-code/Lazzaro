@@ -804,6 +804,18 @@ class BehaviorCore:
     @staticmethod
     def _extraer_percepcion(detalles: dict[str, Any]) -> dict[str, Any]:
         claves_perceptivas = {
+            "contract_version",
+            "source_kind",
+            "producer_instance_id",
+            "stream_id",
+            "producer_epoch_id",
+            "logical_world_id",
+            "producer_capture_id",
+            "generation",
+            "captured_at_utc_ms",
+            "objects",
+            "objetos_normalizados",
+            "perception_ingestion",
             "objetos_visibles",
             "resumen_percepcion",
             "objeto_mas_cercano",

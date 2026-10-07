@@ -354,8 +354,13 @@ def test_14_action_ledger_payload_contains_only_safe_operational_state() -> None
             "estado_ejecucion",
             "id_transaccion_origen",
             "decision_outcome",
+            "perception_authority",
         },
-        "El payload durable debe contener solo accion y outcome tipado seguro.",
+        "El payload durable debe contener solo accion, outcome y autoridad tipada segura.",
+    )
+    assert_true(
+        (durable or {})["perception_authority"] is None,
+        "Una accion sin recibo de autoridad no debe fabricar evidencia perceptiva.",
     )
     assert_true(
         set((durable or {})["decision_outcome"])

@@ -22,6 +22,41 @@ public class AccionSaliente
     public bool requiere_confirmacion;
     public string estado_ejecucion;
     public string id_transaccion_origen;
+    public PerceptionAuthorityReferenceV1 perception_authority;
+}
+
+[Serializable]
+public class TargetReferenceV1
+{
+    public int contract_version;
+    public string producer_instance_id;
+    public string stream_id;
+    public string producer_epoch_id;
+    public string logical_world_id;
+    public string producer_capture_id;
+    public long generation;
+    public string producer_object_id;
+    public string runtime_object_id;
+}
+
+[Serializable]
+public class PerceptionAuthorityReferenceV1
+{
+    public int version;
+    public string authority_decision_id;
+    public string id_accion;
+    public string authority_policy_id;
+    public string freshness_policy_id;
+    public string generation_binding_mode;
+    public string producer_capture_id;
+    public long generation;
+    public TargetReferenceV1 target;
+    public string action_name;
+    public string canonical_parameters_json;
+    public string interaction_type;
+    public string safety_disposition;
+    public string safety_reason_code;
+    public string action_binding_sha256;
 }
 
 [Serializable]

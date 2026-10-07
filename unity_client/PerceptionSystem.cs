@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using UnityEngine;
 
+[RequireComponent(typeof(PerceptionLifecycleContext))]
 public class PerceptionSystem : MonoBehaviour
 {
     private static readonly HashSet<string> AffordancesPermitidas = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -35,9 +36,16 @@ public class PerceptionSystem : MonoBehaviour
     [Tooltip("Angulo de vision frontal en grados. 120 equivale a 60 grados por lado.")]
     public float anguloVision = 120f;
     public int maxObjetosVisibles = 8;
+    private PerceptionLifecycleContext lifecycle;
+
+    void Awake()
+    {
+        lifecycle = GetComponent<PerceptionLifecycleContext>();
+    }
 
     public Dictionary<string, object> EscanearEntorno()
     {
+        PerceptionCaptureContext capture = lifecycle.BeginCapture();
         List<Collider> interactuables = ObtenerObjetosInteractuables();
         string resumenTextual = GenerarResumenTextual(interactuables);
         List<string> unknownAffordances;
@@ -63,6 +71,16 @@ public class PerceptionSystem : MonoBehaviour
 
         return new Dictionary<string, object>
         {
+            { "contract_version", 1 },
+            { "source_kind", "UNITY" },
+            { "producer_instance_id", capture.producer_instance_id },
+            { "stream_id", capture.stream_id },
+            { "producer_epoch_id", capture.producer_epoch_id },
+            { "logical_world_id", capture.logical_world_id },
+            { "producer_capture_id", capture.producer_capture_id },
+            { "generation", capture.generation },
+            { "captured_at_utc_ms", capture.captured_at_utc_ms },
+            { "objects", objetosNormalizados },
             { "snapshot_id", CrearSnapshotId(interactuables) },
             { "source", "unity" },
             { "objetos_visibles", resumenTextual },
@@ -189,6 +207,14 @@ public class PerceptionSystem : MonoBehaviour
             normalizados.Add(new Dictionary<string, object>
             {
                 { "id", ObtenerObjectId(col, metadata) },
+                {
+                    "producer_object_id",
+                    metadata != null ? metadata.GetExplicitObjectId() : null
+                },
+                {
+                    "runtime_object_id",
+                    col.gameObject.GetInstanceID().ToString(CultureInfo.InvariantCulture)
+                },
                 { "display_name", ObtenerDisplayName(col, metadata) },
                 { "nombre", col.name },
                 { "runtime_instance_id", col.gameObject.GetInstanceID() },

@@ -3,7 +3,7 @@ using UnityEngine;
 
 public class InteractableMetadata : MonoBehaviour
 {
-    [Tooltip("Id estable para Capa 1. Si queda vacio, se usa el nombre del GameObject.")]
+    [Tooltip("Id persistente explicito del productor. Vacio significa identidad persistente ausente.")]
     public string objectId = "";
 
     [Tooltip("Nombre humano para reportar al backend. Si queda vacio, se usa el nombre del GameObject.")]
@@ -26,6 +26,11 @@ public class InteractableMetadata : MonoBehaviour
         }
 
         return fallbackObject != null ? fallbackObject.name : "unknown_object";
+    }
+
+    public string GetExplicitObjectId()
+    {
+        return string.IsNullOrWhiteSpace(objectId) ? null : objectId.Trim();
     }
 
     public string GetDisplayName(GameObject fallbackObject)

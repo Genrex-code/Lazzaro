@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     CHROMA_DB_PATH: str = "./lazzaro_data"
     ACTION_LEDGER_PATH: str = "./lazzaro_data/action_ledger.sqlite3"
     MEMORY_WRITE_LEDGER_PATH: str = "./lazzaro_data/memory_write_ledger.sqlite3"
+    PERCEPTION_FRESHNESS_POLICY_ID: str | None = None
+    PERCEPTION_MAX_CAPTURE_AGE_MS: int | None = None
+    PERCEPTION_MAX_FUTURE_SKEW_MS: int | None = None
+    PERCEPTION_AUTHORITY_POLICY_ID: str | None = None
+    PERCEPTION_GENERATION_BINDING_MODE: str | None = None
     DEEPSEEK_MODEL: str = "deepseek-r1:8b"
 
     model_config = SettingsConfigDict(
@@ -100,6 +105,39 @@ class Settings(BaseSettings):
             return None
         valor = value.strip().rstrip("/")
         return valor or None
+
+    @field_validator(
+        "PERCEPTION_FRESHNESS_POLICY_ID",
+        "PERCEPTION_AUTHORITY_POLICY_ID",
+        "PERCEPTION_GENERATION_BINDING_MODE",
+    )
+    @classmethod
+    def normalizar_config_percepcion(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @field_validator(
+        "PERCEPTION_MAX_CAPTURE_AGE_MS",
+        "PERCEPTION_MAX_FUTURE_SKEW_MS",
+        mode="before",
+    )
+    @classmethod
+    def milisegundos_percepcion(cls, value: object) -> int | None:
+        if value is None or value == "":
+            return None
+        if isinstance(value, bool):
+            raise ValueError("Los limites perceptivos deben ser enteros no negativos.")
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "Los limites perceptivos deben ser enteros no negativos."
+            ) from error
+        if str(normalized) != str(value).strip() or normalized < 0:
+            raise ValueError("Los limites perceptivos deben ser enteros no negativos.")
+        return normalized
 
     @field_validator(
         "LLM_TOTAL_BUDGET_SECONDS",
