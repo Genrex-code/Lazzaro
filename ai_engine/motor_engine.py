@@ -11,12 +11,14 @@ from dataclasses import replace
 import re
 from typing import Any, Dict, Iterable, Optional
 
-from pydantic import ValidationError
-
 from core.logger import get_logger
 
 from .fuzzy_object_resolver import FuzzyObjectResolver
-from .motor_schemas import ACTION_SCHEMA_MAP, MotorAction, validar_parametros_fisicos
+from .motor_schemas import (
+    ACTION_SCHEMA_MAP,
+    MotorActionAdapterV1,
+    MotorActionContractFailureV1,
+)
 from .motor_resolution import InteractionType, MotorDiagnosis, MotorResolution
 from .perception_models import PerceptionSnapshot, normalize_perception
 from .spatial_reasoner import SpatialReasoner
@@ -271,27 +273,31 @@ class MotorEngine:
     ) -> Dict[str, Any]:
         """Aplica schema/numeric contract y crea MotorAction, sin resolver targets."""
 
-        try:
-            parametros_validados = validar_parametros_fisicos(accion, parametros)
-        except ValidationError as e:
-            logger.warning("Parametros invalidos para '%s': %s", accion, e.errors())
+        canonical = MotorActionAdapterV1.parse(accion, parametros)
+        if isinstance(canonical, MotorActionContractFailureV1):
+            logger.warning(
+                "Contrato Motor invalido para '%s': reason_code=%s",
+                accion,
+                canonical.reason_code.value,
+            )
             return MotorEngine._none(
                 "Parametros invalidos. Accion bloqueada por Capa 1.",
-                metadata=metadata,
+                metadata={
+                    **metadata,
+                    "motor_contract_failure": canonical.reason_code.value,
+                },
             )
 
-        motor_action = MotorAction(
-            accion=accion,
-            parametros=parametros_validados,
-            razon=f"Accion '{accion}' validada por Capa 1.",
+        logger.debug("MotorAction generada: %s", canonical.action.value)
+        return canonical.to_legacy_dict(
+            reason=f"Accion '{accion}' validada por Capa 1.",
             metadata=metadata,
         )
-        logger.debug("MotorAction generada: %s", motor_action.accion)
-        return motor_action.model_dump()
 
     @staticmethod
     def _none(razon: str, metadata: dict[str, Any] | None = None) -> Dict[str, Any]:
-        return MotorAction(accion="none", parametros={}, razon=razon, metadata=metadata or {}).model_dump()
+        canonical = MotorActionAdapterV1.require("none", {})
+        return canonical.to_legacy_dict(reason=razon, metadata=metadata)
 
     def _inferir_accion(
         self,

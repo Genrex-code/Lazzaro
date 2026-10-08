@@ -271,7 +271,7 @@ def test_nonperception_and_body_event_paths_are_not_silently_perception_governed
     body = ActionResponse(
         pensamiento="interno",
         accion="alejarse_de_objeto",
-        parametros={"direccion": "atras"},
+        parametros={"nombre_objeto": "Pared", "distancia": 1.0},
         razon="reflejo",
         metadata={},
     )

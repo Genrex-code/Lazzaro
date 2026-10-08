@@ -3,66 +3,14 @@ tools/simulated/movimiento_sim.py - Navegacion semantica y geometrica en el mund
 Las herramientas devuelven confirmaciones; Unity ejecuta la fisica real con NavMesh.
 """
 
-from pydantic import BaseModel, Field
-
+from ai_engine.motor_schemas import (
+    CancelTaskParams as CancelarTareaParams,
+    MoveAwayParams as AlejarseDeObjetoParams,
+    NavigateToObjectParams as NavegarAObjetoParams,
+    NavigateToPositionParams as NavegarAPosicionParams,
+    RotateAvatarParams as GirarAvatarParams,
+)
 from tools.registry import ToolRegistry
-
-
-class NavegarAObjetoParams(BaseModel):
-    nombre_objeto: str = Field(
-        ...,
-        description="Nombre exacto o aproximado del objeto al que quieres dirigirte.",
-    )
-
-
-class NavegarAPosicionParams(BaseModel):
-    x: float = Field(..., description="Coordenada X del destino.")
-    y: float = Field(..., description="Coordenada Y del destino.")
-    z: float = Field(..., description="Coordenada Z del destino.")
-
-
-class AlejarseDeObjetoParams(BaseModel):
-    nombre_objeto: str = Field(
-        ...,
-        description="Nombre exacto o aproximado del objeto del que Lazzaro debe alejarse.",
-    )
-    distancia: float = Field(
-        2.0,
-        ge=0.5,
-        le=5.0,
-        description="Metros a retroceder desde el objeto. Usa 2.0 si no se especifica distancia.",
-    )
-
-
-class GirarAvatarParams(BaseModel):
-    grados: float = Field(
-        ...,
-        ge=-360.0,
-        le=360.0,
-        description=(
-            "Grados relativos de giro sobre el eje Y. "
-            "Usa positivo para girar a la derecha y negativo para girar a la izquierda."
-        ),
-    )
-
-
-class CancelarTareaParams(BaseModel):
-    motivo: str = Field(
-        "Solicitud explicita del usuario.",
-        description="Motivo humano-legible de la cancelacion.",
-    )
-    cancelar_movimiento: bool = Field(
-        True,
-        description="Si es true, Unity debe detener cualquier movimiento activo.",
-    )
-    cancelar_cola: bool = Field(
-        True,
-        description="Si es true, Unity debe limpiar la fila de tareas pendientes.",
-    )
-    texto_confirmacion: str = Field(
-        "De acuerdo, cancelo la tarea actual.",
-        description="Texto breve que Unity puede mostrar como confirmacion pasiva.",
-    )
 
 
 @ToolRegistry.register(

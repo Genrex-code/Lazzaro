@@ -5,7 +5,11 @@ Valida parámetros, aplica confirmaciones, ejecuta la herramienta y captura erro
 
 from typing import Optional
 
-from ai_engine.motor_schemas import PHYSICAL_NUMERIC_ACTIONS, validar_parametros_fisicos
+from ai_engine.motor_resolution import MotorActionKindV1
+from ai_engine.motor_schemas import (
+    MotorActionAdapterV1,
+    MotorActionContractFailureV1,
+)
 from api.schemas import AccionSaliente
 from core.action_ledger import ActionState, ExecutionPermit
 from tools.base import ToolResult
@@ -28,6 +32,25 @@ class ActionExecutor:
         Ejecuta la acción indicada.
         Retorna un ToolResult con el resultado de la herramienta o un error.
         """
+        canonical_parameters = accion.parametros
+        try:
+            MotorActionKindV1(accion.nombre)
+        except (TypeError, ValueError):
+            pass
+        else:
+            canonical = MotorActionAdapterV1.parse(
+                accion.nombre,
+                accion.parametros,
+            )
+            if isinstance(canonical, MotorActionContractFailureV1):
+                mensaje = (
+                    "Contrato Motor invalido: "
+                    f"reason_code={canonical.reason_code.value}"
+                )
+                logger.warning(mensaje)
+                return ToolResult(exito=False, mensaje=mensaje, error=mensaje)
+            canonical_parameters = canonical.parameters_dict()
+
         # 1. Buscar la herramienta registrada
         tool_info = ToolRegistry.get_tool(accion.nombre)
         if tool_info is None:
@@ -38,10 +61,7 @@ class ActionExecutor:
         # 2. Validar parámetros con el esquema Pydantic
         schema_cls = tool_info["schema"]
         try:
-            parametros = accion.parametros
-            if accion.nombre in PHYSICAL_NUMERIC_ACTIONS:
-                parametros = validar_parametros_fisicos(accion.nombre, parametros)
-            params_validados = schema_cls(**parametros)
+            params_validados = schema_cls(**canonical_parameters)
         except Exception as e:
             mensaje = f"Parámetros inválidos para {accion.nombre}: {e}"
             logger.warning(mensaje)

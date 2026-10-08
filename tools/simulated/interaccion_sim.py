@@ -3,33 +3,13 @@ tools/simulated/interaccion_sim.py - Herramientas de interacción con objetos en
 """
 
 from pydantic import BaseModel, Field
-from ai_engine.motor_resolution import InteractionType
+from ai_engine.motor_schemas import (
+    ApplyForceParams as AplicarFuerzaParams,
+    GrabObjectParams as AgarrarObjetoParams,
+    InteractObjectParams as InteractuarObjeto3DParams,
+    ReleaseObjectParams as SoltarObjetoParams,
+)
 from tools.registry import ToolRegistry
-
-
-# Modelos de parámetros
-class AgarrarObjetoParams(BaseModel):
-    nombre_objeto: str = Field(..., description="Nombre del objeto a agarrar")
-
-
-class InteractuarObjeto3DParams(BaseModel):
-    nombre_objeto: str = Field(..., description="Nombre del objeto con el que se quiere interactuar")
-    tipo_accion: InteractionType = Field(
-        ...,
-        description="Tipo de interaccion: mirar, tocar, inspeccionar, golpear, usar o activar",
-    )
-
-
-class SoltarObjetoParams(BaseModel):
-    fuerza_lanzamiento: float = Field(0.0, description="Fuerza de lanzamiento (0 = soltar suavemente)")
-
-
-class AplicarFuerzaParams(BaseModel):
-    nombre_objeto: str = Field(..., description="Objeto al que aplicar la fuerza")
-    vector_x: float = Field(..., description="Componente X de la dirección")
-    vector_y: float = Field(..., description="Componente Y de la dirección")
-    vector_z: float = Field(..., description="Componente Z de la dirección")
-    fuerza: float = Field(..., description="Magnitud de la fuerza")
 
 
 class HablarParams(BaseModel):

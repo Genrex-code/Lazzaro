@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Any, Literal
 
 
@@ -22,17 +22,47 @@ class InteractionType(str, Enum):
     ACTIVAR = "activar"
 
 
+class MotorActionKindV1(StrEnum):
+    """Vocabulario cerrado de acciones pertenecientes a Capa 1."""
+
+    NONE = "none"
+    NAVIGATE_TO_OBJECT = "navegar_a_objeto"
+    NAVIGATE_TO_POSITION = "navegar_a_posicion"
+    INTERACT_OBJECT_3D = "interactuar_objeto_3d"
+    GRAB_OBJECT = "agarrar_objeto"
+    RELEASE_OBJECT = "soltar_objeto"
+    MOVE_AWAY_FROM_OBJECT = "alejarse_de_objeto"
+    ROTATE_AVATAR = "girar_avatar"
+    APPLY_FORCE = "aplicar_fuerza"
+    CANCEL_TASK = "cancelar_tarea"
+
+
+class ResolutionStatusV1(StrEnum):
+    READY = "ready"
+    REQUIRES_CLARIFICATION = "requires_clarification"
+    NOT_FOUND = "not_found"
+    NOT_ALLOWED = "not_allowed"
+    UNSAFE = "unsafe"
+
+
+class MotorDiagnosisStatusV1(StrEnum):
+    NO_INTENT = "sin_intencion"
+    NOT_ALLOWED = "no_permitida"
+    MISSING_TARGET = "falta_objetivo"
+    AMBIGUOUS = "ambigua"
+    READY = "lista"
+    REQUIRES_CLARIFICATION = "requires_clarification"
+    NOT_FOUND = "not_found"
+    TARGET_NOT_ALLOWED = "not_allowed"
+    UNSAFE = "unsafe"
+
+
+# Aliases de typing conservados para imports existentes. La autoridad runtime
+# son los enums anteriores y su validacion explicita en __post_init__.
 ResolutionStatus = Literal["ready", "requires_clarification", "not_found", "not_allowed", "unsafe"]
 MotorDiagnosisStatus = Literal[
-    "sin_intencion",
-    "no_permitida",
-    "falta_objetivo",
-    "ambigua",
-    "lista",
-    "requires_clarification",
-    "not_found",
-    "not_allowed",
-    "unsafe",
+    "sin_intencion", "no_permitida", "falta_objetivo", "ambigua", "lista",
+    "requires_clarification", "not_found", "not_allowed", "unsafe",
 ]
 
 
@@ -95,7 +125,7 @@ class CandidateCorrection:
 @dataclass(slots=True)
 class MotorResolution:
     status: ResolutionStatus
-    action: str | None = None
+    action: MotorActionKindV1 | str | None = None
     interaction_type: InteractionType | None = None
     target_id: str | None = None
     target_display_name: str | None = None
@@ -109,6 +139,19 @@ class MotorResolution:
     audit: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        try:
+            normalized_status = ResolutionStatusV1(self.status)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("unknown motor resolution status") from exc
+        self.status = normalized_status.value
+
+        if self.action is not None:
+            try:
+                normalized_action = MotorActionKindV1(self.action)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("unknown motor resolution action") from exc
+            self.action = normalized_action.value
+
         if self.interaction_type is not None and not isinstance(
             self.interaction_type,
             InteractionType,
@@ -176,25 +219,24 @@ class MotorDiagnosis(Mapping[str, Any]):
     """
 
     estado: MotorDiagnosisStatus
-    accion: str | None = None
+    accion: MotorActionKindV1 | str | None = None
     parametros: dict[str, Any] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     resolucion_motor: MotorResolution | None = None
 
     def __post_init__(self) -> None:
-        valid_states = {
-            "sin_intencion",
-            "no_permitida",
-            "falta_objetivo",
-            "ambigua",
-            "lista",
-            "requires_clarification",
-            "not_found",
-            "not_allowed",
-            "unsafe",
-        }
-        if self.estado not in valid_states:
-            raise ValueError("unknown motor diagnosis state")
+        try:
+            normalized_state = MotorDiagnosisStatusV1(self.estado)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("unknown motor diagnosis state") from exc
+        object.__setattr__(self, "estado", normalized_state.value)
+
+        if self.accion is not None:
+            try:
+                normalized_action = MotorActionKindV1(self.accion)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("unknown motor diagnosis action") from exc
+            object.__setattr__(self, "accion", normalized_action.value)
         if self.parametros is not None and not isinstance(self.parametros, dict):
             raise TypeError("motor diagnosis parameters must be a dict or None")
         if not isinstance(self.metadata, dict):

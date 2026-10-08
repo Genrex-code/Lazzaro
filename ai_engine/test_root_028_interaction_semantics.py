@@ -190,7 +190,7 @@ def test_motor_and_tool_schemas_require_the_same_closed_vocabulary() -> None:
         tool = InteractuarObjeto3DParams.model_validate(
             {"nombre_objeto": "Panel", "tipo_accion": value}
         )
-        assert motor.model_dump()["tipo_accion"] == value
+        assert motor.model_dump(mode="json")["tipo_accion"] == value
         assert tool.tipo_accion.value == value
 
     for invalid in (None, "", "xyz", True, 123, "MIRAR", " mirar ", "observa"):

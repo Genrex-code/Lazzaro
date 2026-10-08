@@ -37,7 +37,12 @@ from ai_engine.knowledge_provenance import (
     provider_receipt_from_llm,
 )
 from ai_engine.motor_engine import MotorEngine
-from ai_engine.motor_schemas import PHYSICAL_NUMERIC_ACTIONS, validar_parametros_fisicos
+from ai_engine.motor_resolution import MotorActionKindV1
+from ai_engine.motor_schemas import (
+    MotorActionAdapterV1,
+    MotorActionContractFailureV1,
+    MotorActionV1,
+)
 from ai_engine.perception_contracts import (
     PerceptionIdentityReceiptV1,
     PerceptionParseReceiptV1,
@@ -1295,6 +1300,16 @@ class Orchestrator:
             action_response,
             identity_context=identity_context,
         )
+        action_response, canonical_motor_action = (
+            self._canonicalizar_action_response_motor(action_response)
+        )
+        if not action_response.valido:
+            self._cerrar_efecto_uow(
+                evento.id_transaccion,
+                "decision:layer",
+                TurnEffectStatus.FAILED,
+            )
+            raise TurnProcessingError("motor_contract", "InvalidMotorStructure")
         self._cerrar_efecto_uow(
             evento.id_transaccion,
             "decision:layer",
@@ -1306,12 +1321,19 @@ class Orchestrator:
             action_response,
             action_id=action_id,
             trusted_parameter_path=trusted_parameter_path,
+            canonical_motor_action=canonical_motor_action,
         )
+        action_response, outgoing_motor_action = (
+            self._canonicalizar_action_response_motor(action_response)
+        )
+        if not action_response.valido:
+            raise TurnProcessingError("motor_contract", "InvalidGovernedMotorStructure")
         accion_saliente = self._a_accion_saliente(
             action_response,
             politica,
             action_id=action_id,
             perception_authority=authority_reference,
+            canonical_motor_action=outgoing_motor_action,
         )
         if outcome_action is None:
             self._iniciar_efecto_uow(
@@ -3306,8 +3328,27 @@ class Orchestrator:
         *,
         action_id: str,
         trusted_parameter_path: TrustedParameterPathV1 = TrustedParameterPathV1.UNKNOWN,
+        canonical_motor_action: MotorActionV1 | None = None,
     ) -> tuple[ActionResponse, PerceptionAuthorityReferenceV1 | None]:
         """Compone A-E una vez; nunca vuelve a resolver el objetivo."""
+
+        try:
+            motor_kind = MotorActionKindV1(action_response.accion)
+        except (TypeError, ValueError):
+            motor_kind = None
+        if motor_kind is not None:
+            if canonical_motor_action is None:
+                action_response, canonical_motor_action = (
+                    self._canonicalizar_action_response_motor(action_response)
+                )
+            if canonical_motor_action is None:
+                return action_response, None
+            action_response = action_response.model_copy(
+                update={
+                    "accion": canonical_motor_action.action.value,
+                    "parametros": canonical_motor_action.parameters_dict(),
+                }
+            )
 
         action_name = str(action_response.accion or "none")
         metadata = dict(action_response.metadata or {})
@@ -3397,15 +3438,12 @@ class Orchestrator:
             if resolution
             else None
         )
-        try:
-            bound_parameters = validar_parametros_fisicos(
-                action_name,
-                dict(action_response.parametros or {}),
-            )
-            schema_valid = True
-        except (KeyError, TypeError, ValueError):
-            bound_parameters = dict(action_response.parametros or {})
-            schema_valid = False
+        # ROOT-042 ya valido y normalizo la estructura antes de componer
+        # autoridad semantica ROOT-029. Este evaluator nunca descubre pares
+        # action/params malformados.
+        assert canonical_motor_action is not None
+        bound_parameters = canonical_motor_action.parameters_dict()
+        schema_valid = True
         candidate = PhysicalActionCandidateV1(
             id_accion=action_id,
             action_name=action_name,
@@ -4404,11 +4442,21 @@ class Orchestrator:
         decision_valid: bool | None = None,
     ) -> None:
         task_instance_id = str(task_instance_id or "").strip() or None
+        action_name = accion.nombre
+        parameters = dict(accion.parametros or {})
+        try:
+            MotorActionKindV1(action_name)
+        except (TypeError, ValueError):
+            pass
+        else:
+            canonical = MotorActionAdapterV1.require(action_name, parameters)
+            action_name = canonical.action.value
+            parameters = canonical.parameters_dict()
         receipt = self._obtener_action_ledger().record_action(
             action_id=accion.id_accion,
             transaction_id=str(evento.id_transaccion),
-            action_name=accion.nombre,
-            parameters=dict(accion.parametros or {}),
+            action_name=action_name,
+            parameters=parameters,
             requires_confirmation=accion.requiere_confirmacion,
             task_instance_id=task_instance_id,
             intended_client=str(evento.origen),
@@ -4471,14 +4519,25 @@ class Orchestrator:
     ) -> AccionSaliente | None:
         if not isinstance(payload, dict):
             return None
+        action_name = str(payload.get("nombre") or "none")
+        parameters = (
+            dict(payload.get("parametros") or {})
+            if isinstance(payload.get("parametros"), dict)
+            else payload.get("parametros")
+        )
+        try:
+            MotorActionKindV1(action_name)
+        except (TypeError, ValueError):
+            if not isinstance(parameters, dict):
+                parameters = {}
+        else:
+            canonical = MotorActionAdapterV1.require(action_name, parameters)
+            action_name = canonical.action.value
+            parameters = canonical.parameters_dict()
         accion = AccionSaliente(
             id_accion=str(payload.get("id_accion") or ""),
-            nombre=str(payload.get("nombre") or "none"),
-            parametros=(
-                dict(payload.get("parametros") or {})
-                if isinstance(payload.get("parametros"), dict)
-                else {}
-            ),
+            nombre=action_name,
+            parametros=parameters,
             requiere_confirmacion=payload.get("requiere_confirmacion") is True,
             estado_ejecucion=str(
                 payload.get("estado_ejecucion") or ActionState.LEGACY_UNKNOWN.value
@@ -4522,10 +4581,20 @@ class Orchestrator:
 
     @staticmethod
     def _accion_desde_record(record: ActionRecord) -> AccionSaliente:
+        action_name = record.action_name
+        parameters = dict(record.parameters)
+        try:
+            MotorActionKindV1(action_name)
+        except (TypeError, ValueError):
+            pass
+        else:
+            canonical = MotorActionAdapterV1.require(action_name, parameters)
+            action_name = canonical.action.value
+            parameters = canonical.parameters_dict()
         return AccionSaliente(
             id_accion=record.action_id,
-            nombre=record.action_name,
-            parametros=dict(record.parameters),
+            nombre=action_name,
+            parametros=parameters,
             requiere_confirmacion=record.requires_confirmation,
             estado_ejecucion=record.action_state.value,
             id_transaccion_origen=record.transaction_id,
@@ -4536,7 +4605,7 @@ class Orchestrator:
                 if isinstance(record.authority_reference, dict)
                 else None
             ),
-        ).attach_decision_outcome(DecisionOutcome.legacy_for_action(record.action_name))
+        ).attach_decision_outcome(DecisionOutcome.legacy_for_action(action_name))
 
     def _completar_transaccion_ledger(
         self,
@@ -4646,15 +4715,19 @@ class Orchestrator:
                 },
             )
 
-        return ActionResponse(
-            pensamiento="El usuario pidio cancelar la tarea actual. Debo detener cuerpo y cola.",
-            accion="cancelar_tarea",
-            parametros={
+        cancel_action = MotorActionAdapterV1.require(
+            MotorActionKindV1.CANCEL_TASK,
+            {
                 "motivo": "Solicitud explicita del usuario.",
                 "cancelar_movimiento": True,
                 "cancelar_cola": True,
                 "texto_confirmacion": "De acuerdo, cancelo la tarea actual.",
             },
+        )
+        return ActionResponse(
+            pensamiento="El usuario pidio cancelar la tarea actual. Debo detener cuerpo y cola.",
+            accion=cancel_action.action.value,
+            parametros=cancel_action.parameters_dict(),
             razon="Cancelacion estructurada aplicada antes de detener actividad externa.",
             valido=True,
             metadata={
@@ -4684,27 +4757,46 @@ class Orchestrator:
             x, y, z = posicion_actual
             dx, dz = self._vector_escape(direccion_escape)
             distancia_segura = self._leer_distancia_escape(distancia)
+            raw_parameters = {
+                "x": round(x + dx * distancia_segura, 2),
+                "y": round(y, 2),
+                "z": round(z + dz * distancia_segura, 2),
+            }
+            parsed_escape = MotorActionAdapterV1.parse(
+                MotorActionKindV1.NAVIGATE_TO_POSITION,
+                raw_parameters,
+            )
+            if isinstance(parsed_escape, MotorActionContractFailureV1):
+                action_name = MotorActionKindV1.NAVIGATE_TO_POSITION.value
+                metadata = {
+                    "motor_contract_failure": parsed_escape.model_dump(mode="json")
+                }
+            else:
+                action_name = parsed_escape.action.value
+                raw_parameters = parsed_escape.parameters_dict()
+                metadata = {}
             return ActionResponse(
                 pensamiento=pensamiento,
-                accion="navegar_a_posicion",
-                parametros={
-                    "x": round(x + dx * distancia_segura, 2),
-                    "y": round(y, 2),
-                    "z": round(z + dz * distancia_segura, 2),
-                },
+                accion=action_name,
+                parametros=raw_parameters,
                 razon=razon,
                 valido=True,
+                metadata=metadata,
             )
 
         objeto_escape = self._leer_objeto_escape(evento)
         if self.tool_registry and self.tool_registry.get_tool("alejarse_de_objeto") and objeto_escape:
-            return ActionResponse(
-                pensamiento=pensamiento,
-                accion="alejarse_de_objeto",
-                parametros={
+            escape_action = MotorActionAdapterV1.require(
+                MotorActionKindV1.MOVE_AWAY_FROM_OBJECT,
+                {
                     "nombre_objeto": objeto_escape,
                     "distancia": self._leer_distancia_escape(distancia),
                 },
+            )
+            return ActionResponse(
+                pensamiento=pensamiento,
+                accion=escape_action.action.value,
+                parametros=escape_action.parameters_dict(),
                 razon=razon,
                 valido=True,
             )
@@ -4738,33 +4830,16 @@ class Orchestrator:
                 outcome=action_response.outcome,
             )
 
-        if action_response.accion in PHYSICAL_NUMERIC_ACTIONS:
-            try:
-                parametros_validados = validar_parametros_fisicos(
-                    action_response.accion,
-                    action_response.parametros,
-                )
-            except (TypeError, ValueError):
-                logger.warning(
-                    "Parametros fisicos invalidos para '%s'; se degradara a no-op.",
-                    action_response.accion,
-                )
-                return ActionResponse(
-                    pensamiento=action_response.pensamiento,
-                    accion="none",
-                    parametros={},
-                    razon=action_response.razon,
-                    valido=False,
-                    error="Parametros fisicos invalidos. Accion bloqueada.",
-                    metadata=action_response.metadata,
-                    outcome=self._outcome_rechazado(
-                        action_response.outcome,
-                        DecisionReasonCode.INVALID_PARAMETERS,
-                    ),
-                )
-            action_response = action_response.model_copy(
-                update={"parametros": parametros_validados}
+        try:
+            MotorActionKindV1(action_response.accion)
+        except (TypeError, ValueError):
+            pass
+        else:
+            action_response, canonical = self._canonicalizar_action_response_motor(
+                action_response
             )
+            if canonical is None:
+                return action_response
 
         if (
             action_response.accion != "none"
@@ -4788,6 +4863,50 @@ class Orchestrator:
             )
 
         return action_response
+
+    @staticmethod
+    def _canonicalizar_action_response_motor(
+        action_response: ActionResponse,
+    ) -> tuple[ActionResponse, MotorActionV1 | None]:
+        """Convierte input Motor no confiable o lo rechaza con causalidad finita."""
+        try:
+            MotorActionKindV1(action_response.accion)
+        except (TypeError, ValueError):
+            return action_response, None
+
+        parsed = MotorActionAdapterV1.parse(
+            action_response.accion,
+            action_response.parametros,
+        )
+        if isinstance(parsed, MotorActionContractFailureV1):
+            metadata = dict(action_response.metadata or {})
+            metadata["motor_contract_failure"] = parsed.model_dump(mode="json")
+            return (
+                action_response.model_copy(
+                    update={
+                        "accion": MotorActionKindV1.NONE.value,
+                        "parametros": {},
+                        "valido": False,
+                        "error": "Contrato estructural Motor invalido.",
+                        "metadata": metadata,
+                        "outcome": Orchestrator._outcome_rechazado(
+                            action_response.outcome,
+                            DecisionReasonCode.INVALID_PARAMETERS,
+                        ),
+                    }
+                ),
+                None,
+            )
+
+        return (
+            action_response.model_copy(
+                update={
+                    "accion": parsed.action.value,
+                    "parametros": parsed.parameters_dict(),
+                }
+            ),
+            parsed,
+        )
 
     @staticmethod
     def _asegurar_decision_outcome(
@@ -4889,17 +5008,33 @@ class Orchestrator:
         *,
         action_id: str | None = None,
         perception_authority: PerceptionAuthorityReferenceV1 | None = None,
+        canonical_motor_action: MotorActionV1 | None = None,
     ) -> AccionSaliente:
         """Convierte la ActionResponse interna en el modelo de API."""
+        action_name = action_response.accion
+        parameters = dict(action_response.parametros or {})
+        try:
+            MotorActionKindV1(action_name)
+        except (TypeError, ValueError):
+            pass
+        else:
+            if canonical_motor_action is None:
+                canonical_motor_action = MotorActionAdapterV1.require(
+                    action_name,
+                    parameters,
+                )
+            action_name = canonical_motor_action.action.value
+            parameters = canonical_motor_action.parameters_dict()
+
         requiere_confirmacion = False
-        tool_info = self.tool_registry.get_tool(action_response.accion) if self.tool_registry else None
+        tool_info = self.tool_registry.get_tool(action_name) if self.tool_registry else None
         if tool_info and tool_info.get("requires_confirmation") and politica != "autonoma":
             requiere_confirmacion = True
 
         return AccionSaliente(
             id_accion=action_id or str(uuid.uuid4()),
-            nombre=action_response.accion,
-            parametros=action_response.parametros,
+            nombre=action_name,
+            parametros=parameters,
             requiere_confirmacion=requiere_confirmacion,
             perception_authority=perception_authority,
         ).attach_decision_outcome(action_response.outcome)
