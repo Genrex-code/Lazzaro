@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class Settings(BaseSettings):
@@ -69,10 +73,21 @@ class Settings(BaseSettings):
     DEEPSEEK_MODEL: str = "deepseek-r1:8b"
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # Resolve against the project, independently of the launch directory.
+        env_file=PROJECT_ROOT / ".env",
         extra="ignore",
         str_strip_whitespace=True,
     )
+
+    @field_validator("CHROMA_DB_PATH", "ACTION_LEDGER_PATH", "MEMORY_WRITE_LEDGER_PATH")
+    @classmethod
+    def resolver_ruta_datos(cls, value: str) -> str:
+        if value == ":memory:":
+            return value
+        path = Path(value)
+        if not path.is_absolute():
+            path = PROJECT_ROOT / path
+        return str(path.resolve())
 
     @field_validator("AI_PROVIDER")
     @classmethod
