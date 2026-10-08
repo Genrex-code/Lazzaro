@@ -56,6 +56,19 @@ class ParameterProvenanceKindV1(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
+class TrustedParameterPathV1(str, Enum):
+    """Code-owned producer path; never populated from user/model metadata."""
+
+    MOTOR_PERCEPTION_RESOLUTION = "MOTOR_PERCEPTION_RESOLUTION"
+    PERCEPTION_DERIVED_COORDINATES = "PERCEPTION_DERIVED_COORDINATES"
+    MOTOR_EXPLICIT_COORDINATE_PARSER = "MOTOR_EXPLICIT_COORDINATE_PARSER"
+    MOTOR_BODY_RELATIVE_PARSER = "MOTOR_BODY_RELATIVE_PARSER"
+    MOTOR_HELD_OBJECT_PATH = "MOTOR_HELD_OBJECT_PATH"
+    CRITICAL_BODY_EVENT = "CRITICAL_BODY_EVENT"
+    ORCHESTRATOR_CONTROL = "ORCHESTRATOR_CONTROL"
+    UNKNOWN = "UNKNOWN"
+
+
 class AuthorityApplicabilityV1(str, Enum):
     REQUIRED = "REQUIRED"
     NOT_REQUIRED = "NOT_REQUIRED"
@@ -673,11 +686,16 @@ class PerceptionAuthorityEvaluator:
                 if identity is not None and not identity.action_relevant_records_agree
                 else AuthorityReasonCodeV1.IDENTITY_AMBIGUOUS
             )
-            gates.append(self._gate(AuthorityGateNameV1.IDENTITY, AuthorityGateStatusV1.DENY, reason))
+            gate_status = (
+                AuthorityGateStatusV1.DENY
+                if reason is AuthorityReasonCodeV1.DUPLICATE_RECORD_STATE_CONFLICT
+                else AuthorityGateStatusV1.INDETERMINATE
+            )
+            gates.append(self._gate(AuthorityGateNameV1.IDENTITY, gate_status, reason))
         elif identity_status is IdentityStatusV1.PARTIAL:
             gates.append(self._gate(AuthorityGateNameV1.IDENTITY, AuthorityGateStatusV1.INDETERMINATE, AuthorityReasonCodeV1.IDENTITY_PARTIAL))
         else:
-            gates.append(self._gate(AuthorityGateNameV1.IDENTITY, AuthorityGateStatusV1.DENY, AuthorityReasonCodeV1.IDENTITY_ABSENT))
+            gates.append(self._gate(AuthorityGateNameV1.IDENTITY, AuthorityGateStatusV1.INDETERMINATE, AuthorityReasonCodeV1.IDENTITY_ABSENT))
 
         lifecycle_status = lifecycle.status if lifecycle else LifecycleStatusV1.ABSENT
         if lifecycle_status is LifecycleStatusV1.RESOLVED:
@@ -687,7 +705,7 @@ class PerceptionAuthorityEvaluator:
         elif lifecycle_status is LifecycleStatusV1.HISTORY_UNKNOWN:
             gates.append(self._gate(AuthorityGateNameV1.LIFECYCLE, AuthorityGateStatusV1.INDETERMINATE, AuthorityReasonCodeV1.LIFECYCLE_HISTORY_UNKNOWN))
         else:
-            gates.append(self._gate(AuthorityGateNameV1.LIFECYCLE, AuthorityGateStatusV1.DENY, AuthorityReasonCodeV1.LIFECYCLE_ABSENT))
+            gates.append(self._gate(AuthorityGateNameV1.LIFECYCLE, AuthorityGateStatusV1.INDETERMINATE, AuthorityReasonCodeV1.LIFECYCLE_ABSENT))
 
         if policy is None or freshness is None or freshness.policy_id is None:
             gates.append(self._gate(AuthorityGateNameV1.FRESHNESS, AuthorityGateStatusV1.INDETERMINATE, AuthorityReasonCodeV1.FRESHNESS_POLICY_MISSING))
@@ -841,27 +859,51 @@ class PerceptionAuthorityEvaluator:
 def derive_parameter_provenance(
     action_name: str,
     *,
-    motor_resolution_present: bool,
-    body_event: bool = False,
+    trusted_path: TrustedParameterPathV1,
 ) -> ParameterProvenanceV1:
-    """Trusted code-owned classification; never consumes arbitrary metadata labels."""
+    """Map an observed code path to provenance; action name alone grants nothing."""
 
-    if action_name in PERCEPTION_TARGET_ACTIONS and motor_resolution_present:
+    if (
+        (
+            trusted_path is TrustedParameterPathV1.MOTOR_PERCEPTION_RESOLUTION
+            and action_name in PERCEPTION_TARGET_ACTIONS
+        )
+        or (
+            trusted_path is TrustedParameterPathV1.PERCEPTION_DERIVED_COORDINATES
+            and action_name == "navegar_a_posicion"
+        )
+    ):
         kind = ParameterProvenanceKindV1.PERCEPTION_TARGET
-        producer = "motor_resolution"
-    elif action_name == "alejarse_de_objeto" and body_event:
+        producer = (
+            "motor_resolution"
+            if trusted_path is TrustedParameterPathV1.MOTOR_PERCEPTION_RESOLUTION
+            else "perception_derived_coordinates"
+        )
+    elif trusted_path is TrustedParameterPathV1.CRITICAL_BODY_EVENT:
         kind = ParameterProvenanceKindV1.BODY_EVENT
         producer = "critical_body_event"
-    elif action_name == "navegar_a_posicion":
+    elif (
+        trusted_path is TrustedParameterPathV1.MOTOR_EXPLICIT_COORDINATE_PARSER
+        and action_name == "navegar_a_posicion"
+    ):
         kind = ParameterProvenanceKindV1.EXPLICIT_COORDINATES
-        producer = "validated_action_schema"
-    elif action_name == "girar_avatar":
+        producer = "motor_explicit_coordinate_parser"
+    elif (
+        trusted_path is TrustedParameterPathV1.MOTOR_BODY_RELATIVE_PARSER
+        and action_name == "girar_avatar"
+    ):
         kind = ParameterProvenanceKindV1.BODY_RELATIVE
-        producer = "validated_action_schema"
-    elif action_name == "soltar_objeto":
+        producer = "motor_body_relative_parser"
+    elif (
+        trusted_path is TrustedParameterPathV1.MOTOR_HELD_OBJECT_PATH
+        and action_name == "soltar_objeto"
+    ):
         kind = ParameterProvenanceKindV1.HELD_OBJECT
-        producer = "validated_action_schema"
-    elif action_name in {"cancelar_tarea", "none", "hablar"}:
+        producer = "motor_held_object_path"
+    elif (
+        trusted_path is TrustedParameterPathV1.ORCHESTRATOR_CONTROL
+        and action_name in {"cancelar_tarea", "none", "hablar"}
+    ):
         kind = ParameterProvenanceKindV1.CONTROL
         producer = "orchestrator_action_kind"
     else:

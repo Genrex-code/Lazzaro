@@ -93,6 +93,7 @@ from core.perception_authority import (
     PerceptionAuthorityReferenceV1,
     PhysicalActionCandidateV1,
     TargetReferenceV1,
+    TrustedParameterPathV1,
     canonical_json,
     derive_parameter_provenance,
     physical_action_class,
@@ -137,6 +138,7 @@ class Orchestrator:
 
     MAX_TRANSACCIONES_CACHE = 2000
     _AUDIT_TIMING = threading.local()
+    _PARAMETER_PROVENANCE = threading.local()
 
     def __init__(
         self,
@@ -1139,6 +1141,7 @@ class Orchestrator:
             )
 
         decision_layer = "none"
+        trusted_parameter_path = TrustedParameterPathV1.UNKNOWN
         decision_observation: dict[str, object] = {}
         identity_context: IdentityContextV1 | None = None
         self._iniciar_efecto_uow(
@@ -1160,11 +1163,13 @@ class Orchestrator:
                 )
             if es_interrupcion_critica:
                 action_response = self._resolver_interrupcion_critica(evento)
+                trusted_parameter_path = TrustedParameterPathV1.CRITICAL_BODY_EVENT
             elif self._usuario_pide_cancelar_tarea(evento):
                 action_response = self._resolver_cancelacion_tarea_usuario(
                     evento,
                     task_transition=task_transition,
                 )
+                trusted_parameter_path = TrustedParameterPathV1.ORCHESTRATOR_CONTROL
             elif solicita_guardado_conversacional:
                 self._iniciar_efecto_uow(
                     evento.id_transaccion,
@@ -1174,6 +1179,7 @@ class Orchestrator:
                     required=True,
                 )
                 action_response = self._resolver_guardado_conversacional(evento)
+                trusted_parameter_path = TrustedParameterPathV1.ORCHESTRATOR_CONTROL
                 self._cerrar_efecto_uow(
                     evento.id_transaccion,
                     "decision:manual_memory_save",
@@ -1187,12 +1193,16 @@ class Orchestrator:
                     or "Evento filtrado por Triage Router."
                 )
                 action_response = self._accion_pasiva(razon_triage)
+                trusted_parameter_path = TrustedParameterPathV1.ORCHESTRATOR_CONTROL
             elif self._es_resultado_hablar(evento):
                 action_response = self._accion_pasiva()
+                trusted_parameter_path = TrustedParameterPathV1.ORCHESTRATOR_CONTROL
             elif not solicita_decision:
                 action_response = self._accion_pasiva()
+                trusted_parameter_path = TrustedParameterPathV1.ORCHESTRATOR_CONTROL
             elif self._triage_es_motor(triage_decision):
                 decision_layer = "motor"
+                self._record_trusted_parameter_path(TrustedParameterPathV1.UNKNOWN)
                 action_response = self._resolver_ruta_motor(
                     evento=evento,
                     triage_decision=triage_decision,
@@ -1206,6 +1216,7 @@ class Orchestrator:
                     audit_observation=decision_observation,
                     identity_context=identity_context,
                 )
+                trusted_parameter_path = self._consume_trusted_parameter_path()
             elif self._triage_es_persona(triage_decision):
                 decision_layer = "persona"
                 action_response = self._resolver_ruta_persona(
@@ -1294,6 +1305,7 @@ class Orchestrator:
             evento,
             action_response,
             action_id=action_id,
+            trusted_parameter_path=trusted_parameter_path,
         )
         accion_saliente = self._a_accion_saliente(
             action_response,
@@ -2965,6 +2977,62 @@ class Orchestrator:
         audit_observation: dict[str, object] | None = None,
         identity_context: IdentityContextV1 | None = None,
     ) -> ActionResponse:
+        response, _trusted_path = self._resolver_ruta_motor_con_provenance(
+            evento=evento,
+            contexto_llm=contexto_llm,
+            memoria_texto=memoria_texto,
+            herramientas=herramientas,
+            herramientas_detalle=herramientas_detalle,
+            politica=politica,
+            tarea=tarea,
+            triage_decision=triage_decision,
+            estado_actual=estado_actual,
+            audit_observation=audit_observation,
+            identity_context=identity_context,
+        )
+        self._record_trusted_parameter_path(_trusted_path)
+        return response
+
+    @classmethod
+    def _record_trusted_parameter_path(
+        cls,
+        path: TrustedParameterPathV1,
+    ) -> None:
+        if not isinstance(path, TrustedParameterPathV1):
+            raise TypeError("trusted parameter path must be typed")
+        cls._PARAMETER_PROVENANCE.path = path
+
+    @classmethod
+    def _consume_trusted_parameter_path(cls) -> TrustedParameterPathV1:
+        path = getattr(
+            cls._PARAMETER_PROVENANCE,
+            "path",
+            TrustedParameterPathV1.UNKNOWN,
+        )
+        try:
+            del cls._PARAMETER_PROVENANCE.path
+        except AttributeError:
+            pass
+        return (
+            path
+            if isinstance(path, TrustedParameterPathV1)
+            else TrustedParameterPathV1.UNKNOWN
+        )
+
+    def _resolver_ruta_motor_con_provenance(
+        self,
+        evento: EventoEntrante,
+        contexto_llm: dict,
+        memoria_texto: str,
+        herramientas: list[str],
+        herramientas_detalle: dict[str, str],
+        politica: str,
+        tarea: dict | None,
+        triage_decision: dict | None = None,
+        estado_actual: dict | None = None,
+        audit_observation: dict[str, object] | None = None,
+        identity_context: IdentityContextV1 | None = None,
+    ) -> tuple[ActionResponse, TrustedParameterPathV1]:
         """Usa Capa 1 para resolver/validar acciones fisicas."""
         percepcion = self._extraer_percepcion_motor(evento, contexto_llm)
         root029_context = self._observar_percepcion_root029(percepcion, evento=evento)
@@ -2988,23 +3056,28 @@ class Orchestrator:
             accion_motora = self.motor_engine.procesar_diagnostico_motor(
                 diagnostico_motor
             )
-            return self._adjuntar_contexto_root029(
+            response = self._adjuntar_contexto_root029(
                 self._action_response_desde_motor(
                     accion_motora,
                     pensamiento="",
                 ),
                 root029_context,
             )
+            return response, self._trusted_path_for_motor_action(
+                str(diagnostico_motor.accion or response.accion),
+                perception_resolution=diagnostico_motor.resolucion_motor is not None,
+                reasoning_generated=False,
+            )
         if diagnostico_motor["estado"] in {"falta_objetivo", "ambigua"}:
             return self._adjuntar_contexto_root029(
                 self._respuesta_aclaracion_motor(diagnostico_motor),
                 root029_context,
-            )
+            ), TrustedParameterPathV1.ORCHESTRATOR_CONTROL
         if diagnostico_motor["estado"] in {"requires_clarification", "not_found", "not_allowed", "unsafe"}:
             return self._adjuntar_contexto_root029(
                 self._respuesta_resolucion_motor(diagnostico_motor),
                 root029_context,
-            )
+            ), TrustedParameterPathV1.ORCHESTRATOR_CONTROL
 
         try:
             action_response = self.reasoning.process(
@@ -3043,7 +3116,7 @@ class Orchestrator:
                     reason_codes=(DecisionReasonCode.MOTOR_RESOLUTION_FAILED,),
                     retry_count=0,
                 ),
-            ), root029_context)
+            ), root029_context), TrustedParameterPathV1.ORCHESTRATOR_CONTROL
 
         if action_response.accion in self.motor_engine.ACCIONES_MOTORAS:
             accion_validada = self.motor_engine.procesar_comando_motor(
@@ -3053,15 +3126,50 @@ class Orchestrator:
                 intent=intent,
                 contexto_motor=contexto_motor,
             )
-            return self._adjuntar_contexto_root029(
+            response = self._adjuntar_contexto_root029(
                 self._action_response_desde_motor(
                     accion_validada,
                     pensamiento=action_response.pensamiento,
                 ),
                 root029_context,
             )
+            validated_metadata = (
+                accion_validada.get("metadata")
+                if isinstance(accion_validada, dict)
+                and isinstance(accion_validada.get("metadata"), dict)
+                else {}
+            )
+            return response, self._trusted_path_for_motor_action(
+                str(response.accion or "none"),
+                perception_resolution=isinstance(
+                    validated_metadata.get("motor_resolution"),
+                    dict,
+                ),
+                reasoning_generated=True,
+            )
 
-        return action_response
+        return action_response, TrustedParameterPathV1.UNKNOWN
+
+    def _trusted_path_for_motor_action(
+        self,
+        action_name: str,
+        *,
+        perception_resolution: bool,
+        reasoning_generated: bool,
+    ) -> TrustedParameterPathV1:
+        if action_name in MotorEngine.ACCIONES_CON_OBJETO and perception_resolution:
+            return TrustedParameterPathV1.MOTOR_PERCEPTION_RESOLUTION
+        if reasoning_generated:
+            return TrustedParameterPathV1.UNKNOWN
+        if action_name == "navegar_a_posicion":
+            return TrustedParameterPathV1.MOTOR_EXPLICIT_COORDINATE_PARSER
+        if action_name == "girar_avatar":
+            return TrustedParameterPathV1.MOTOR_BODY_RELATIVE_PARSER
+        if action_name == "soltar_objeto":
+            return TrustedParameterPathV1.MOTOR_HELD_OBJECT_PATH
+        if action_name in {"cancelar_tarea", "none", "hablar"}:
+            return TrustedParameterPathV1.ORCHESTRATOR_CONTROL
+        return TrustedParameterPathV1.UNKNOWN
 
     @staticmethod
     def _extraer_percepcion_motor(evento: EventoEntrante, contexto_llm: dict) -> dict:
@@ -3197,6 +3305,7 @@ class Orchestrator:
         action_response: ActionResponse,
         *,
         action_id: str,
+        trusted_parameter_path: TrustedParameterPathV1 = TrustedParameterPathV1.UNKNOWN,
     ) -> tuple[ActionResponse, PerceptionAuthorityReferenceV1 | None]:
         """Compone A-E una vez; nunca vuelve a resolver el objetivo."""
 
@@ -3209,21 +3318,11 @@ class Orchestrator:
         )
         provenance = derive_parameter_provenance(
             action_name,
-            motor_resolution_present=resolution is not None,
-            body_event=bool(
-                evento.tipo_evento == "alerta_dolor_fisico"
-                and action_name == "alejarse_de_objeto"
-            ),
+            trusted_path=trusted_parameter_path,
         )
         metadata["parameter_provenance"] = provenance.model_dump(mode="json")
 
-        if action_name not in {
-            "navegar_a_objeto",
-            "alejarse_de_objeto",
-            "interactuar_objeto_3d",
-            "agarrar_objeto",
-            "aplicar_fuerza",
-        } or provenance.kind.value == "BODY_EVENT":
+        if action_name not in MotorEngine.ACCIONES_MOTORAS:
             return action_response.model_copy(update={"metadata": metadata}), None
 
         context = (
@@ -3344,6 +3443,8 @@ class Orchestrator:
             policy=getattr(self, "perception_authority_policy", None),
         )
         metadata["perception_authority_receipt"] = receipt.model_dump(mode="json")
+        if receipt.status is AuthorityStatusV1.NOT_APPLICABLE:
+            return action_response.model_copy(update={"metadata": metadata}), None
         if authorized is not None and receipt.status is AuthorityStatusV1.AUTHORIZED:
             if not authorized.binding_is_intact():
                 return self._bloquear_por_autoridad(

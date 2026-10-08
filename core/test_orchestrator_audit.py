@@ -33,6 +33,7 @@ from core.audit_trace import AuditTrace
 from core.audit_writer import AuditTraceJSONLWriter
 from core.action_ledger import TurnProcessingError
 from core.orchestrator import Orchestrator
+from core.perception_authority import TrustedParameterPathV1
 from memory.memory_manager import MemoryContextResult, MemoryManager
 from memory.memory_types import (
     EpisodicMemory,
@@ -808,6 +809,9 @@ def test_decision_layer_tracks_the_executed_primary_branch() -> None:
 
     def resolver_motor_fisico(**kwargs) -> ActionResponse:
         motor_calls["motor"] += 1
+        motor._record_trusted_parameter_path(
+            TrustedParameterPathV1.MOTOR_BODY_RELATIVE_PARSER
+        )
         return ActionResponse(
             pensamiento="SECRET_MOTOR_THOUGHT",
             accion="girar_avatar",

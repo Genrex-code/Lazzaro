@@ -24,9 +24,9 @@ Registros duplicados sólo pueden seguir adelante si resuelven al mismo target y
 
 ## C — Lifecycle y scope
 
-`PerceptionLifecycleTracker` es inyectado por el composition root. Mantiene estado acotado por `producer_instance_id + stream_id`, con lock independiente por stream. Dentro de un epoch, la primera captura usa generación `0`; cada captura nueva avanza una vez y una retransmisión conserva capture ID y generación.
+`PerceptionLifecycleTracker` es inyectado por el composition root. Mantiene estado acotado por `producer_instance_id + stream_id`, con lock independiente por stream. El productor Unity inicia cada epoch en generación `0`; el receptor, en cambio, acepta como `FIRST_OBSERVED` cualquier generación no negativa porque puede arrancar tarde o perder entregas. Cada captura posterior avanza una vez y una retransmisión conserva capture ID y generación.
 
-El recibo distingue advance, gap, repeat, out-of-order y colisiones, además de cambios de epoch y mundo lógico. Al expulsar historia por el límite acotado, el resultado es `HISTORY_UNKNOWN`: nunca se fabrica `NEW_CAPTURE`, repeat ni collision sin evidencia.
+El recibo distingue advance, gap, repeat, out-of-order y colisiones, además de cambios de epoch y mundo lógico. Conserva historia acotada de epochs retirados: un replay de un epoch conocido es `OLD_EPOCH_REPLAY` y jamás reemplaza al actual; si la historia necesaria ya fue expulsada, el resultado es `HISTORY_UNKNOWN`. Nunca se fabrica `NEW_CAPTURE`, repeat ni collision sin evidencia.
 
 `logical_world_id` es un namespace lógico persistente explícito. No se deriva del nombre de escena.
 
@@ -46,7 +46,9 @@ Un payload sin tiempo de captura canónico sólo proporciona `RECEIVE_TIME_PROXY
 
 `PerceptionAuthorityEvaluator` es el único compositor semántico. Recibe evidencia A–D correlacionada, `MotorResolution`, affordance y `SafetyAssessmentV1`; Orchestrator sólo impone el resultado y proyecta la acción autorizada.
 
-La procedencia de parámetros es code-owned. `PERCEPTION_TARGET` requiere autoridad; `UNKNOWN` queda `INDETERMINATE` y sin dispatch; `NOT_REQUIRED` sólo significa que ROOT-029 no gobierna ese camino, no que exista autorización física general.
+La procedencia de parámetros es code-owned y nace de `TrustedParameterPathV1`, no del nombre de la acción ni de metadata de usuario/modelo. El parser Motor determinista puede acreditar coordenadas explícitas; coordenadas producidas por Reasoning/LLM quedan `UNKNOWN`. Una resolución Motor ligada a percepción produce `PERCEPTION_TARGET`. `PERCEPTION_TARGET` requiere autoridad; `UNKNOWN` queda `INDETERMINATE` y sin dispatch; `NOT_REQUIRED` sólo significa que ROOT-029 no gobierna ese camino, no que exista autorización física general.
+
+La matriz semántica distingue evidencia incompleta de contradicción. Identidad `PARTIAL`, `ABSENT` o `AMBIGUOUS` sin conflicto queda `INDETERMINATE`; identidad `CONTRADICTORY` o duplicate-state conflict queda `DENIED`. Lifecycle `ABSENT`/`HISTORY_UNKNOWN` queda `INDETERMINATE`; lifecycle `CONTRADICTORY` queda `DENIED`. Ambos estados siguen siendo fail-closed.
 
 Para autorizar se exige:
 
@@ -68,13 +70,13 @@ Cualquier `DENY` produce `DENIED`; sin denegaciones, cualquier evidencia incompl
 
 `id_accion` se preasigna antes de evaluar. Un `authority_decision_id` identifica esa evaluación y se liga uno-a-uno a la acción. El SHA-256 canónico incluye versión, action ID/nombre, parámetros validados, target/scope/capture/generation, subtipo, disposición y reason de seguridad, policy IDs y generation mode.
 
-El hash es evidencia de integridad/correlación; no es firma, autenticación, frescura ni autoridad. Python comprueba que el `AuthorizedPhysicalActionV1` congelado coincide con su referencia. Unity no recomputa este SHA en V1, por lo que la condición de vectores dorados Python/C# no aplica: valida explícitamente action ID, nombre, parámetros, subtipo, scope, generation mode y target. Si en el futuro C# recomputa el SHA, deberán añadirse vectores compartidos antes de habilitarlo.
+El hash es evidencia backend/ActionLedger de integridad y correlación; no es firma, autenticación de red, frescura, seguridad ni autoridad. Python comprueba que el `AuthorizedPhysicalActionV1` congelado coincide con su referencia. Unity no valida ni recomputa este SHA en V1: verifica estructuralmente action ID, nombre, parámetros canónicos, coherencia capture/generation, generation mode, subtipo, scope y target exacto. Si en el futuro C# verifica el SHA, deberán añadirse vectores compartidos antes de habilitarlo.
 
 ## Unity
 
 `PerceptionLifecycleContext` conserva un `producer_instance_id` serializado, crea un epoch opaco por namespace runtime y acuña capture ID + generation bajo el mismo lock. Una identidad de productor vacía hace fallar el contrato en backend.
 
-`ExactTargetResolver` compara `runtime_object_id` por igualdad exacta, rechaza ausencia y duplicados, valida productor/stream/epoch/mundo y comprueba que el ID persistente opcional pertenece al mismo `GameObject`. La ruta con autoridad no usa substrings, aliases, nombres, nearest ni retarget. MovementController recibe el collider ya resuelto una sola vez.
+`ExactTargetResolver` compara `runtime_object_id` por igualdad exacta, rechaza ausencia y conflicto entre identidades físicas, valida productor/stream/epoch/mundo y comprueba que el ID persistente opcional pertenece al mismo `GameObject`. Varios colliders del mismo `GameObject` se agrupan como una sola identidad runtime; no se altera ni deduplica el snapshot Block-A. La ruta con autoridad no usa substrings, aliases, nombres, nearest ni retarget. MovementController recibe un collider representativo del objeto ya resuelto una sola vez.
 
 La validación C# de este packet es estática/sintética. No afirma Unity runtime, Play Mode ni campo.
 

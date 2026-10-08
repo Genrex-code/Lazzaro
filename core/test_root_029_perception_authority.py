@@ -26,6 +26,7 @@ from core.perception_authority import (
     PhysicalActionCandidateV1,
     PhysicalActionClassV1,
     TargetReferenceV1,
+    TrustedParameterPathV1,
     canonical_json,
     derive_parameter_provenance,
 )
@@ -120,7 +121,8 @@ def _bundle(*, duplicate: str | None = None):
         action_name="navegar_a_objeto",
         canonical_parameters_json=canonical_json({"nombre_objeto": "Caja"}),
         parameter_provenance=derive_parameter_provenance(
-            "navegar_a_objeto", motor_resolution_present=True
+            "navegar_a_objeto",
+            trusted_path=TrustedParameterPathV1.MOTOR_PERCEPTION_RESOLUTION,
         ),
         action_class=PhysicalActionClassV1.TARGET_NAVIGATION,
         target_reference=target,
@@ -249,16 +251,34 @@ def test_invalid_block_a_data_denies() -> None:
 
 
 @pytest.mark.parametrize(
-    ("identity_status", "expected"),
+    ("identity_status", "expected_status", "expected_reason"),
     [
-        (IdentityStatusV1.AMBIGUOUS, AuthorityReasonCodeV1.IDENTITY_AMBIGUOUS),
-        (IdentityStatusV1.CONTRADICTORY, AuthorityReasonCodeV1.IDENTITY_CONTRADICTORY),
-        (IdentityStatusV1.ABSENT, AuthorityReasonCodeV1.IDENTITY_ABSENT),
+        (
+            IdentityStatusV1.AMBIGUOUS,
+            AuthorityStatusV1.INDETERMINATE,
+            AuthorityReasonCodeV1.IDENTITY_AMBIGUOUS,
+        ),
+        (
+            IdentityStatusV1.CONTRADICTORY,
+            AuthorityStatusV1.DENIED,
+            AuthorityReasonCodeV1.IDENTITY_CONTRADICTORY,
+        ),
+        (
+            IdentityStatusV1.ABSENT,
+            AuthorityStatusV1.INDETERMINATE,
+            AuthorityReasonCodeV1.IDENTITY_ABSENT,
+        ),
+        (
+            IdentityStatusV1.PARTIAL,
+            AuthorityStatusV1.INDETERMINATE,
+            AuthorityReasonCodeV1.IDENTITY_PARTIAL,
+        ),
     ],
 )
-def test_identity_failures_deny(
+def test_identity_failures_never_authorize_with_truthful_status(
     identity_status: IdentityStatusV1,
-    expected: AuthorityReasonCodeV1,
+    expected_status: AuthorityStatusV1,
+    expected_reason: AuthorityReasonCodeV1,
 ) -> None:
     parse, identity, lifecycle, freshness, policy, candidate = _bundle()
     changed = PerceptionIdentityReceiptV1.model_validate(
@@ -278,8 +298,8 @@ def test_identity_failures_deny(
         policy=policy,
     )
 
-    assert receipt.status is AuthorityStatusV1.DENIED
-    assert receipt.reason_code is expected
+    assert receipt.status is expected_status
+    assert receipt.reason_code is expected_reason
     assert authorized is None
 
 
@@ -288,7 +308,7 @@ def test_identity_failures_deny(
     [
         (
             LifecycleStatusV1.ABSENT,
-            AuthorityStatusV1.DENIED,
+            AuthorityStatusV1.INDETERMINATE,
             AuthorityReasonCodeV1.LIFECYCLE_ABSENT,
         ),
         (
@@ -579,7 +599,8 @@ def test_code_owned_applicability_distinguishes_not_required_and_unknown() -> No
             **candidate.model_dump(mode="json"),
             "action_name": "alejarse_de_objeto",
             "parameter_provenance": derive_parameter_provenance(
-                "alejarse_de_objeto", motor_resolution_present=False, body_event=True
+                "alejarse_de_objeto",
+                trusted_path=TrustedParameterPathV1.CRITICAL_BODY_EVENT,
             ).model_dump(mode="json"),
         }
     )

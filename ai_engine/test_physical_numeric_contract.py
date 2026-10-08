@@ -20,6 +20,7 @@ from ai_engine.schemas import ActionResponse
 from api.schemas import AccionSaliente, EventoEntrante
 from core.action_ledger import TurnProcessingError
 from core.orchestrator import Orchestrator
+from core.perception_authority import TrustedParameterPathV1
 from core.tool_policy import ToolPolicy
 from terminal_client.test_chat import _orquestador_aislado
 from tools.executor import ActionExecutor
@@ -247,6 +248,9 @@ def _run_audited_direct_motor(parameters: dict[str, Any], transaction_id: str):
 
     def direct_motor(**kwargs) -> ActionResponse:
         calls["motor"] += 1
+        orchestrator._record_trusted_parameter_path(
+            TrustedParameterPathV1.MOTOR_EXPLICIT_COORDINATE_PARSER
+        )
         return ActionResponse(
             pensamiento="",
             accion="navegar_a_posicion",

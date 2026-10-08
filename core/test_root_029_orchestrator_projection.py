@@ -11,6 +11,7 @@ from core.perception_authority import (
     GenerationBindingModeV1,
     PerceptionAuthorityEvaluator,
     PerceptionAuthorityPolicyV1,
+    TrustedParameterPathV1,
 )
 from core.perception_freshness import (
     FreshnessPolicyV1,
@@ -143,6 +144,7 @@ def test_authority_is_channel_independent_and_projects_exact_action(
         event,
         original,
         action_id="action-a",
+        trusted_parameter_path=TrustedParameterPathV1.MOTOR_PERCEPTION_RESOLUTION,
     )
     outgoing = orchestrator._a_accion_saliente(
         governed,
@@ -178,6 +180,7 @@ def test_missing_production_policy_blocks_with_zero_target_dispatch() -> None:
         event,
         _action(context),
         action_id="action-a",
+        trusted_parameter_path=TrustedParameterPathV1.MOTOR_PERCEPTION_RESOLUTION,
     )
 
     assert governed.accion == "none"
@@ -202,6 +205,7 @@ def test_mixed_capture_receipts_block_before_outgoing_projection() -> None:
         event,
         _action(context),
         action_id="action-a",
+        trusted_parameter_path=TrustedParameterPathV1.MOTOR_PERCEPTION_RESOLUTION,
     )
 
     assert governed.accion == "none"
@@ -224,6 +228,7 @@ def test_unknown_contract_version_blocks_without_falling_back_to_legacy_target()
         event,
         _action(context),
         action_id="action-a",
+        trusted_parameter_path=TrustedParameterPathV1.MOTOR_PERCEPTION_RESOLUTION,
     )
 
     assert governed.accion == "none"
@@ -245,6 +250,7 @@ def test_action_id_is_preallocated_and_shared_one_to_one_with_authority_decision
         event,
         _action(context),
         action_id="preallocated-action",
+        trusted_parameter_path=TrustedParameterPathV1.MOTOR_PERCEPTION_RESOLUTION,
     )
 
     assert governed.metadata["perception_authority_receipt"]["status"] == AuthorityStatusV1.AUTHORIZED.value
@@ -274,8 +280,104 @@ def test_nonperception_and_body_event_paths_are_not_silently_perception_governed
         event,
         body,
         action_id="body-action",
+        trusted_parameter_path=TrustedParameterPathV1.CRITICAL_BODY_EVENT,
     )
 
     assert governed.accion == "alejarse_de_objeto"
     assert reference is None
     assert governed.metadata["parameter_provenance"]["kind"] == "BODY_EVENT"
+
+
+def _position_action() -> ActionResponse:
+    return ActionResponse(
+        pensamiento="interno",
+        accion="navegar_a_posicion",
+        parametros={"x": 1.0, "y": 0.0, "z": 2.0},
+        razon="coordenadas",
+        metadata={},
+    )
+
+
+def test_reasoning_generated_position_has_unknown_provenance_and_zero_dispatch() -> None:
+    _context_value, _freshness_policy, authority_policy = _context()
+    orchestrator = _orchestrator(authority_policy)
+    event = EventoEntrante(
+        origen="unity",
+        tipo_evento="comando_usuario",
+        id_transaccion="tx-position-reasoning",
+        detalles={},
+    )
+    trusted_path = orchestrator._trusted_path_for_motor_action(
+        "navegar_a_posicion",
+        perception_resolution=False,
+        reasoning_generated=True,
+    )
+
+    governed, reference = orchestrator._aplicar_autoridad_perceptiva(
+        event,
+        _position_action(),
+        action_id="position-reasoning",
+        trusted_parameter_path=trusted_path,
+    )
+
+    assert trusted_path is TrustedParameterPathV1.UNKNOWN
+    assert governed.accion == "none"
+    assert governed.parametros == {}
+    assert reference is None
+    assert governed.metadata["parameter_provenance"]["kind"] == "UNKNOWN"
+    assert governed.metadata["perception_authority_receipt"]["status"] == "INDETERMINATE"
+    assert governed.metadata["perception_authority_block"] == "PROVENANCE_UNKNOWN"
+
+
+def test_deterministic_coordinate_parser_is_explicit_and_not_applicable() -> None:
+    _context_value, _freshness_policy, authority_policy = _context()
+    orchestrator = _orchestrator(authority_policy)
+    event = EventoEntrante(
+        origen="unity",
+        tipo_evento="comando_usuario",
+        id_transaccion="tx-position-explicit",
+        detalles={},
+    )
+    trusted_path = orchestrator._trusted_path_for_motor_action(
+        "navegar_a_posicion",
+        perception_resolution=False,
+        reasoning_generated=False,
+    )
+
+    governed, reference = orchestrator._aplicar_autoridad_perceptiva(
+        event,
+        _position_action(),
+        action_id="position-explicit",
+        trusted_parameter_path=trusted_path,
+    )
+
+    assert trusted_path is TrustedParameterPathV1.MOTOR_EXPLICIT_COORDINATE_PARSER
+    assert governed.accion == "navegar_a_posicion"
+    assert governed.parametros == {"x": 1.0, "y": 0.0, "z": 2.0}
+    assert reference is None
+    assert governed.metadata["parameter_provenance"]["kind"] == "EXPLICIT_COORDINATES"
+    assert governed.metadata["perception_authority_receipt"]["status"] == "NOT_APPLICABLE"
+
+
+def test_perception_derived_coordinates_are_required_and_fail_closed_in_v1() -> None:
+    _context_value, _freshness_policy, authority_policy = _context()
+    orchestrator = _orchestrator(authority_policy)
+    event = EventoEntrante(
+        origen="unity",
+        tipo_evento="comando_usuario",
+        id_transaccion="tx-position-perception",
+        detalles={},
+    )
+
+    governed, reference = orchestrator._aplicar_autoridad_perceptiva(
+        event,
+        _position_action(),
+        action_id="position-perception",
+        trusted_parameter_path=TrustedParameterPathV1.PERCEPTION_DERIVED_COORDINATES,
+    )
+
+    assert governed.accion == "none"
+    assert reference is None
+    assert governed.metadata["parameter_provenance"]["kind"] == "PERCEPTION_TARGET"
+    assert governed.metadata["perception_authority_receipt"]["applicability"] == "REQUIRED"
+    assert governed.metadata["perception_authority_receipt"]["status"] != "AUTHORIZED"

@@ -44,8 +44,10 @@ def test_exact_target_resolver_uses_only_exact_runtime_id_on_authority_path() ->
     resolve = _method(source, "public ExactTargetResolution Resolve", "private static ExactTargetResolution Failure")
 
     assert "runtimeId == reference.runtime_object_id" in resolve
-    assert "exact.Count == 0" in resolve
-    assert "exact.Count != 1" in resolve
+    assert "HashSet<GameObject> exactObjects" in resolve
+    assert "exactObjects.Add(candidate.gameObject)" in resolve
+    assert "exactObjects.Count == 0" in resolve
+    assert "exactObjects.Count != 1" in resolve
     assert "producerId != reference.producer_object_id" in resolve
     assert "producer_instance_id != lifecycle.ProducerInstanceId" in resolve
     assert "producer_epoch_id != lifecycle.ProducerEpochId" in resolve
@@ -55,6 +57,17 @@ def test_exact_target_resolver_uses_only_exact_runtime_id_on_authority_path() ->
     assert "BuscarObjeto" not in resolve
     assert "Distance(" not in resolve
     assert "OrderBy" not in resolve
+
+
+def test_exact_target_resolver_groups_multiple_colliders_by_game_object_identity() -> None:
+    source = _source("ExactTargetResolver.cs")
+    resolve = _method(source, "public ExactTargetResolution Resolve", "private static ExactTargetResolution Failure")
+
+    assert "List<Collider> exact" not in resolve
+    assert "HashSet<GameObject> exactObjects" in resolve
+    assert "exactObjects.Add(candidate.gameObject) && target == null" in resolve
+    assert "exactObjects.Count != 1" in resolve
+    assert "InteractableMetadata metadata = target.GetComponent<InteractableMetadata>()" in resolve
 
 
 def test_authority_bearing_agent_path_never_calls_legacy_name_lookup() -> None:
@@ -106,6 +119,19 @@ def test_wire_reference_is_minimal_typed_and_does_not_embed_full_receipt() -> No
     assert "public string action_binding_sha256;" in source
     assert "public string safety_disposition;" in source
     assert "PerceptionAuthorityReceiptV1" not in source
+
+
+def test_unity_does_not_claim_to_recompute_or_validate_backend_sha_v1() -> None:
+    source = _source("LazzaroAgent.cs")
+    authority_method = _method(
+        source,
+        "private bool TryResolverObjetivoAutorizado",
+        "private static void AgregarDetallesExtra",
+    )
+
+    assert "action_binding_sha256" in authority_method
+    assert "ComputeHash" not in authority_method
+    assert "SHA256" not in authority_method
 
 
 def test_movement_controller_accepts_pre_resolved_collider_without_retargeting() -> None:

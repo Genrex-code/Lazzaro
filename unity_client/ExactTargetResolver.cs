@@ -74,7 +74,8 @@ public class ExactTargetResolver : MonoBehaviour
             return Failure(ExactTargetStatus.WorldMismatch, "logical_world_mismatch");
         }
 
-        List<Collider> exact = new List<Collider>();
+        HashSet<GameObject> exactObjects = new HashSet<GameObject>();
+        Collider target = null;
         foreach (Collider candidate in perception.ObtenerObjetosInteractuables())
         {
             if (candidate == null)
@@ -86,14 +87,17 @@ public class ExactTargetResolver : MonoBehaviour
             );
             if (runtimeId == reference.runtime_object_id)
             {
-                exact.Add(candidate);
+                if (exactObjects.Add(candidate.gameObject) && target == null)
+                {
+                    target = candidate;
+                }
             }
         }
-        if (exact.Count == 0)
+        if (exactObjects.Count == 0)
         {
             return Failure(ExactTargetStatus.TargetMissing, "exact_target_missing");
         }
-        if (exact.Count != 1)
+        if (exactObjects.Count != 1)
         {
             return Failure(
                 ExactTargetStatus.DuplicateRuntimeIdentity,
@@ -101,7 +105,6 @@ public class ExactTargetResolver : MonoBehaviour
             );
         }
 
-        Collider target = exact[0];
         if (!string.IsNullOrWhiteSpace(reference.producer_object_id))
         {
             InteractableMetadata metadata = target.GetComponent<InteractableMetadata>();

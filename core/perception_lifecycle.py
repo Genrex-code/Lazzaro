@@ -51,6 +51,7 @@ class CaptureRelationV1(str, Enum):
     GENERATION_COLLISION = "GENERATION_COLLISION"
     CAPTURE_ID_REUSE_CONFLICT = "CAPTURE_ID_REUSE_CONFLICT"
     CAPTURE_CONTENT_CONFLICT = "CAPTURE_CONTENT_CONFLICT"
+    OLD_EPOCH_REPLAY = "OLD_EPOCH_REPLAY"
     HISTORY_UNKNOWN = "HISTORY_UNKNOWN"
 
 
@@ -97,13 +98,20 @@ class _EpochState:
 class PerceptionLifecycleTracker:
     """Bounded tracker with one lock per producer/stream owner scope."""
 
-    def __init__(self, *, history_limit: int = 64):
+    def __init__(self, *, history_limit: int = 64, epoch_history_limit: int = 16):
         if type(history_limit) is not int or history_limit < 2:
             raise ValueError("history_limit must be an integer greater than one")
+        if type(epoch_history_limit) is not int or epoch_history_limit < 1:
+            raise ValueError("epoch_history_limit must be a positive integer")
         self.history_limit = history_limit
+        self.epoch_history_limit = epoch_history_limit
         self._registry_lock = threading.Lock()
         self._locks: dict[tuple[str, str], threading.RLock] = {}
         self._states: dict[tuple[str, str], _EpochState] = {}
+        self._retired_epochs: dict[
+            tuple[str, str], OrderedDict[str, str | None]
+        ] = {}
+        self._retired_epoch_history_truncated: set[tuple[str, str]] = set()
 
     def observe_and_classify(
         self,
@@ -128,16 +136,6 @@ class PerceptionLifecycleTracker:
         scope_relation = ScopeRelationV1.FIRST_OBSERVED
         new_scope = False
         if state is None:
-            if data.generation != 0:
-                return self._receipt(
-                    local_ingest_id,
-                    data,
-                    status=LifecycleStatusV1.CONTRADICTORY,
-                    scope=scope_relation,
-                    generation=GenerationRelationV1.FIRST_OBSERVED,
-                    capture=CaptureRelationV1.GENERATION_COLLISION,
-                    highest=None,
-                )
             state = _EpochState(
                 epoch_id=data.producer_epoch_id,
                 logical_world_id=data.logical_world_id,
@@ -146,6 +144,27 @@ class PerceptionLifecycleTracker:
             self._states[key] = state
             new_scope = True
         elif state.epoch_id != data.producer_epoch_id:
+            retired = self._retired_epochs.setdefault(key, OrderedDict())
+            if data.producer_epoch_id in retired:
+                return self._receipt(
+                    local_ingest_id,
+                    data,
+                    status=LifecycleStatusV1.CONTRADICTORY,
+                    scope=ScopeRelationV1.CONTRADICTORY_SCOPE,
+                    generation=GenerationRelationV1.OUT_OF_ORDER,
+                    capture=CaptureRelationV1.OLD_EPOCH_REPLAY,
+                    highest=state.highest_generation,
+                )
+            if key in self._retired_epoch_history_truncated:
+                return self._receipt(
+                    local_ingest_id,
+                    data,
+                    status=LifecycleStatusV1.HISTORY_UNKNOWN,
+                    scope=ScopeRelationV1.UNKNOWN_SCOPE,
+                    generation=GenerationRelationV1.OUT_OF_ORDER,
+                    capture=CaptureRelationV1.HISTORY_UNKNOWN,
+                    highest=state.highest_generation,
+                )
             scope_relation = ScopeRelationV1.NEW_EPOCH
             if data.generation != 0:
                 return self._receipt(
@@ -157,6 +176,11 @@ class PerceptionLifecycleTracker:
                     capture=CaptureRelationV1.GENERATION_COLLISION,
                     highest=state.highest_generation,
                 )
+            retired[state.epoch_id] = state.logical_world_id
+            retired.move_to_end(state.epoch_id)
+            while len(retired) > self.epoch_history_limit:
+                retired.popitem(last=False)
+                self._retired_epoch_history_truncated.add(key)
             state = _EpochState(
                 epoch_id=data.producer_epoch_id,
                 logical_world_id=data.logical_world_id,
