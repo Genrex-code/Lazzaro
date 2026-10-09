@@ -21,22 +21,20 @@ from pydantic import (
 from .motor_resolution import InteractionType, MotorActionKindV1
 
 
-def _validar_numero_fisico_finito(value: Any) -> Any:
-    """Rechaza bool y no-finitos antes de que Pydantic convierta a float."""
+def _validar_numero_fisico_canonico(value: Any) -> float:
+    """El modelo canonico recibe solo numeros reales ya normalizados."""
     if isinstance(value, bool):
         raise ValueError("Un booleano no es un numero fisico valido.")
+    if not isinstance(value, (int, float)):
+        raise ValueError("El parametro fisico canonico debe estar normalizado.")
 
-    try:
-        normalized = float(value)
-    except (TypeError, ValueError, OverflowError) as exc:
-        raise ValueError("El parametro fisico debe ser numerico.") from exc
-
+    normalized = float(value)
     if not math.isfinite(normalized):
         raise ValueError("El parametro fisico debe ser finito.")
-    return value
+    return normalized
 
 
-PhysicalFloat = Annotated[float, BeforeValidator(_validar_numero_fisico_finito)]
+PhysicalFloat = Annotated[float, BeforeValidator(_validar_numero_fisico_canonico)]
 
 
 class StrictParams(BaseModel):
@@ -151,9 +149,8 @@ PHYSICAL_NUMERIC_ACTIONS = frozenset(
 
 
 def validar_parametros_fisicos(accion: str, parametros: dict[str, Any]) -> dict[str, Any]:
-    """Valida y normaliza parametros usando el schema canonico de la accion Motor."""
-    schema_cls = ACTION_SCHEMA_MAP[accion]
-    return schema_cls.model_validate(parametros).model_dump(exclude_none=True)
+    """Boundary legacy conservado; delega coercion y validacion al adapter."""
+    return MotorActionAdapterV1.require(accion, parametros).parameters_dict()
 
 
 class MotorActionFailureCodeV1(str, Enum):
@@ -384,7 +381,11 @@ class MotorActionAdapterV1:
             validated_params = params
         elif type(params) is dict:
             try:
-                validated_params = params_type.model_validate(params)
+                normalized = cls._normalize_legacy_numeric_strings(
+                    params_type,
+                    params,
+                )
+                validated_params = params_type.model_validate(normalized)
             except ValidationError as exc:
                 return cls._failure(cls._reason_for_validation_error(exc))
         else:
@@ -410,6 +411,30 @@ class MotorActionAdapterV1:
         reason_code: MotorActionFailureCodeV1,
     ) -> MotorActionContractFailureV1:
         return MotorActionContractFailureV1(reason_code=reason_code)
+
+    @staticmethod
+    def _normalize_legacy_numeric_strings(
+        params_type: type[StrictParams],
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Normaliza solo campos PhysicalFloat sin duplicar bounds ni defaults."""
+        normalized = dict(params)
+        for field_name, field_info in params_type.model_fields.items():
+            if field_name not in normalized or type(normalized[field_name]) is not str:
+                continue
+            is_physical_numeric = any(
+                isinstance(metadata, BeforeValidator)
+                and metadata.func is _validar_numero_fisico_canonico
+                for metadata in field_info.metadata
+            )
+            if not is_physical_numeric:
+                continue
+            try:
+                normalized[field_name] = float(normalized[field_name])
+            except (TypeError, ValueError, OverflowError):
+                # La validacion canonica produce el failure code estable.
+                pass
+        return normalized
 
     @staticmethod
     def _reason_for_validation_error(

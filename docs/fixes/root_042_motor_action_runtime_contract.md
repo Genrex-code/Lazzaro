@@ -66,11 +66,13 @@ normaliza, valida campos/cross-fields y devuelve `MotorActionV1` o
 `MotorActionContractFailureV1` con un reason code finito. No se usa texto de
 excepciones como autoridad.
 
-Los strings numéricos ya admitidos por ROOT-002 se convierten dentro de este
-boundary y el objeto canónico conserva floats. Permanecen intactos los rangos,
-la finitud, el rechazo de bool en campos numéricos y la validez de cero. No hay
-otra tabla numérica. Después del adapter los consumidores reciben sólo la
-proyección normalizada.
+Los strings numéricos ya admitidos por ROOT-002 se convierten exclusivamente
+dentro de este boundary y el objeto canónico conserva floats. La construcción
+directa de parameter models canónicos rechaza strings numéricos. El adapter
+detecta los campos `PhysicalFloat` mediante la metadata del mismo schema antes
+de validarlo, por lo que no duplica nombres, rangos ni defaults. Permanecen
+intactos la finitud, el rechazo de bool y la validez de cero. Después del
+adapter los consumidores reciben sólo la proyección normalizada.
 
 ## ROOT-028
 
@@ -91,6 +93,14 @@ MotorResolution.interaction_type
 `MotorDiagnosis` y `MotorResolution` convierten y validan en `__post_init__`
 sus estados, acciones e `InteractionType`. Acciones o estados desconocidos no
 pueden construirse. Una resolución `ready` para interacción exige subtipo.
+`MotorResolution` es un dataclass frozen: después de validar no pueden
+reasignarse `status`, `action` ni `interaction_type`.
+
+Los snapshots `parametros` y `metadata` de `MotorDiagnosis` se copian y se
+congelan recursivamente. La API `Mapping` continúa entregando serializaciones
+legacy `dict/list` mediante copias defensivas, pero el estado interno no puede
+mutarse a través de referencias originales, propiedades públicas ni copias
+serializadas.
 
 Los modelos canónicos y sus parámetros son frozen. Además bloquean
 explícitamente `model_copy(update=...)` con `MUTATION_FORBIDDEN`; mutar el dict

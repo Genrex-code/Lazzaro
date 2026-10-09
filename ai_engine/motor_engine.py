@@ -200,7 +200,8 @@ class MotorEngine:
         if not isinstance(diagnostico, MotorDiagnosis):
             raise TypeError("diagnostico must be MotorDiagnosis")
 
-        metadata = dict(diagnostico.metadata)
+        diagnosis_snapshot = diagnostico.to_dict()
+        metadata = dict(diagnosis_snapshot.get("metadata") or {})
         if not diagnostico.ready:
             return self._none(
                 f"Diagnostico motor '{diagnostico.estado}' no es ejecutable.",
@@ -208,7 +209,7 @@ class MotorEngine:
             )
 
         accion = str(diagnostico.accion or "").strip()
-        parametros = dict(diagnostico.parametros or {})
+        parametros = dict(diagnosis_snapshot.get("parametros") or {})
         if accion not in ACTION_SCHEMA_MAP:
             return self._none("Diagnostico motor con accion desconocida.", metadata=metadata)
 

@@ -255,6 +255,25 @@ def test_root_002_numeric_strings_are_normalized_by_legacy_adapter() -> None:
     assert all(type(value) is float for value in canonical.parameters_dict().values())
 
 
+@pytest.mark.parametrize(
+    "factory",
+    (
+        lambda: NavigateToPositionParams(x="1", y=0.0, z=0.0),
+        lambda: RotateAvatarParams(grados="90"),
+        lambda: ApplyForceParams(
+            nombre_objeto="Caja",
+            vector_x="1",
+            vector_y=0.0,
+            vector_z=0.0,
+            fuerza=1.0,
+        ),
+    ),
+)
+def test_direct_canonical_numeric_string_construction_is_rejected(factory) -> None:
+    with pytest.raises(ValidationError):
+        factory()
+
+
 def test_canonical_action_and_params_are_practically_immutable() -> None:
     raw = {"nombre_objeto": "Caja", "distancia": 2.0}
     canonical = MotorActionAdapterV1.require("alejarse_de_objeto", raw)
@@ -291,3 +310,53 @@ def test_canonical_action_and_params_are_practically_immutable() -> None:
 def test_motor_dataclasses_enforce_runtime_vocabulary(factory) -> None:
     with pytest.raises((TypeError, ValueError, FrozenInstanceError)):
         factory()
+
+
+def test_motor_resolution_control_fields_cannot_mutate_after_validation() -> None:
+    resolution = MotorResolution(
+        status="ready",
+        action="interactuar_objeto_3d",
+        interaction_type=InteractionType.TOCAR,
+    )
+
+    with pytest.raises(FrozenInstanceError):
+        resolution.status = "bogus"
+    with pytest.raises(FrozenInstanceError):
+        resolution.action = "teleportar"
+    with pytest.raises(FrozenInstanceError):
+        resolution.interaction_type = InteractionType.USAR
+
+
+def test_motor_diagnosis_exposes_only_immutable_snapshots_and_detached_serialization() -> None:
+    resolution = MotorResolution(
+        status="ready",
+        action="alejarse_de_objeto",
+        target_id="pared",
+        target_display_name="Pared",
+        legacy_nombre_objeto="Pared",
+    )
+    original_params = {"nombre_objeto": "Pared", "distancia": 2.0}
+    original_metadata = resolution.to_metadata()
+    diagnosis = MotorDiagnosis(
+        estado="lista",
+        accion="alejarse_de_objeto",
+        parametros=original_params,
+        metadata=original_metadata,
+        resolucion_motor=resolution,
+    )
+
+    original_params["distancia"] = 5.0
+    original_metadata["motor_resolution"]["status"] = "unsafe"
+    assert diagnosis.parametros["distancia"] == 2.0
+    assert diagnosis.metadata["motor_resolution"]["status"] == "ready"
+
+    with pytest.raises(TypeError):
+        diagnosis.parametros["distancia"] = 4.0
+    with pytest.raises(TypeError):
+        diagnosis.metadata["motor_resolution"]["status"] = "bogus"
+
+    detached = diagnosis.to_dict()
+    detached["parametros"]["distancia"] = 4.0
+    detached["metadata"]["motor_resolution"]["status"] = "bogus"
+    assert diagnosis.parametros["distancia"] == 2.0
+    assert diagnosis.metadata["motor_resolution"]["status"] == "ready"

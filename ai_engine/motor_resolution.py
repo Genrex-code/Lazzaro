@@ -8,6 +8,7 @@ from collections.abc import Iterator, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum, StrEnum
+from types import MappingProxyType
 from typing import Any, Literal
 
 
@@ -55,6 +56,66 @@ class MotorDiagnosisStatusV1(StrEnum):
     NOT_FOUND = "not_found"
     TARGET_NOT_ALLOWED = "not_allowed"
     UNSAFE = "unsafe"
+
+
+class _ImmutableSnapshot(Mapping[str, Any]):
+    """Mapping recursivo inmutable; ``to_dict`` sigue proyectando dict/list."""
+
+    __slots__ = ("__data",)
+
+    def __init__(self, value: Mapping[str, Any]) -> None:
+        object.__setattr__(
+            self,
+            "_ImmutableSnapshot__data",
+            MappingProxyType(
+                {key: _freeze_snapshot(item) for key, item in value.items()}
+            ),
+        )
+
+    def __getitem__(self, key: str) -> Any:
+        return self.__data[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.__data)
+
+    def __len__(self) -> int:
+        return len(self.__data)
+
+    def __repr__(self) -> str:
+        return f"_ImmutableSnapshot({dict(self.__data)!r})"
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Mapping):
+            return False
+        return _thaw_snapshot(self) == _thaw_snapshot(other)
+
+
+class _ImmutableListSnapshot(tuple):
+    """Distingue listas congeladas para restaurarlas como listas legacy."""
+
+
+def _freeze_snapshot(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return _ImmutableSnapshot(value)
+    if isinstance(value, list):
+        return _ImmutableListSnapshot(_freeze_snapshot(item) for item in value)
+    if isinstance(value, tuple):
+        return tuple(_freeze_snapshot(item) for item in value)
+    if isinstance(value, set):
+        return frozenset(_freeze_snapshot(item) for item in value)
+    return deepcopy(value)
+
+
+def _thaw_snapshot(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _thaw_snapshot(item) for key, item in value.items()}
+    if isinstance(value, _ImmutableListSnapshot):
+        return [_thaw_snapshot(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_thaw_snapshot(item) for item in value)
+    if isinstance(value, frozenset):
+        return {_thaw_snapshot(item) for item in value}
+    return deepcopy(value)
 
 
 # Aliases de typing conservados para imports existentes. La autoridad runtime
@@ -122,7 +183,7 @@ class CandidateCorrection:
         }
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class MotorResolution:
     status: ResolutionStatus
     action: MotorActionKindV1 | str | None = None
@@ -143,14 +204,14 @@ class MotorResolution:
             normalized_status = ResolutionStatusV1(self.status)
         except (TypeError, ValueError) as exc:
             raise ValueError("unknown motor resolution status") from exc
-        self.status = normalized_status.value
+        object.__setattr__(self, "status", normalized_status.value)
 
         if self.action is not None:
             try:
                 normalized_action = MotorActionKindV1(self.action)
             except (TypeError, ValueError) as exc:
                 raise ValueError("unknown motor resolution action") from exc
-            self.action = normalized_action.value
+            object.__setattr__(self, "action", normalized_action.value)
 
         if self.interaction_type is not None and not isinstance(
             self.interaction_type,
@@ -220,8 +281,8 @@ class MotorDiagnosis(Mapping[str, Any]):
 
     estado: MotorDiagnosisStatus
     accion: MotorActionKindV1 | str | None = None
-    parametros: dict[str, Any] | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
+    parametros: Mapping[str, Any] | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
     resolucion_motor: MotorResolution | None = None
 
     def __post_init__(self) -> None:
@@ -242,33 +303,39 @@ class MotorDiagnosis(Mapping[str, Any]):
         if not isinstance(self.metadata, dict):
             raise TypeError("motor diagnosis metadata must be a dict")
 
-        object.__setattr__(
-            self,
-            "parametros",
-            deepcopy(self.parametros) if self.parametros is not None else None,
+        parameter_snapshot = (
+            deepcopy(self.parametros) if self.parametros is not None else None
         )
-        object.__setattr__(self, "metadata", deepcopy(self.metadata))
+        metadata_snapshot = deepcopy(self.metadata)
 
         if self.estado == "lista":
-            if not str(self.accion or "").strip() or self.parametros is None:
+            if not str(self.accion or "").strip() or parameter_snapshot is None:
                 raise ValueError("ready motor diagnosis requires action and parameters")
-        elif self.parametros is not None:
+        elif parameter_snapshot is not None:
             raise ValueError("non-ready motor diagnosis cannot materialize parameters")
 
         resolucion = self.resolucion_motor
-        if resolucion is None:
-            return
-        expected_state = "lista" if resolucion.ready else resolucion.status
-        if self.estado != expected_state:
-            raise ValueError("motor resolution contradicts diagnosis state")
-        if resolucion.action and resolucion.action != self.accion:
-            raise ValueError("motor resolution contradicts diagnosis action")
-        canonical_metadata = resolucion.to_metadata()
-        if any(
-            self.metadata.get(key) != value
-            for key, value in canonical_metadata.items()
-        ):
-            raise ValueError("motor diagnosis metadata contradicts typed resolution")
+        if resolucion is not None:
+            expected_state = "lista" if resolucion.ready else resolucion.status
+            if self.estado != expected_state:
+                raise ValueError("motor resolution contradicts diagnosis state")
+            if resolucion.action and resolucion.action != self.accion:
+                raise ValueError("motor resolution contradicts diagnosis action")
+            canonical_metadata = resolucion.to_metadata()
+            if any(
+                metadata_snapshot.get(key) != value
+                for key, value in canonical_metadata.items()
+            ):
+                raise ValueError("motor diagnosis metadata contradicts typed resolution")
+
+        object.__setattr__(
+            self,
+            "parametros",
+            _freeze_snapshot(parameter_snapshot)
+            if parameter_snapshot is not None
+            else None,
+        )
+        object.__setattr__(self, "metadata", _freeze_snapshot(metadata_snapshot))
 
     @property
     def ready(self) -> bool:
@@ -278,10 +345,10 @@ class MotorDiagnosis(Mapping[str, Any]):
         payload: dict[str, Any] = {
             "estado": self.estado,
             "accion": self.accion,
-            "parametros": deepcopy(self.parametros),
+            "parametros": _thaw_snapshot(self.parametros),
         }
         if self.metadata:
-            payload["metadata"] = deepcopy(self.metadata)
+            payload["metadata"] = _thaw_snapshot(self.metadata)
         if self.resolucion_motor is not None and not self.resolucion_motor.ready:
             payload["resolucion_motor"] = self.resolucion_motor.to_dict()
         return payload

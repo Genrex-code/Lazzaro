@@ -10,6 +10,7 @@ from pydantic import BaseModel, ValidationError
 from ai_engine.motor_engine import MotorEngine
 from ai_engine.motor_schemas import (
     ApplyForceParams,
+    MotorActionAdapterV1,
     MoveAwayParams,
     NavigateToObjectParams,
     NavigateToPositionParams,
@@ -88,14 +89,20 @@ def test_bool_is_rejected_for_every_physical_field() -> None:
 
 
 def test_finite_numeric_strings_are_preserved_and_normalized() -> None:
-    position = NavigateToPositionParams(x="1", y="-1", z="3.5")
-    force = ApplyForceParams(
-        nombre_objeto="Cube",
-        vector_x="1",
-        vector_y="-1",
-        vector_z="3.5",
-        fuerza="3.5",
-    )
+    position = MotorActionAdapterV1.require(
+        "navegar_a_posicion",
+        {"x": "1", "y": "-1", "z": "3.5"},
+    ).params
+    force = MotorActionAdapterV1.require(
+        "aplicar_fuerza",
+        {
+            "nombre_objeto": "Cube",
+            "vector_x": "1",
+            "vector_y": "-1",
+            "vector_z": "3.5",
+            "fuerza": "3.5",
+        },
+    ).params
 
     assert_true(position.model_dump() == {"x": 1.0, "y": -1.0, "z": 3.5}, "Las coordenadas string deben normalizarse.")
     assert_true(force.vector_x == 1.0 and force.vector_y == -1.0 and force.vector_z == 3.5, "El vector string debe normalizarse.")
