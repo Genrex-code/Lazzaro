@@ -9,6 +9,21 @@ using UnityEngine.AI;
 [RequireComponent(typeof(Rigidbody))]
 public class MovementController : MonoBehaviour
 {
+    private sealed class NavigationStoppingDistanceContext
+    {
+        public readonly string ActionId;
+        public readonly float PreviousStoppingDistance;
+
+        public NavigationStoppingDistanceContext(
+            string actionId,
+            float previousStoppingDistance
+        )
+        {
+            ActionId = actionId;
+            PreviousStoppingDistance = previousStoppingDistance;
+        }
+    }
+
     public bool IsMoving { get; private set; } = false;
     public Action<string, bool, string> OnMovimientoCompletado;
     public float velocidadDeseada = 3.5f;
@@ -18,6 +33,7 @@ public class MovementController : MonoBehaviour
     private PerceptionSystem percepcion;
     private Coroutine rutinaMovimiento;
     private Rigidbody rb;
+    private NavigationStoppingDistanceContext stoppingDistanceContext;
 
     void Awake()
     {
@@ -34,8 +50,22 @@ public class MovementController : MonoBehaviour
         navAgent.stoppingDistance = Mathf.Max(0.1f, navAgent.stoppingDistance);
     }
 
-    public void NavegarAObjeto(string actionId, string nombreObjeto)
+    void OnDisable()
     {
+        FrenarMovimiento();
+    }
+
+    public void NavegarAObjeto(
+        string actionId,
+        string nombreObjeto,
+        float? distanciaParada = null
+    )
+    {
+        if (!EsDistanciaParadaValida(distanciaParada))
+        {
+            RechazarMovimiento(actionId, "La distancia de parada solicitada no es valida.");
+            return;
+        }
         if (!PuedeNavegar(out string mensajeError))
         {
             RechazarMovimiento(actionId, mensajeError);
@@ -50,11 +80,25 @@ public class MovementController : MonoBehaviour
         }
 
         Vector3 destino = objetivo.ClosestPoint(transform.position);
-        IniciarNavegacionA(actionId, destino, objetivo.name);
+        IniciarNavegacionA(
+            actionId,
+            destino,
+            objetivo.name,
+            distanciaParada
+        );
     }
 
-    public void NavegarAObjetivoExacto(string actionId, Collider objetivo)
+    public void NavegarAObjetivoExacto(
+        string actionId,
+        Collider objetivo,
+        float? distanciaParada = null
+    )
     {
+        if (!EsDistanciaParadaValida(distanciaParada))
+        {
+            RechazarMovimiento(actionId, "La distancia de parada solicitada no es valida.");
+            return;
+        }
         if (!PuedeNavegar(out string mensajeError))
         {
             RechazarMovimiento(actionId, mensajeError);
@@ -66,7 +110,12 @@ public class MovementController : MonoBehaviour
             return;
         }
         Vector3 destino = objetivo.ClosestPoint(transform.position);
-        IniciarNavegacionA(actionId, destino, objetivo.name);
+        IniciarNavegacionA(
+            actionId,
+            destino,
+            objetivo.name,
+            distanciaParada
+        );
     }
 
     public void NavegarAPosicion(string actionId, Vector3 destino, string etiquetaDestino = "destino")
@@ -77,7 +126,7 @@ public class MovementController : MonoBehaviour
             return;
         }
 
-        IniciarNavegacionA(actionId, destino, etiquetaDestino);
+        IniciarNavegacionA(actionId, destino, etiquetaDestino, null);
     }
 
     public void AlejarseDeObjeto(string actionId, string nombreObjeto, float distancia)
@@ -105,7 +154,7 @@ public class MovementController : MonoBehaviour
         }
 
         Vector3 destino = transform.position + direccionEscape.normalized * Mathf.Clamp(distancia, 0.5f, 5f);
-        IniciarNavegacionA(actionId, destino, $"alejarme de {objetivo.name}");
+        IniciarNavegacionA(actionId, destino, $"alejarme de {objetivo.name}", null);
     }
 
     public void AlejarseDeObjetivoExacto(string actionId, Collider objetivo, float distancia)
@@ -129,7 +178,7 @@ public class MovementController : MonoBehaviour
         }
         Vector3 destino = transform.position
             + direccionEscape.normalized * Mathf.Clamp(distancia, 0.5f, 5f);
-        IniciarNavegacionA(actionId, destino, $"alejarme de {objetivo.name}");
+        IniciarNavegacionA(actionId, destino, $"alejarme de {objetivo.name}", null);
     }
 
     public void GirarAvatar(string actionId, float grados)
@@ -193,7 +242,12 @@ public class MovementController : MonoBehaviour
         OnMovimientoCompletado?.Invoke(actionId, false, mensaje);
     }
 
-    private void IniciarNavegacionA(string actionId, Vector3 destino, string etiquetaDestino)
+    private void IniciarNavegacionA(
+        string actionId,
+        Vector3 destino,
+        string etiquetaDestino,
+        float? distanciaParada
+    )
     {
         if (!NavMesh.SamplePosition(destino, out NavMeshHit navHit, 2f, NavMesh.AllAreas))
         {
@@ -201,7 +255,14 @@ public class MovementController : MonoBehaviour
             return;
         }
 
-        IniciarRutinaMovimiento(NavegarHastaDestino(actionId, etiquetaDestino, navHit.position));
+        IniciarRutinaMovimiento(
+            NavegarHastaDestino(
+                actionId,
+                etiquetaDestino,
+                navHit.position,
+                distanciaParada
+            )
+        );
     }
 
     private void IniciarRutinaMovimiento(IEnumerator rutina)
@@ -209,13 +270,20 @@ public class MovementController : MonoBehaviour
         if (rutinaMovimiento != null)
         {
             StopCoroutine(rutinaMovimiento);
+            DetenerMovimientoActual();
         }
 
         rutinaMovimiento = StartCoroutine(rutina);
     }
 
-    private IEnumerator NavegarHastaDestino(string actionId, string nombreObjeto, Vector3 destino)
+    private IEnumerator NavegarHastaDestino(
+        string actionId,
+        string nombreObjeto,
+        Vector3 destino,
+        float? distanciaParada
+    )
     {
+        AplicarDistanciaParadaDeAccion(actionId, distanciaParada);
         IsMoving = true;
         animator.SetBool("isWalking", true);
 
@@ -316,6 +384,7 @@ public class MovementController : MonoBehaviour
     private void DetenerMovimientoActual()
     {
         DetenerRutaNavMesh();
+        RestaurarDistanciaParadaDeAccion();
 
         if (animator != null)
         {
@@ -325,6 +394,49 @@ public class MovementController : MonoBehaviour
         DetenerVelocidadHorizontal();
         IsMoving = false;
         rutinaMovimiento = null;
+    }
+
+    private static bool EsDistanciaParadaValida(float? distanciaParada)
+    {
+        if (!distanciaParada.HasValue)
+        {
+            return true;
+        }
+        float valor = distanciaParada.Value;
+        return !float.IsNaN(valor)
+            && !float.IsInfinity(valor)
+            && valor >= 0.1f
+            && valor <= 10.0f;
+    }
+
+    private void AplicarDistanciaParadaDeAccion(
+        string actionId,
+        float? distanciaParada
+    )
+    {
+        if (!distanciaParada.HasValue)
+        {
+            return;
+        }
+        RestaurarDistanciaParadaDeAccion();
+        stoppingDistanceContext = new NavigationStoppingDistanceContext(
+            actionId,
+            navAgent.stoppingDistance
+        );
+        navAgent.stoppingDistance = distanciaParada.Value;
+    }
+
+    private void RestaurarDistanciaParadaDeAccion()
+    {
+        if (stoppingDistanceContext == null)
+        {
+            return;
+        }
+        if (navAgent != null)
+        {
+            navAgent.stoppingDistance = stoppingDistanceContext.PreviousStoppingDistance;
+        }
+        stoppingDistanceContext = null;
     }
 
     private void DetenerRutaNavMesh()

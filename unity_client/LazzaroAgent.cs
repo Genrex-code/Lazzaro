@@ -867,6 +867,15 @@ REGLAS FISICAS Y DE ENTORNO:
             );
             return;
         }
+        if (!TryLeerDistanciaNavegacionObjeto(parametros, out float? distanciaParada))
+        {
+            ReportarResultadoAccion(
+                contexto,
+                false,
+                "La distancia de navegar_a_objeto no cumple el contrato fisico."
+            );
+            return;
+        }
 
         ContextoAccion movimientoContexto = contexto.ConDetalles(
             new Dictionary<string, object>
@@ -882,11 +891,19 @@ REGLAS FISICAS Y DE ENTORNO:
                 ReportarResultadoAccion(contexto, false, error);
                 return;
             }
-            movimiento.NavegarAObjetivoExacto(contexto.IdAccion, exacto);
+            movimiento.NavegarAObjetivoExacto(
+                contexto.IdAccion,
+                exacto,
+                distanciaParada
+            );
         }
         else
         {
-            movimiento.NavegarAObjeto(contexto.IdAccion, objeto);
+            movimiento.NavegarAObjeto(
+                contexto.IdAccion,
+                objeto,
+                distanciaParada
+            );
         }
     }
 
@@ -1032,6 +1049,52 @@ REGLAS FISICAS Y DE ENTORNO:
             out valor
         );
         return parsed && !float.IsNaN(valor) && !float.IsInfinity(valor);
+    }
+
+    private static bool TryLeerDistanciaNavegacionObjeto(
+        JObject parametros,
+        out float? distancia
+    )
+    {
+        distancia = null;
+        if (parametros == null || !parametros.TryGetValue("distancia", out JToken token))
+        {
+            return true;
+        }
+        if (
+            token == null
+            || (token.Type != JTokenType.Integer && token.Type != JTokenType.Float)
+        )
+        {
+            return false;
+        }
+
+        double valor;
+        try
+        {
+            valor = token.Value<double>();
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+        if (
+            double.IsNaN(valor)
+            || double.IsInfinity(valor)
+            || valor < 0.1d
+            || valor > 10.0d
+        )
+        {
+            return false;
+        }
+
+        float valorUnity = (float)valor;
+        if (float.IsNaN(valorUnity) || float.IsInfinity(valorUnity))
+        {
+            return false;
+        }
+        distancia = valorUnity;
+        return true;
     }
 
     private void EjecutarInteraccion(ContextoAccion contexto)
