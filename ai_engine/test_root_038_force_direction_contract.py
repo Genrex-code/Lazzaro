@@ -32,6 +32,7 @@ MATERIALIZER = (
     (
         (0.0, 0.0, 0.0),
         (-0.0, 0.0, 0.0),
+        (-0.0, -0.0, -0.0),
     ),
 )
 def test_zero_direction_is_canonical_invalid(vector: tuple[float, float, float]) -> None:
@@ -67,6 +68,48 @@ def test_unit_direction_is_preserved() -> None:
         fuerza=1.0,
     )
     assert (params.vector_x, params.vector_y, params.vector_z) == (-1.0, 0.0, 0.0)
+
+
+def test_signed_zero_has_one_exact_canonical_representation() -> None:
+    signed = MotorActionAdapterV1.require(
+        "aplicar_fuerza",
+        {
+            "nombre_objeto": "Caja",
+            "vector_x": 1.0,
+            "vector_y": -0.0,
+            "vector_z": 0.0,
+            "fuerza": 3.0,
+        },
+    )
+    positive = MotorActionAdapterV1.require(
+        "aplicar_fuerza",
+        {
+            "nombre_objeto": "Caja",
+            "vector_x": 1.0,
+            "vector_y": 0.0,
+            "vector_z": 0.0,
+            "fuerza": 3.0,
+        },
+    )
+
+    assert signed.parameters_dict() == positive.parameters_dict()
+    assert math.copysign(1.0, signed.params.vector_y) == 1.0
+    assert math.copysign(1.0, signed.params.vector_z) == 1.0
+
+
+def test_signed_zero_revalidation_is_an_exact_fixed_point() -> None:
+    first = ApplyForceParams(
+        nombre_objeto="Caja",
+        vector_x=1.0,
+        vector_y=-0.0,
+        vector_z=-0.0,
+        fuerza=3.0,
+    )
+    replayed = ApplyForceParams.model_validate(first.model_dump())
+
+    assert replayed.model_dump() == first.model_dump()
+    assert math.copysign(1.0, first.vector_y) == 1.0
+    assert math.copysign(1.0, replayed.vector_y) == 1.0
 
 
 def test_scaled_equivalent_vectors_have_identical_canonical_direction() -> None:

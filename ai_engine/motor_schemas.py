@@ -116,7 +116,14 @@ class ApplyForceParams(StrictParams):
 
     @model_validator(mode="after")
     def _normalizar_direccion(self) -> Self:
-        components = (self.vector_x, self.vector_y, self.vector_z)
+        # IEEE-754 distingue -0.0 de +0.0 al serializar aunque ambos describen
+        # la misma dirección física. ROOT-029 liga el JSON exacto: colapsar el
+        # signo antes incluso del fast-path unitario evita dos identidades para
+        # una sola acción física.
+        components = tuple(
+            0.0 if component == 0.0 else component
+            for component in (self.vector_x, self.vector_y, self.vector_z)
+        )
         scale = max(abs(component) for component in components)
         if scale == 0.0:
             raise ValueError("La direccion de fuerza no puede ser el vector cero.")
@@ -124,6 +131,9 @@ class ApplyForceParams(StrictParams):
         # ROOT-029 liga el JSON canónico y ledger/replay lo revalida. Un vector
         # ya unitario debe ser un punto fijo exacto, no cambiar un ulp después.
         if math.hypot(*components) == 1.0:
+            object.__setattr__(self, "vector_x", components[0])
+            object.__setattr__(self, "vector_y", components[1])
+            object.__setattr__(self, "vector_z", components[2])
             return self
 
         scaled = tuple(component / scale for component in components)
@@ -149,6 +159,11 @@ class ApplyForceParams(StrictParams):
             )
         if math.hypot(*normalized) != 1.0:
             raise ValueError("No fue posible canonicalizar la direccion de fuerza.")
+
+        normalized = [
+            0.0 if component == 0.0 else component
+            for component in normalized
+        ]
 
         object.__setattr__(self, "vector_x", normalized[0])
         object.__setattr__(self, "vector_y", normalized[1])

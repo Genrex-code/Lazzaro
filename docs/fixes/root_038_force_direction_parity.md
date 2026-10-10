@@ -6,6 +6,12 @@
 la magnitud física. Por ello `(0,0,0)` y `(-0.0,0.0,0.0)` son inválidos y no
 son no-ops exitosos.
 
+Cada componente cero tiene una única representación canónica: `-0.0` se
+colapsa a `+0.0` antes del fast-path para vectores ya unitarios y también al
+final de la normalización. Así, direcciones físicamente equivalentes producen
+el mismo diccionario, JSON canónico y `action_binding_sha256`; la magnitud
+`fuerza` no se modifica.
+
 Todo vector finito no nulo se almacena canónicamente como vector unitario. La
 normalización divide primero por la mayor magnitud de componente y calcula
 después `hypot` sobre valores escalados. Así evita overflow y underflow incluso

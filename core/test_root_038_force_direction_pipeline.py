@@ -20,7 +20,13 @@ from core.test_root_029_orchestrator_projection import _context, _orchestrator
 from tools.executor import ActionExecutor
 
 
-def _raw_force(context: dict, *, vector_x: float, vector_y: float) -> ActionResponse:
+def _raw_force(
+    context: dict,
+    *,
+    vector_x: float,
+    vector_y: float,
+    vector_z: float = 0.0,
+) -> ActionResponse:
     return ActionResponse(
         pensamiento="",
         accion="aplicar_fuerza",
@@ -28,7 +34,7 @@ def _raw_force(context: dict, *, vector_x: float, vector_y: float) -> ActionResp
             "nombre_objeto": "Caja",
             "vector_x": vector_x,
             "vector_y": vector_y,
-            "vector_z": 0.0,
+            "vector_z": vector_z,
             "fuerza": 4.0,
         },
         metadata={
@@ -54,6 +60,49 @@ def _raw_force(context: dict, *, vector_x: float, vector_y: float) -> ActionResp
             },
         },
     )
+
+
+def test_signed_zero_has_identical_json_and_root029_binding() -> None:
+    context, _freshness_policy, authority_policy = _context()
+    orchestrator = _orchestrator(authority_policy)
+    event = EventoEntrante(
+        origen="unity",
+        tipo_evento="comando_usuario",
+        id_transaccion="root038-b3-signed-zero",
+        detalles={},
+    )
+
+    signed_response, signed_action = orchestrator._canonicalizar_action_response_motor(
+        _raw_force(context, vector_x=1.0, vector_y=-0.0, vector_z=0.0)
+    )
+    positive_response, positive_action = orchestrator._canonicalizar_action_response_motor(
+        _raw_force(context, vector_x=1.0, vector_y=0.0, vector_z=0.0)
+    )
+    assert signed_action is not None
+    assert positive_action is not None
+    assert signed_action.parameters_dict() == positive_action.parameters_dict()
+    assert canonical_json(signed_action.parameters_dict()) == canonical_json(
+        positive_action.parameters_dict()
+    )
+
+    _signed_governed, signed_reference = orchestrator._aplicar_autoridad_perceptiva(
+        event,
+        signed_response,
+        action_id="root038-b3-signed-zero-action",
+        trusted_parameter_path=TrustedParameterPathV1.MOTOR_PERCEPTION_RESOLUTION,
+        canonical_motor_action=signed_action,
+    )
+    _positive_governed, positive_reference = orchestrator._aplicar_autoridad_perceptiva(
+        event,
+        positive_response,
+        action_id="root038-b3-signed-zero-action",
+        trusted_parameter_path=TrustedParameterPathV1.MOTOR_PERCEPTION_RESOLUTION,
+        canonical_motor_action=positive_action,
+    )
+    assert signed_reference is not None
+    assert positive_reference is not None
+    assert signed_reference.canonical_parameters_json == positive_reference.canonical_parameters_json
+    assert signed_reference.action_binding_sha256 == positive_reference.action_binding_sha256
 
 
 def test_normalization_precedes_root029_binding_outgoing_and_ledger() -> None:
