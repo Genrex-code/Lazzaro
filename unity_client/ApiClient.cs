@@ -54,6 +54,10 @@ public class ApiClient : MonoBehaviour
                     if (AuthorityWireBoundary.TryValidateResponse(responseBody))
                     {
                         respuesta = JsonConvert.DeserializeObject<RespuestaAPI>(responseBody);
+                        if (!ActionBindingVerifierV1.TryVerifyResponse(respuesta))
+                        {
+                            respuesta = null;
+                        }
                     }
                     if (respuesta == null)
                     {
