@@ -10,8 +10,10 @@ acción liberaba el objeto sin aplicar el impulso solicitado.
 
 ## Guardia en el límite material
 
-`LazzaroAgent` usa un parser dedicado para `fuerza_lanzamiento`. Un campo
-ausente conserva el valor canónico `0f`. Si el campo está presente, su token
+`LazzaroAgent` usa un parser dedicado para `fuerza_lanzamiento`. El objeto de
+parámetros ausente o nulo es inválido y falla cerrado. Un objeto de parámetros
+no nulo que no contiene el campo opcional conserva el valor canónico `0f`.
+Esas dos situaciones no son equivalentes. Si el campo está presente, su token
 debe ser `Integer` o `Float`; `null`, booleanos y strings numéricos se rechazan.
 
 El parser observa primero el valor original como `double`, exige que sea
@@ -45,7 +47,8 @@ sigue siendo positivo puede cambiar ligeramente de magnitud al representarse
 como `float` en Unity. El dominio canónico Python, ROOT-002 y ROOT-042 no se
 modifican.
 
-La validación permanente cubre ausencia, cero, valores positivos y límites,
-tipos JSON inválidos, no finitos, underflow de `5e-324`, orden previo a
-`TryRelease` y conservación de las recepciones ROOT-005. La prueba material en
-Unity Play Mode permanece fuera de este bloque.
+La validación permanente distingue el objeto de parámetros nulo del objeto no
+nulo con campo opcional ausente. También cubre campo explícitamente nulo, cero,
+valores positivos y límites, tipos JSON inválidos, no finitos, underflow de
+`5e-324`, orden previo a `TryRelease` y conservación de las recepciones
+ROOT-005. La prueba material en Unity Play Mode permanece fuera de este bloque.

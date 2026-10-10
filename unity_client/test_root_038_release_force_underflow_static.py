@@ -25,9 +25,13 @@ def _float32(value: float) -> float:
     return struct.unpack("!f", struct.pack("!f", value))[0]
 
 
-def _release_force_boundary(value: object = MISSING) -> tuple[bool, float]:
+def _release_force_boundary(
+    value: object = MISSING, *, parameter_object_present: bool = True
+) -> tuple[bool, float]:
     """Modelo ejecutable del contrato acotado que el test fija en el C# estático."""
 
+    if not parameter_object_present:
+        return False, 0.0
     if value is MISSING:
         return True, 0.0
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -62,7 +66,24 @@ def _release_handler() -> str:
     )
 
 
-def test_absent_force_keeps_zero_release_only_default() -> None:
+def test_null_parameter_object_is_rejected() -> None:
+    valid, force = _release_force_boundary(parameter_object_present=False)
+    parser = _parser()
+
+    null_check = parser.index("if (parametros == null)")
+    missing_field_check = parser.index(
+        '!parametros.TryGetValue("fuerza_lanzamiento", out JToken token)'
+    )
+    null_branch = parser.split("if (parametros == null)", 1)[1].split(
+        "if (!parametros.TryGetValue", 1
+    )[0]
+
+    assert not valid and force == 0.0
+    assert null_check < missing_field_check
+    assert "return false;" in null_branch
+
+
+def test_nonnull_empty_parameter_object_keeps_zero_release_only_default() -> None:
     valid, force = _release_force_boundary()
     parser = _parser()
     materializer = _method(
@@ -76,6 +97,16 @@ def test_absent_force_keeps_zero_release_only_default() -> None:
     assert '!parametros.TryGetValue("fuerza_lanzamiento", out JToken token)' in parser
     assert "return true;" in parser.split("TryGetValue", 1)[1]
     assert "if (throwForce > 0f" in materializer
+
+
+def test_explicit_null_force_is_rejected() -> None:
+    valid, force = _release_force_boundary(None)
+    parser = _parser()
+
+    assert not valid and force == 0.0
+    assert "token == null" in parser
+    assert "token.Type != JTokenType.Integer" in parser
+    assert "token.Type != JTokenType.Float" in parser
 
 
 @pytest.mark.parametrize("raw", (0.0, 1.0, 20.0))
@@ -98,8 +129,8 @@ def test_out_of_range_values_are_rejected(raw: float) -> None:
     assert "valorUnity > 20.0f" in parser
 
 
-@pytest.mark.parametrize("raw", (None, True, False, "1.0"))
-def test_null_bool_and_numeric_string_are_rejected(raw: object) -> None:
+@pytest.mark.parametrize("raw", (True, False, "1.0"))
+def test_bool_and_numeric_string_are_rejected(raw: object) -> None:
     valid, _ = _release_force_boundary(raw)
     parser = _parser()
 

@@ -1080,10 +1080,11 @@ REGLAS FISICAS Y DE ENTORNO:
     private static bool TryLeerFuerzaLanzamiento(JObject parametros, out float fuerza)
     {
         fuerza = 0f;
-        if (
-            parametros == null
-            || !parametros.TryGetValue("fuerza_lanzamiento", out JToken token)
-        )
+        if (parametros == null)
+        {
+            return false;
+        }
+        if (!parametros.TryGetValue("fuerza_lanzamiento", out JToken token))
         {
             return true;
         }
