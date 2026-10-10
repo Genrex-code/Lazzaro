@@ -89,7 +89,7 @@ VALID_ROWS = (
         MotorActionKindV1.APPLY_FORCE,
         {
             "nombre_objeto": "Caja",
-            "vector_x": 0.0,
+            "vector_x": 1.0,
             "vector_y": 0.0,
             "vector_z": 0.0,
             "fuerza": 100.0,

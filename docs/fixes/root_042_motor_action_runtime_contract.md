@@ -143,6 +143,18 @@ perceptivas también pasan el gate: `NOT_APPLICABLE` nunca es bypass.
 ROOT-029 conserva intactas sus reglas de freshness, identidad, seguridad y
 binding.
 
+### Aclaración cross-field ROOT-038 B3
+
+`ApplyForceParams` interpreta `vector_x/vector_y/vector_z` exclusivamente como
+dirección; `fuerza` conserva la magnitud física. El vector cero es
+estructuralmente inválido. Todo vector finito no nulo se normaliza de forma
+robusta a longitud unitaria dentro del modelo canónico, antes de ROOT-029,
+`action_binding_sha256`, `AccionSaliente` y ActionLedger. El cálculo escala
+primero por la mayor componente y después usa `hypot`, evitando overflow y
+underflow de los valores raw extremos sin introducir mínimos arbitrarios. El
+resultado es además un punto fijo idempotente (`hypot == 1.0`), para que la
+revalidación durable no cambie los parámetros ya ligados por ROOT-029.
+
 ## Failure contract
 
 Los reason codes estructurales son:

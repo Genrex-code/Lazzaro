@@ -105,7 +105,13 @@ def test_finite_numeric_strings_are_preserved_and_normalized() -> None:
     ).params
 
     assert_true(position.model_dump() == {"x": 1.0, "y": -1.0, "z": 3.5}, "Las coordenadas string deben normalizarse.")
-    assert_true(force.vector_x == 1.0 and force.vector_y == -1.0 and force.vector_z == 3.5, "El vector string debe normalizarse.")
+    expected_norm = math.hypot(1.0, -1.0, 3.5)
+    assert_true(
+        math.isclose(force.vector_x, 1.0 / expected_norm)
+        and math.isclose(force.vector_y, -1.0 / expected_norm)
+        and math.isclose(force.vector_z, 3.5 / expected_norm),
+        "El vector string debe normalizarse como direccion unitaria.",
+    )
     assert_true(force.fuerza == 3.5, "La magnitud string finita debe conservarse.")
 
 
@@ -115,12 +121,19 @@ def test_unbounded_coordinates_and_vectors_keep_finite_large_values() -> None:
         force = ApplyForceParams(
             nombre_objeto="Cube",
             vector_x=value,
-            vector_y=value,
-            vector_z=value,
+            vector_y=1,
+            vector_z=0,
             fuerza=1,
         )
         assert_true(math.isfinite(position.x), "Una coordenada finita válida debe conservarse.")
-        assert_true(math.isfinite(force.vector_x), "Un vector finito válido debe conservarse.")
+        assert_true(math.isfinite(force.vector_x), "Un componente finito válido debe admitirse.")
+        assert_true(
+            math.isclose(
+                math.hypot(force.vector_x, force.vector_y, force.vector_z),
+                1.0,
+            ),
+            "La direccion canónica debe quedar normalizada.",
+        )
 
 
 def test_existing_physical_ranges_and_defaults_are_preserved() -> None:

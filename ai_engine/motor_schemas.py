@@ -16,6 +16,7 @@ from pydantic import (
     StrictInt,
     ValidationError,
     field_validator,
+    model_validator,
 )
 
 from .motor_resolution import InteractionType, MotorActionKindV1
@@ -112,6 +113,47 @@ class ApplyForceParams(StrictParams):
     vector_y: PhysicalFloat = Field(..., description="Componente Y de la direccion.")
     vector_z: PhysicalFloat = Field(..., description="Componente Z de la direccion.")
     fuerza: PhysicalFloat = Field(..., gt=0.0, le=100.0, description="Magnitud de la fuerza.")
+
+    @model_validator(mode="after")
+    def _normalizar_direccion(self) -> Self:
+        components = (self.vector_x, self.vector_y, self.vector_z)
+        scale = max(abs(component) for component in components)
+        if scale == 0.0:
+            raise ValueError("La direccion de fuerza no puede ser el vector cero.")
+
+        # ROOT-029 liga el JSON canónico y ledger/replay lo revalida. Un vector
+        # ya unitario debe ser un punto fijo exacto, no cambiar un ulp después.
+        if math.hypot(*components) == 1.0:
+            return self
+
+        scaled = tuple(component / scale for component in components)
+        norm = math.hypot(*scaled)
+        normalized = [component / norm for component in scaled]
+
+        # El redondeo IEEE-754 puede dejar hypot a un ulp de 1. Ajustar sólo la
+        # componente dominante crea una representación unitaria e idempotente;
+        # no introduce un umbral físico ni altera la magnitud de `fuerza`.
+        dominant = max(range(3), key=lambda index: abs(scaled[index]))
+        for _ in range(8):
+            normalized_norm = math.hypot(*normalized)
+            if normalized_norm == 1.0:
+                break
+            target = (
+                math.copysign(math.inf, normalized[dominant])
+                if normalized_norm < 1.0
+                else math.copysign(0.0, normalized[dominant])
+            )
+            normalized[dominant] = math.nextafter(
+                normalized[dominant],
+                target,
+            )
+        if math.hypot(*normalized) != 1.0:
+            raise ValueError("No fue posible canonicalizar la direccion de fuerza.")
+
+        object.__setattr__(self, "vector_x", normalized[0])
+        object.__setattr__(self, "vector_y", normalized[1])
+        object.__setattr__(self, "vector_z", normalized[2])
+        return self
 
 
 class CancelTaskParams(StrictParams):
