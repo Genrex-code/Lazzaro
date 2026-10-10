@@ -1077,6 +1077,59 @@ REGLAS FISICAS Y DE ENTORNO:
         return parsed && !float.IsNaN(valor) && !float.IsInfinity(valor);
     }
 
+    private static bool TryLeerFuerzaLanzamiento(JObject parametros, out float fuerza)
+    {
+        fuerza = 0f;
+        if (
+            parametros == null
+            || !parametros.TryGetValue("fuerza_lanzamiento", out JToken token)
+        )
+        {
+            return true;
+        }
+        if (
+            token == null
+            || (token.Type != JTokenType.Integer && token.Type != JTokenType.Float)
+        )
+        {
+            return false;
+        }
+
+        double valorRaw;
+        try
+        {
+            valorRaw = token.Value<double>();
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+        if (
+            double.IsNaN(valorRaw)
+            || double.IsInfinity(valorRaw)
+            || valorRaw < 0.0d
+            || valorRaw > 20.0d
+        )
+        {
+            return false;
+        }
+
+        float valorUnity = (float)valorRaw;
+        if (
+            float.IsNaN(valorUnity)
+            || float.IsInfinity(valorUnity)
+            || valorUnity < 0.0f
+            || valorUnity > 20.0f
+            || (valorRaw > 0.0d && valorUnity == 0.0f)
+        )
+        {
+            return false;
+        }
+
+        fuerza = valorUnity;
+        return true;
+    }
+
     private static bool TryLeerDistanciaNavegacionObjeto(
         JObject parametros,
         out float? distancia
@@ -1220,12 +1273,7 @@ REGLAS FISICAS Y DE ENTORNO:
     private void EjecutarSoltar(ContextoAccion contexto)
     {
         JObject parametros = contexto.Parametros;
-        float fuerza = 0f;
-        if (
-            parametros != null
-            && parametros["fuerza_lanzamiento"] != null
-            && !TryLeerFloat(parametros, "fuerza_lanzamiento", out fuerza)
-        )
+        if (!TryLeerFuerzaLanzamiento(parametros, out float fuerza))
         {
             ReportarResultadoMaterial(
                 contexto,
@@ -1235,20 +1283,6 @@ REGLAS FISICAS Y DE ENTORNO:
                     materializacion.HeldObjectId ?? "none",
                     "invalid_physical_parameters",
                     "fuerza_lanzamiento no cumple el contrato fisico."
-                )
-            );
-            return;
-        }
-        if (fuerza < 0f || fuerza > 20f)
-        {
-            ReportarResultadoMaterial(
-                contexto,
-                MaterialEffectReceipt.Failed(
-                    contexto.IdAccion,
-                    MaterialEffectKind.Release,
-                    materializacion.HeldObjectId ?? "none",
-                    "invalid_physical_parameters",
-                    "fuerza_lanzamiento quedo fuera del rango canonico 0..20."
                 )
             );
             return;
