@@ -49,7 +49,12 @@ public class ApiClient : MonoBehaviour
             {
                 try
                 {
-                    var respuesta = JsonConvert.DeserializeObject<RespuestaAPI>(request.downloadHandler.text);
+                    string responseBody = request.downloadHandler.text;
+                    RespuestaAPI respuesta = null;
+                    if (AuthorityWireBoundary.TryValidateResponse(responseBody))
+                    {
+                        respuesta = JsonConvert.DeserializeObject<RespuestaAPI>(responseBody);
+                    }
                     if (respuesta == null)
                     {
                         onFailure?.Invoke(CrearFalloLocal(
