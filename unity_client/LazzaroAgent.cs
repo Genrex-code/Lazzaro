@@ -981,23 +981,12 @@ REGLAS FISICAS Y DE ENTORNO:
     private void EjecutarGirarAvatar(ContextoAccion contexto)
     {
         JObject parametros = contexto.Parametros;
-        if (!TryLeerFloat(parametros, "grados", out float grados))
+        if (!TryLeerGradosRotacion(parametros, out float grados))
         {
             ReportarResultadoAccion(
                 contexto,
                 false,
-                "La accion girar_avatar requiere el parametro numerico grados."
-            );
-            return;
-        }
-
-        grados = Mathf.Clamp(grados, -360f, 360f);
-        if (Mathf.Abs(grados) < 1f)
-        {
-            ReportarResultadoAccion(
-                contexto,
-                false,
-                "La rotacion solicitada es demasiado pequena para ejecutarse."
+                "La accion girar_avatar requiere grados numericos finitos entre -360 y 360."
             );
             return;
         }
@@ -1005,11 +994,48 @@ REGLAS FISICAS Y DE ENTORNO:
         ContextoAccion movimientoContexto = contexto.ConDetalles(
             new Dictionary<string, object>
         {
-            { "grados", Math.Round(grados, 2) },
+            { "grados", grados },
         }, "rotacion");
 
         accionesMovimientoPendientes[contexto.IdAccion] = movimientoContexto;
         movimiento.GirarAvatar(contexto.IdAccion, grados);
+    }
+
+    private static bool TryLeerGradosRotacion(JObject parametros, out float grados)
+    {
+        grados = 0f;
+        if (
+            parametros == null
+            || !parametros.TryGetValue("grados", out JToken token)
+            || token == null
+            || (token.Type != JTokenType.Integer && token.Type != JTokenType.Float)
+        )
+        {
+            return false;
+        }
+
+        double valor;
+        try
+        {
+            valor = token.Value<double>();
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+
+        if (
+            double.IsNaN(valor)
+            || double.IsInfinity(valor)
+            || valor < -360.0d
+            || valor > 360.0d
+        )
+        {
+            return false;
+        }
+
+        grados = (float)valor;
+        return true;
     }
 
     private void ManejarMovimientoCompletado(string idAccion, bool exito, string mensaje)

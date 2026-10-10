@@ -183,20 +183,32 @@ public class MovementController : MonoBehaviour
 
     public void GirarAvatar(string actionId, float grados)
     {
+        if (!EsRotacionValida(grados))
+        {
+            RechazarMovimiento(actionId, "La rotacion solicitada no es valida.");
+            return;
+        }
         if (!PuedeEjecutarOrden("rotacion", out string mensajeError))
         {
             RechazarMovimiento(actionId, mensajeError);
             return;
         }
 
-        float gradosClamped = Mathf.Clamp(grados, -360f, 360f);
-        if (Mathf.Abs(gradosClamped) < 1f)
+        if (grados == 0f)
         {
-            RechazarMovimiento(actionId, "La rotacion solicitada es demasiado pequena.");
+            OnMovimientoCompletado?.Invoke(actionId, true, "Rotacion de cero grados completada.");
             return;
         }
 
-        IniciarRutinaMovimiento(GirarHastaAngulo(actionId, gradosClamped));
+        IniciarRutinaMovimiento(GirarHastaAngulo(actionId, grados));
+    }
+
+    private static bool EsRotacionValida(float grados)
+    {
+        return !float.IsNaN(grados)
+            && !float.IsInfinity(grados)
+            && grados >= -360f
+            && grados <= 360f;
     }
 
     public void FrenarMovimiento()
