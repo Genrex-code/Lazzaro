@@ -696,15 +696,11 @@ public class LazzaroAgent : MonoBehaviour
             return;
         }
 
-        ContextoAccion contexto = new ContextoAccion(
-            respuesta.accion.id_accion,
-            string.IsNullOrWhiteSpace(respuesta.accion.id_transaccion_origen)
-                ? idTransaccionSolicitud
-                : respuesta.accion.id_transaccion_origen,
-            respuesta.accion.nombre,
-            respuesta.accion.parametros,
-            respuesta.accion.perception_authority
-        );
+        if (!TryResolveCanonicalActionContext(solicitud, respuesta.accion, out ContextoAccion contexto))
+        {
+            Debug.LogWarning("La respuesta no conserva la continuidad canonica de la accion.");
+            return;
+        }
 
         string estadoEjecucion = respuesta.accion.estado_ejecucion ?? "";
         if (respuesta.status == "pendiente")
@@ -740,9 +736,9 @@ public class LazzaroAgent : MonoBehaviour
         accionesEsperandoAutorizacion.Remove(contexto.IdAccion);
 
         // La voz publica viaja solamente como parametro contractual de `hablar`.
-        if (respuesta.accion.nombre == "hablar")
+        if (contexto.Nombre == "hablar")
         {
-            string textoVoz = respuesta.accion.parametros?["texto_a_comunicar"]?.ToString() ?? "";
+            string textoVoz = contexto.Parametros?["texto_a_comunicar"]?.ToString() ?? "";
             if (textoVozUI != null)
             {
                 textoVozUI.text = $"[Dice:]\n{textoVoz}";
@@ -755,7 +751,7 @@ public class LazzaroAgent : MonoBehaviour
 
         EncolarInicioEjecucion(contexto);
 
-        switch (respuesta.accion.nombre)
+        switch (contexto.Nombre)
         {
             case "navegar_a_objeto":
                 EjecutarNavegarAObjeto(contexto);
@@ -788,7 +784,7 @@ public class LazzaroAgent : MonoBehaviour
                 EjecutarHablar(contexto);
                 break;
             default:
-                Debug.LogWarning($"No hay manejador Unity para la accion: {respuesta.accion.nombre}");
+                Debug.LogWarning($"No hay manejador Unity para la accion: {contexto.Nombre}");
                 ReportarResultadoAccion(
                     contexto,
                     false,
@@ -796,6 +792,70 @@ public class LazzaroAgent : MonoBehaviour
                 );
                 break;
         }
+    }
+
+    private bool TryResolveCanonicalActionContext(
+        EventoEntrante solicitud,
+        AccionSaliente responseAction,
+        out ContextoAccion contexto
+    )
+    {
+        contexto = null;
+        if (solicitud == null || responseAction == null)
+        {
+            return false;
+        }
+
+        if (solicitud.tipo_evento == "confirmacion_accion")
+        {
+            if (
+                !ActionLifecycleContinuityV1.TryGetRequestedConfirmationActionId(
+                    solicitud,
+                    out string requestedActionId
+                )
+                || !accionesEsperandoAutorizacion.TryGetValue(
+                    requestedActionId,
+                    out ContextoAccion pendiente
+                )
+                || !ActionLifecycleContinuityV1.IsValidConfirmationContinuation(
+                    requestedActionId,
+                    responseAction,
+                    pendiente.IdAccion,
+                    pendiente.IdTransaccionOrigen,
+                    pendiente.Nombre,
+                    pendiente.Parametros,
+                    pendiente.PerceptionAuthority
+                )
+            )
+            {
+                return false;
+            }
+
+            // La respuesta confirma una transicion. La identidad ejecutable
+            // permanece en el contexto que el usuario aprobo originalmente.
+            contexto = pendiente;
+            return true;
+        }
+
+        if (
+            !ActionLifecycleContinuityV1.TryResolveNewActionOrigin(
+                solicitud,
+                responseAction,
+                out string canonicalOrigin
+            )
+        )
+        {
+            return false;
+        }
+
+        contexto = new ContextoAccion(
+            responseAction.id_accion,
+            canonicalOrigin,
+            responseAction.nombre,
+            responseAction.parametros,
+            responseAction.perception_authority
+        );
+        return true;
     }
 
     private void EjecutarCancelarTarea(ContextoAccion contexto)
