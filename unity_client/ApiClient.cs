@@ -51,12 +51,15 @@ public class ApiClient : MonoBehaviour
                 {
                     string responseBody = request.downloadHandler.text;
                     RespuestaAPI respuesta = null;
-                    if (AuthorityWireBoundary.TryValidateResponse(responseBody))
+                    if (ActionEnvelopeWireBoundary.TryValidateResponse(responseBody))
                     {
-                        respuesta = JsonConvert.DeserializeObject<RespuestaAPI>(responseBody);
-                        if (!ActionBindingVerifierV1.TryVerifyResponse(respuesta))
+                        if (AuthorityWireBoundary.TryValidateResponse(responseBody))
                         {
-                            respuesta = null;
+                            respuesta = JsonConvert.DeserializeObject<RespuestaAPI>(responseBody);
+                            if (!ActionBindingVerifierV1.TryVerifyResponse(respuesta))
+                            {
+                                respuesta = null;
+                            }
                         }
                     }
                     if (respuesta == null)
