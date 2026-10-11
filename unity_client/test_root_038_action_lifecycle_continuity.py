@@ -48,10 +48,12 @@ def _request(
     transaction: str,
     event_type: str = "comando_usuario",
     action_id: object = "A",
+    approved: object = True,
 ) -> dict[str, object]:
     details: dict[str, object] = {}
     if event_type == "confirmacion_accion":
         details["id_accion"] = action_id
+        details["approved"] = approved
     return {
         "tipo_evento": event_type,
         "id_transaccion": transaction,
@@ -109,13 +111,16 @@ def _confirmation_case(
     pending_name: str = "girar_avatar",
     pending_parameters: dict[str, object] | None = None,
     pending_authority: dict[str, object] | None = None,
+    approved: object = True,
+    response_status: str = "ok",
 ) -> dict[str, object]:
     return {
         "case_id": case_id,
         "mode": "confirmation",
         "request": _request(
-            "tx-confirm", "confirmacion_accion", requested_action_id
+            "tx-confirm", "confirmacion_accion", requested_action_id, approved
         ),
+        "response_status": response_status,
         "response_action": response_action,
         "pending_action_id": pending_action_id,
         "pending_origin": pending_origin,
@@ -186,12 +191,62 @@ def _matrix() -> list[dict[str, object]]:
                 {**deepcopy(canonical), "estado_ejecucion": "rejected"},
                 True,
                 pending_authority=authority,
+                approved=False,
             ),
             _confirmation_case(
-                "valid skipped",
-                {**deepcopy(canonical), "estado_ejecucion": "skipped"},
-                True,
+                "approve cannot become rejected",
+                {**deepcopy(canonical), "estado_ejecucion": "rejected"},
+                False,
                 pending_authority=authority,
+                approved=True,
+            ),
+            _confirmation_case(
+                "reject cannot become dispatched",
+                deepcopy(canonical),
+                False,
+                pending_authority=authority,
+                approved=False,
+            ),
+            _confirmation_case(
+                "approve cannot become skipped",
+                {**deepcopy(canonical), "estado_ejecucion": "skipped"},
+                False,
+                pending_authority=authority,
+            ),
+            _confirmation_case(
+                "reject cannot become skipped",
+                {**deepcopy(canonical), "estado_ejecucion": "skipped"},
+                False,
+                pending_authority=authority,
+                approved=False,
+            ),
+            _confirmation_case(
+                "approve cannot return awaiting authorization",
+                {**deepcopy(canonical), "estado_ejecucion": "awaiting_authorization"},
+                False,
+                pending_authority=authority,
+            ),
+            _confirmation_case(
+                "reject cannot return awaiting authorization",
+                {**deepcopy(canonical), "estado_ejecucion": "awaiting_authorization"},
+                False,
+                pending_authority=authority,
+                approved=False,
+            ),
+            _confirmation_case(
+                "confirmation status must be ok",
+                deepcopy(canonical),
+                False,
+                pending_authority=authority,
+                response_status="pendiente",
+            ),
+            _confirmation_case(
+                "rejection status must be ok",
+                {**deepcopy(canonical), "estado_ejecucion": "rejected"},
+                False,
+                pending_authority=authority,
+                approved=False,
+                response_status="error",
             ),
             _confirmation_case(
                 "confirmation missing origin",
@@ -258,6 +313,28 @@ def _matrix() -> list[dict[str, object]]:
             ),
         ]
     )
+    for case_id, invalid_approved in (
+        ("confirmation approved null", None),
+        ("confirmation approved string", "true"),
+        ("confirmation approved integer", 1),
+    ):
+        cases.append(
+            _confirmation_case(
+                case_id,
+                deepcopy(canonical),
+                False,
+                pending_authority=authority,
+                approved=invalid_approved,
+            )
+        )
+    missing_approved = _confirmation_case(
+        "confirmation approved missing",
+        deepcopy(canonical),
+        False,
+        pending_authority=authority,
+    )
+    missing_approved["request"]["detalles"].pop("approved")
+    cases.append(missing_approved)
     return cases
 
 
@@ -299,8 +376,9 @@ public static class ActionLifecycleHarness
             else
             {
                 string requestedActionId;
-                bool requestValid = ActionLifecycleContinuityV1.TryGetRequestedConfirmationActionId(
-                    request, out requestedActionId
+                bool approved;
+                bool requestValid = ActionLifecycleContinuityV1.TryGetRequestedConfirmation(
+                    request, out requestedActionId, out approved
                 );
                 PerceptionAuthorityReferenceV1 pendingAuthority =
                     item["pending_authority"].Type == JTokenType.Null
@@ -308,6 +386,8 @@ public static class ActionLifecycleHarness
                         : item["pending_authority"].ToObject<PerceptionAuthorityReferenceV1>();
                 actual = requestValid && ActionLifecycleContinuityV1.IsValidConfirmationContinuation(
                     requestedActionId,
+                    approved,
+                    item["response_status"].Value<string>(),
                     responseAction,
                     item["pending_action_id"].Value<string>(),
                     item["pending_origin"].Value<string>(),
@@ -404,7 +484,16 @@ def test_matrix_covers_required_b15_mutations() -> None:
         "pending initial action",
         "valid approval",
         "valid rejection",
-        "valid skipped",
+        "reject cannot become dispatched",
+        "approve cannot become rejected",
+        "approve cannot become skipped",
+        "reject cannot become skipped",
+        "approve cannot return awaiting authorization",
+        "reject cannot return awaiting authorization",
+        "confirmation approved missing",
+        "confirmation approved null",
+        "confirmation approved string",
+        "confirmation approved integer",
         "confirmation origin mismatch",
         "confirmation action id mismatch",
         "confirmation action name mismatch",
@@ -416,7 +505,7 @@ def test_matrix_covers_required_b15_mutations() -> None:
 
 
 def test_lazzaro_agent_validates_before_pending_mutation_or_execution() -> None:
-    resolve = AGENT_SOURCE.index("TryResolveCanonicalActionContext(solicitud, respuesta.accion")
+    resolve = AGENT_SOURCE.index("TryResolveCanonicalActionContext(solicitud, respuesta")
     pending_store = AGENT_SOURCE.index("accionesEsperandoAutorizacion[contexto.IdAccion] = contexto")
     first_remove = AGENT_SOURCE.index("accionesEsperandoAutorizacion.Remove(contexto.IdAccion)", resolve)
     enqueue = AGENT_SOURCE.index("EncolarInicioEjecucion(contexto)", resolve)
@@ -436,6 +525,8 @@ def test_lazzaro_agent_validates_before_pending_mutation_or_execution() -> None:
     confirmation_branch = resolver[confirmation_start:new_action_start]
     assert "contexto = pendiente" in confirmation_branch
     assert "new ContextoAccion" not in confirmation_branch
+    assert "out bool approved" in confirmation_branch
+    assert "respuesta.status" in confirmation_branch
 
 
 def test_execution_and_terminal_reporting_use_stored_canonical_context() -> None:

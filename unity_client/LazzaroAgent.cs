@@ -696,7 +696,7 @@ public class LazzaroAgent : MonoBehaviour
             return;
         }
 
-        if (!TryResolveCanonicalActionContext(solicitud, respuesta.accion, out ContextoAccion contexto))
+        if (!TryResolveCanonicalActionContext(solicitud, respuesta, out ContextoAccion contexto))
         {
             Debug.LogWarning("La respuesta no conserva la continuidad canonica de la accion.");
             return;
@@ -796,22 +796,24 @@ public class LazzaroAgent : MonoBehaviour
 
     private bool TryResolveCanonicalActionContext(
         EventoEntrante solicitud,
-        AccionSaliente responseAction,
+        RespuestaAPI respuesta,
         out ContextoAccion contexto
     )
     {
         contexto = null;
-        if (solicitud == null || responseAction == null)
+        if (solicitud == null || respuesta == null || respuesta.accion == null)
         {
             return false;
         }
+        AccionSaliente responseAction = respuesta.accion;
 
         if (solicitud.tipo_evento == "confirmacion_accion")
         {
             if (
-                !ActionLifecycleContinuityV1.TryGetRequestedConfirmationActionId(
+                !ActionLifecycleContinuityV1.TryGetRequestedConfirmation(
                     solicitud,
-                    out string requestedActionId
+                    out string requestedActionId,
+                    out bool approved
                 )
                 || !accionesEsperandoAutorizacion.TryGetValue(
                     requestedActionId,
@@ -819,6 +821,8 @@ public class LazzaroAgent : MonoBehaviour
                 )
                 || !ActionLifecycleContinuityV1.IsValidConfirmationContinuation(
                     requestedActionId,
+                    approved,
+                    respuesta.status,
                     responseAction,
                     pendiente.IdAccion,
                     pendiente.IdTransaccionOrigen,

@@ -2,8 +2,8 @@ using System;
 using Newtonsoft.Json.Linq;
 
 /// <summary>
-/// Comparaciones puras para preservar la identidad de una accion entre la
-/// respuesta que la crea y las respuestas posteriores de su lifecycle.
+/// Comparaciones puras para preservar la identidad de una accion y ligar la
+/// decision local de confirmacion con la transicion posterior de su lifecycle.
 ///
 /// El estado pendiente y la decision de ejecutar siguen perteneciendo a
 /// LazzaroAgent. Esta clase no deserializa wire ni crea identidad nueva.
@@ -36,12 +36,14 @@ public static class ActionLifecycleContinuityV1
         return true;
     }
 
-    public static bool TryGetRequestedConfirmationActionId(
+    public static bool TryGetRequestedConfirmation(
         EventoEntrante request,
-        out string requestedActionId
+        out string requestedActionId,
+        out bool approved
     )
     {
         requestedActionId = null;
+        approved = false;
         if (
             request == null
             || request.tipo_evento != "confirmacion_accion"
@@ -49,17 +51,22 @@ public static class ActionLifecycleContinuityV1
             || !request.detalles.TryGetValue("id_accion", out object rawActionId)
             || !(rawActionId is string actionId)
             || string.IsNullOrWhiteSpace(actionId)
+            || !request.detalles.TryGetValue("approved", out object rawApproved)
+            || !(rawApproved is bool approvedDecision)
         )
         {
             return false;
         }
 
         requestedActionId = actionId;
+        approved = approvedDecision;
         return true;
     }
 
     public static bool IsValidConfirmationContinuation(
         string requestedActionId,
+        bool approved,
+        string responseStatus,
         AccionSaliente responseAction,
         string pendingActionId,
         string pendingOrigin,
@@ -75,6 +82,11 @@ public static class ActionLifecycleContinuityV1
             || string.IsNullOrWhiteSpace(pendingOrigin)
             || string.IsNullOrWhiteSpace(pendingName)
             || pendingParameters == null
+            || !IsExpectedConfirmationLifecycle(
+                approved,
+                responseStatus,
+                responseAction.estado_ejecucion
+            )
             || !string.Equals(requestedActionId, pendingActionId, StringComparison.Ordinal)
             || !string.Equals(responseAction.id_accion, pendingActionId, StringComparison.Ordinal)
             || !string.Equals(responseAction.nombre, pendingName, StringComparison.Ordinal)
@@ -88,6 +100,20 @@ public static class ActionLifecycleContinuityV1
         }
 
         return true;
+    }
+
+    private static bool IsExpectedConfirmationLifecycle(
+        bool approved,
+        string responseStatus,
+        string executionState
+    )
+    {
+        return string.Equals(responseStatus, "ok", StringComparison.Ordinal)
+            && string.Equals(
+                executionState,
+                approved ? "dispatched" : "rejected",
+                StringComparison.Ordinal
+            );
     }
 
     private static bool OriginMatchesOrIsOmitted(string receivedOrigin, string expectedOrigin)

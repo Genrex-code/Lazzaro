@@ -34,11 +34,20 @@ confirmación:
 Para `confirmacion_accion`:
 
 - `solicitud.detalles["id_accion"]` debe ser un string no vacío;
+- `solicitud.detalles["approved"]` debe ser un `bool` real, sin coerción;
 - debe existir el contexto pendiente de ese ID exacto;
 - ID, nombre, parámetros y autoridad recibidos deben ser idénticos al pendiente;
 - el origen puede omitirse, pero si está presente debe ser el origen original;
+- `approved=true` sólo admite `status=ok` y `estado_ejecucion=dispatched`;
+- `approved=false` sólo admite `status=ok` y `estado_ejecucion=rejected`;
 - la ejecución o cierre usa el `ContextoAccion` almacenado, no los campos
   ejecutables de la respuesta de confirmación.
+
+El productor Python vigente no genera `skipped` desde
+`_procesar_confirmacion_accion`: autorizar una acción Unity la despacha y
+rechazarla la deja en `rejected`. Por ello `skipped`,
+`awaiting_authorization`, un status distinto de `ok` o cualquier inversión
+entre la decisión local y el lifecycle recibido fallan cerrados.
 
 La autoridad se preserva de forma completa: nulo sólo coincide con nulo y una
 referencia presente requiere igualdad estructural. Esto conserva el binding ya
@@ -62,7 +71,9 @@ pura con el Mono/Newtonsoft instalado por Unity, sin abrir Unity. Cubre:
 
 - el exploit `tx-current` / `tx-other`;
 - acción inmediata, pendiente inicial y orígenes legacy omitidos;
-- aprobación, rechazo y `skipped` válidos;
+- aprobación y rechazo válidos con su lifecycle exacto;
+- la matriz `approved=true/dispatched` y `approved=false/rejected`;
+- inversión de decisión, `skipped`, re-pending y valores `approved` no bool;
 - mutaciones de origen, ID, nombre, parámetros y autoridad añadida, retirada o
   cambiada;
 - orden de validación anterior a mutaciones/ejecución;
