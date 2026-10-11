@@ -11,10 +11,14 @@ import tempfile
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
+
+from api.schemas import AccionSaliente
 
 
 ROOT = Path(__file__).resolve().parents[1]
 BOUNDARY_PATH = ROOT / "unity_client" / "ActionEnvelopeWireBoundary.cs"
+DTO_PATH = ROOT / "unity_client" / "DTOs.cs"
 API_CLIENT_PATH = ROOT / "unity_client" / "ApiClient.cs"
 AGENT_PATH = ROOT / "unity_client" / "LazzaroAgent.cs"
 BOUNDARY = BOUNDARY_PATH.read_text(encoding="utf-8-sig")
@@ -51,6 +55,24 @@ def _cancel(parameters: object = ...) -> dict[str, object]:
 def _other(parameters: object = ...) -> dict[str, object]:
     action = _cancel(parameters)
     action["nombre"] = "hablar"
+    return action
+
+
+def _with_action_field(field: str, value: object) -> dict[str, object]:
+    action = _cancel({})
+    action[field] = value
+    return action
+
+
+def _without_action_field(field: str) -> dict[str, object]:
+    action = _cancel({})
+    action.pop(field)
+    return action
+
+
+def _wrong_case_action_field(canonical: str, wire_name: str) -> dict[str, object]:
+    action = _cancel({})
+    action[wire_name] = action.pop(canonical)
     return action
 
 
@@ -147,7 +169,7 @@ def _matrix() -> list[tuple[str, str, bool]]:
             ),
             (
                 "parameters may precede action name",
-                '{"status":"ok","accion":{"parametros":{},"nombre":"cancelar_tarea"}}',
+                '{"status":"ok","accion":{"parametros":{},"nombre":"cancelar_tarea","id_accion":"action-1"}}',
                 True,
             ),
             (
@@ -161,6 +183,190 @@ def _matrix() -> list[tuple[str, str, bool]]:
                 False,
             ),
         ]
+    )
+
+    invalid_scalar_values = (
+        ("null", None),
+        ("boolean true", True),
+        ("boolean false", False),
+        ("integer", 7),
+        ("float", 1.2),
+        ("object", {}),
+        ("array", []),
+    )
+    for field in ("id_accion", "nombre"):
+        cases.append(
+            (f"{field} missing", _response(_without_action_field(field)), False)
+        )
+        for label, value in invalid_scalar_values:
+            cases.append(
+                (
+                    f"{field} {label}",
+                    _response(_with_action_field(field, value)),
+                    False,
+                )
+            )
+        for label, value in (("empty string", ""), ("whitespace string", "   ")):
+            cases.append(
+                (
+                    f"{field} {label} remains Python-compatible",
+                    _response(_with_action_field(field, value)),
+                    True,
+                )
+            )
+
+    cases.extend(
+        [
+            (
+                "requiere_confirmacion missing defaults false",
+                _response(_without_action_field("requiere_confirmacion")),
+                True,
+            ),
+            (
+                "requiere_confirmacion true",
+                _response(_with_action_field("requiere_confirmacion", True)),
+                True,
+            ),
+            (
+                "requiere_confirmacion false",
+                _response(_with_action_field("requiere_confirmacion", False)),
+                True,
+            ),
+        ]
+    )
+    for label, value in (
+        ("null", None),
+        ("string true", "true"),
+        ("string false", "false"),
+        ("integer", 1),
+        ("float", 1.0),
+        ("object", {}),
+        ("array", []),
+    ):
+        cases.append(
+            (
+                f"requiere_confirmacion {label}",
+                _response(_with_action_field("requiere_confirmacion", value)),
+                False,
+            )
+        )
+
+    cases.append(
+        (
+            "estado_ejecucion missing defaults legacy_unknown",
+            _response(_without_action_field("estado_ejecucion")),
+            True,
+        )
+    )
+    for state in (
+        "legacy_unknown",
+        "created",
+        "awaiting_authorization",
+        "authorized",
+        "dispatched",
+        "executing",
+        "reported_success",
+        "reported_failure",
+        "rejected",
+        "skipped",
+    ):
+        cases.append(
+            (
+                f"estado_ejecucion canonical {state}",
+                _response(_with_action_field("estado_ejecucion", state)),
+                True,
+            )
+        )
+    for label, value in (
+        ("null", None),
+        ("unknown string", "UNKNOWN_VALUE"),
+        ("integer", 7),
+        ("boolean", True),
+        ("object", {}),
+        ("array", []),
+    ):
+        cases.append(
+            (
+                f"estado_ejecucion {label}",
+                _response(_with_action_field("estado_ejecucion", value)),
+                False,
+            )
+        )
+
+    cases.extend(
+        [
+            (
+                "id_transaccion_origen missing",
+                _response(_without_action_field("id_transaccion_origen")),
+                True,
+            ),
+            (
+                "id_transaccion_origen null",
+                _response(_with_action_field("id_transaccion_origen", None)),
+                True,
+            ),
+            (
+                "id_transaccion_origen string",
+                _response(_with_action_field("id_transaccion_origen", "tx-2")),
+                True,
+            ),
+            (
+                "id_transaccion_origen empty string",
+                _response(_with_action_field("id_transaccion_origen", "")),
+                True,
+            ),
+            (
+                "id_transaccion_origen whitespace string",
+                _response(_with_action_field("id_transaccion_origen", "   ")),
+                True,
+            ),
+        ]
+    )
+    for label, value in (
+        ("boolean", True),
+        ("integer", 7),
+        ("float", 1.2),
+        ("object", {}),
+        ("array", []),
+    ):
+        cases.append(
+            (
+                f"id_transaccion_origen {label}",
+                _response(_with_action_field("id_transaccion_origen", value)),
+                False,
+            )
+        )
+
+    for canonical, wire_name in (
+        ("id_accion", "Id_accion"),
+        ("nombre", "Nombre"),
+        ("requiere_confirmacion", "Requiere_confirmacion"),
+        ("estado_ejecucion", "Estado_ejecucion"),
+        ("id_transaccion_origen", "Id_transaccion_origen"),
+    ):
+        cases.append(
+            (
+                f"B8 single wrong-case {canonical} remains compatible",
+                _response(_wrong_case_action_field(canonical, wire_name)),
+                True,
+            )
+        )
+
+    physical = {
+        "id_accion": 7,
+        "nombre": "girar_avatar",
+        "parametros": {"grados": 90},
+        "requiere_confirmacion": False,
+        "estado_ejecucion": "dispatched",
+        "id_transaccion_origen": "tx-1",
+        "perception_authority": None,
+    }
+    cases.append(
+        (
+            "mandatory physical numeric id_accion is rejected",
+            _response(physical),
+            False,
+        )
     )
     return cases
 
@@ -206,10 +412,18 @@ def test_actual_newtonsoft_action_envelope_matrix() -> None:
     compiled_path = Path(tempfile.gettempdir()) / (
         f"ActionEnvelopeWireBoundary.{uuid4().hex}.dll"
     )
+    defaults_payload = _response(
+        {
+            "id_accion": "action-defaults",
+            "nombre": "hablar",
+            "parametros": {},
+        }
+    )
+    defaults_b64 = base64.b64encode(defaults_payload.encode("utf-8")).decode("ascii")
     script = f"""
 $ErrorActionPreference = 'Stop'
 $compiled = {json.dumps(str(compiled_path))}
-& {json.dumps(str(mono))} {json.dumps(str(compiler))} /nologo /target:library ("/out:" + $compiled) ("/reference:" + {json.dumps(str(newtonsoft))}) ("/reference:" + {json.dumps(str(netstandard))}) {json.dumps(str(BOUNDARY_PATH))}
+& {json.dumps(str(mono))} {json.dumps(str(compiler))} /nologo /target:library ("/out:" + $compiled) ("/reference:" + {json.dumps(str(newtonsoft))}) ("/reference:" + {json.dumps(str(netstandard))}) {json.dumps(str(BOUNDARY_PATH))} {json.dumps(str(DTO_PATH))}
 if ($LASTEXITCODE -ne 0) {{ exit $LASTEXITCODE }}
 Add-Type -Path {json.dumps(str(newtonsoft))}
 Add-Type -Path $compiled
@@ -226,6 +440,17 @@ foreach ($case in $cases) {{
         Write-Output ("FAIL|" + $name + "|expected=" + $expected + "|actual=" + $actual)
         $failed++
     }}
+}}
+$defaultsRaw = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String({json.dumps(defaults_b64)}))
+$defaults = [Newtonsoft.Json.JsonConvert]::DeserializeObject[RespuestaAPI]($defaultsRaw)
+if (
+    ($null -eq $defaults.accion) -or
+    ($defaults.accion.requiere_confirmacion -ne $false) -or
+    ($defaults.accion.estado_ejecucion -ne "legacy_unknown") -or
+    ($null -ne $defaults.accion.id_transaccion_origen)
+) {{
+    Write-Output "FAIL|typed defaults did not match Python"
+    $failed++
 }}
 if ($failed -ne 0) {{ exit 1 }}
 Write-Output ("PASS|" + $cases.Count)
@@ -251,6 +476,84 @@ Write-Output ("PASS|" + $cases.Count)
         compiled_path.unlink(missing_ok=True)
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert f"PASS|{len(cases)}" in completed.stdout
+
+
+def test_python_action_scalar_source_of_truth() -> None:
+    base = {
+        "id_accion": "action-1",
+        "nombre": "girar_avatar",
+        "parametros": {"grados": 90},
+        "requiere_confirmacion": False,
+        "estado_ejecucion": "dispatched",
+        "id_transaccion_origen": "tx-1",
+    }
+
+    for required in ("id_accion", "nombre"):
+        missing = dict(base)
+        missing.pop(required)
+        with pytest.raises(ValidationError):
+            AccionSaliente.model_validate(missing)
+        for value in (None, True, False, 7, 1.2, {}, []):
+            invalid = dict(base)
+            invalid[required] = value
+            with pytest.raises(ValidationError):
+                AccionSaliente.model_validate(invalid)
+        for value in ("value", "", "   "):
+            valid = dict(base)
+            valid[required] = value
+            assert getattr(AccionSaliente.model_validate(valid), required) == value
+
+    missing_confirmation = dict(base)
+    missing_confirmation.pop("requiere_confirmacion")
+    assert AccionSaliente.model_validate(missing_confirmation).requiere_confirmacion is False
+    for value in (True, False):
+        valid = dict(base)
+        valid["requiere_confirmacion"] = value
+        assert AccionSaliente.model_validate(valid).requiere_confirmacion is value
+    for value in (None, "true", "false", 0, 1, 1.0, {}, []):
+        invalid = dict(base)
+        invalid["requiere_confirmacion"] = value
+        with pytest.raises(ValidationError):
+            AccionSaliente.model_validate(invalid)
+
+    lifecycle = (
+        "legacy_unknown",
+        "created",
+        "awaiting_authorization",
+        "authorized",
+        "dispatched",
+        "executing",
+        "reported_success",
+        "reported_failure",
+        "rejected",
+        "skipped",
+    )
+    missing_state = dict(base)
+    missing_state.pop("estado_ejecucion")
+    assert AccionSaliente.model_validate(missing_state).estado_ejecucion == "legacy_unknown"
+    for value in lifecycle:
+        valid = dict(base)
+        valid["estado_ejecucion"] = value
+        assert AccionSaliente.model_validate(valid).estado_ejecucion == value
+    for value in (None, "UNKNOWN_VALUE", True, 7, 1.2, {}, []):
+        invalid = dict(base)
+        invalid["estado_ejecucion"] = value
+        with pytest.raises(ValidationError):
+            AccionSaliente.model_validate(invalid)
+
+    for mode, value in (("missing", ...), ("null", None), ("string", "tx")):
+        valid = dict(base)
+        if value is ...:
+            valid.pop("id_transaccion_origen")
+        else:
+            valid["id_transaccion_origen"] = value
+        expected = None if mode in {"missing", "null"} else "tx"
+        assert AccionSaliente.model_validate(valid).id_transaccion_origen == expected
+    for value in (True, False, 7, 1.2, {}, []):
+        invalid = dict(base)
+        invalid["id_transaccion_origen"] = value
+        with pytest.raises(ValidationError):
+            AccionSaliente.model_validate(invalid)
 
 
 def test_b7_runs_before_b5_typed_deserialization_and_b6() -> None:

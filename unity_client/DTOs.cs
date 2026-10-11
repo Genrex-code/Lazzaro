@@ -23,6 +23,11 @@ public class AccionSaliente
     public string estado_ejecucion;
     public string id_transaccion_origen;
     public PerceptionAuthorityReferenceV1 perception_authority;
+
+    public AccionSaliente()
+    {
+        estado_ejecucion = "legacy_unknown";
+    }
 }
 
 [Serializable]

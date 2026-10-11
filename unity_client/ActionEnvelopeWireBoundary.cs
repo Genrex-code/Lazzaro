@@ -11,6 +11,21 @@ using Newtonsoft.Json;
 /// </summary>
 public static class ActionEnvelopeWireBoundary
 {
+    private static readonly HashSet<string> ActionLifecycleStates =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            "legacy_unknown",
+            "created",
+            "awaiting_authorization",
+            "authorized",
+            "dispatched",
+            "executing",
+            "reported_success",
+            "reported_failure",
+            "rejected",
+            "skipped",
+        };
+
     private enum ObjectScope
     {
         Other,
@@ -42,6 +57,8 @@ public static class ActionEnvelopeWireBoundary
 
         var containers = new Stack<ContainerFrame>();
         bool actionObjectSeen = false;
+        bool actionIdSeen = false;
+        bool actionNameSeen = false;
         bool parametersMemberSeen = false;
         bool parametersObjectSeen = false;
         string actionName = null;
@@ -85,6 +102,10 @@ public static class ActionEnvelopeWireBoundary
                             parametersMemberSeen = true;
                             parametersObjectSeen = true;
                         }
+                        else if (IsDirectActionScalarProperty(containers, property))
+                        {
+                            return false;
+                        }
                         else if (containers.Peek().Scope == ObjectScope.Parameters)
                         {
                             if (!RecordParameterToken(parameterTokenTypes, property, reader.TokenType))
@@ -113,6 +134,7 @@ public static class ActionEnvelopeWireBoundary
                         if (
                             IsRootActionProperty(containers, property)
                             || IsActionParametersProperty(containers, property)
+                            || IsDirectActionScalarProperty(containers, property)
                         )
                         {
                             return false;
@@ -172,14 +194,20 @@ public static class ActionEnvelopeWireBoundary
                     {
                         return false;
                     }
-                    if (
-                        containers.Count > 0
-                        && containers.Peek().Scope == ObjectScope.Action
-                        && EqualsWireName(scalarProperty, "nombre")
-                        && reader.TokenType == JsonToken.String
-                    )
+                    if (containers.Count > 0 && containers.Peek().Scope == ObjectScope.Action)
                     {
-                        actionName = reader.Value as string;
+                        if (
+                            !ValidateActionScalar(
+                                scalarProperty,
+                                reader,
+                                ref actionIdSeen,
+                                ref actionNameSeen,
+                                ref actionName
+                            )
+                        )
+                        {
+                            return false;
+                        }
                         continue;
                     }
                     if (containers.Count > 0 && containers.Peek().Scope == ObjectScope.Parameters)
@@ -213,7 +241,12 @@ public static class ActionEnvelopeWireBoundary
         {
             return true;
         }
-        if (!parametersMemberSeen || !parametersObjectSeen)
+        if (
+            !actionIdSeen
+            || !actionNameSeen
+            || !parametersMemberSeen
+            || !parametersObjectSeen
+        )
         {
             return false;
         }
@@ -318,6 +351,66 @@ public static class ActionEnvelopeWireBoundary
         return containers.Count > 0
             && containers.Peek().Scope == ObjectScope.Action
             && EqualsWireName(property, "parametros");
+    }
+
+    private static bool IsDirectActionScalarProperty(
+        Stack<ContainerFrame> containers,
+        string property
+    )
+    {
+        return containers.Count > 0
+            && containers.Peek().Scope == ObjectScope.Action
+            && (
+                EqualsWireName(property, "id_accion")
+                || EqualsWireName(property, "nombre")
+                || EqualsWireName(property, "requiere_confirmacion")
+                || EqualsWireName(property, "estado_ejecucion")
+                || EqualsWireName(property, "id_transaccion_origen")
+            );
+    }
+
+    private static bool ValidateActionScalar(
+        string property,
+        JsonTextReader reader,
+        ref bool actionIdSeen,
+        ref bool actionNameSeen,
+        ref string actionName
+    )
+    {
+        if (EqualsWireName(property, "id_accion"))
+        {
+            if (reader.TokenType != JsonToken.String)
+            {
+                return false;
+            }
+            actionIdSeen = true;
+            return true;
+        }
+        if (EqualsWireName(property, "nombre"))
+        {
+            if (reader.TokenType != JsonToken.String)
+            {
+                return false;
+            }
+            actionName = reader.Value as string;
+            actionNameSeen = true;
+            return true;
+        }
+        if (EqualsWireName(property, "requiere_confirmacion"))
+        {
+            return reader.TokenType == JsonToken.Boolean;
+        }
+        if (EqualsWireName(property, "estado_ejecucion"))
+        {
+            return reader.TokenType == JsonToken.String
+                && ActionLifecycleStates.Contains(reader.Value as string);
+        }
+        if (EqualsWireName(property, "id_transaccion_origen"))
+        {
+            return reader.TokenType == JsonToken.String
+                || reader.TokenType == JsonToken.Null;
+        }
+        return true;
     }
 
     private static bool EqualsWireName(string actual, string expected)
