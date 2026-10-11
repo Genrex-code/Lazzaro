@@ -55,12 +55,15 @@ public class ApiClient : MonoBehaviour
                     {
                         if (ActionEnvelopeWireBoundary.TryValidateResponse(responseBody))
                         {
-                            if (AuthorityWireBoundary.TryValidateResponse(responseBody))
+                            if (PhysicalActionWireBoundaryV1.TryValidateResponse(responseBody))
                             {
-                                respuesta = JsonConvert.DeserializeObject<RespuestaAPI>(responseBody);
-                                if (!ActionBindingVerifierV1.TryVerifyResponse(respuesta))
+                                if (AuthorityWireBoundary.TryValidateResponse(responseBody))
                                 {
-                                    respuesta = null;
+                                    respuesta = JsonConvert.DeserializeObject<RespuestaAPI>(responseBody);
+                                    if (!ActionBindingVerifierV1.TryVerifyResponse(respuesta))
+                                    {
+                                        respuesta = null;
+                                    }
                                 }
                             }
                         }

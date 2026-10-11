@@ -942,7 +942,23 @@ REGLAS FISICAS Y DE ENTORNO:
     {
         JObject parametros = contexto.Parametros;
         string objeto = parametros?["nombre_objeto"]?.ToString() ?? "";
-        float distancia = parametros?["distancia"]?.Value<float>() ?? 2.0f;
+        float distancia = 2.0f;
+
+        if (
+            parametros == null
+            || (
+                parametros.TryGetValue("distancia", out JToken _)
+                && !TryLeerFloat(parametros, "distancia", out distancia)
+            )
+        )
+        {
+            ReportarResultadoAccion(
+                contexto,
+                false,
+                "La distancia de alejarse_de_objeto no cumple el contrato fisico."
+            );
+            return;
+        }
 
         if (string.IsNullOrWhiteSpace(objeto))
         {
@@ -1063,18 +1079,37 @@ REGLAS FISICAS Y DE ENTORNO:
     private static bool TryLeerFloat(JObject parametros, string clave, out float valor)
     {
         valor = 0f;
-        if (parametros == null || parametros[clave] == null)
+        if (
+            parametros == null
+            || !parametros.TryGetValue(clave, out JToken token)
+            || token == null
+            || (token.Type != JTokenType.Integer && token.Type != JTokenType.Float)
+        )
         {
             return false;
         }
 
-        bool parsed = float.TryParse(
-            parametros[clave].ToString(),
-            NumberStyles.Float,
-            CultureInfo.InvariantCulture,
-            out valor
-        );
-        return parsed && !float.IsNaN(valor) && !float.IsInfinity(valor);
+        double valorRaw;
+        try
+        {
+            valorRaw = token.Value<double>();
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+        if (double.IsNaN(valorRaw) || double.IsInfinity(valorRaw))
+        {
+            return false;
+        }
+
+        float valorUnity = (float)valorRaw;
+        if (float.IsNaN(valorUnity) || float.IsInfinity(valorUnity))
+        {
+            return false;
+        }
+        valor = valorUnity;
+        return true;
     }
 
     private static bool TryLeerFuerzaLanzamiento(JObject parametros, out float fuerza)
@@ -1141,9 +1176,13 @@ REGLAS FISICAS Y DE ENTORNO:
         {
             return true;
         }
+        if (token == null || token.Type == JTokenType.Null)
+        {
+            return true;
+        }
         if (
-            token == null
-            || (token.Type != JTokenType.Integer && token.Type != JTokenType.Float)
+            token.Type != JTokenType.Integer
+            && token.Type != JTokenType.Float
         )
         {
             return false;
