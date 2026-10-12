@@ -266,6 +266,7 @@ def test_python_contract_and_actual_default_wire_shape() -> None:
     encoded = jsonable_encoder(defaults)
 
     assert list(dumped) == [
+        "wire_version",
         "status",
         "mensaje",
         "id_transaccion",
@@ -274,6 +275,7 @@ def test_python_contract_and_actual_default_wire_shape() -> None:
         "timestamp_servidor",
     ]
     assert dumped == encoded
+    assert dumped["wire_version"] == 1
     assert dumped["status"] == "ok"
     assert dumped["mensaje"] == ""
     assert dumped["id_transaccion"] is None
@@ -286,30 +288,16 @@ def test_python_contract_and_actual_default_wire_shape() -> None:
             RespuestaAPI(id_transaccion=invalid)
     assert RespuestaAPI(id_transaccion="7").id_transaccion == "7"
     assert RespuestaAPI(id_transaccion=None).id_transaccion is None
-    with_extra = RespuestaAPI(extra_future=1).model_dump(mode="json")
-    assert "extra_future" not in with_extra
-    assert list(with_extra) == list(dumped)
+    with pytest.raises(ValidationError):
+        RespuestaAPI(extra_future=1)
 
 
 def test_b14_pipeline_order_and_failure_is_before_typed_deserialization() -> None:
-    duplicate = API_CLIENT.index(
-        "ResponseDuplicateWireBoundary.TryValidateResponse(responseBody)"
-    )
-    root = API_CLIENT.index(
-        "ResponseEnvelopeWireBoundaryV1.TryValidateResponse(responseBody)"
-    )
-    action = API_CLIENT.index(
-        "ActionEnvelopeWireBoundary.TryValidateResponse(responseBody)"
-    )
-    physical = API_CLIENT.index(
-        "PhysicalActionWireBoundaryV1.TryValidateResponse(responseBody)"
-    )
-    authority = API_CLIENT.index(
-        "AuthorityWireBoundary.TryValidateResponse(responseBody)"
-    )
-    typed = API_CLIENT.index("JsonConvert.DeserializeObject<RespuestaAPI>(responseBody)")
-    binding = API_CLIENT.index("ActionBindingVerifierV1.TryVerifyResponse(respuesta)")
-    assert duplicate < root < action < physical < authority < typed < binding
+    facade = API_CLIENT.index("UnityResponseWireContractV1.TryParse(responseBody")
+    projection = API_CLIENT.index("respuesta = wireResult.typed_response")
+    assert facade < projection
+    assert "ResponseDuplicateWireBoundary.TryValidateResponse(responseBody)" not in API_CLIENT
+    assert "JsonConvert.DeserializeObject<RespuestaAPI>(responseBody)" not in API_CLIENT
     assert '"INVALID_RESPONSE"' in API_CLIENT
 
 

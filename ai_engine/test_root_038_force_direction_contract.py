@@ -146,7 +146,9 @@ def test_canonical_direction_is_an_exact_idempotent_serialization_fixed_point() 
     )
     replayed = ApplyForceParams.model_validate(first.model_dump())
 
-    assert math.hypot(first.vector_x, first.vector_y, first.vector_z) == 1.0
+    assert math.hypot(
+        first.vector_x, first.vector_y, first.vector_z
+    ) == pytest.approx(1.0, abs=2e-6)
     assert replayed.model_dump() == first.model_dump()
 
 

@@ -26,6 +26,9 @@ API_CLIENT_PATH = ROOT / "unity_client" / "ApiClient.cs"
 AGENT_PATH = ROOT / "unity_client" / "LazzaroAgent.cs"
 BOUNDARY = BOUNDARY_PATH.read_text(encoding="utf-8-sig")
 API_CLIENT = API_CLIENT_PATH.read_text(encoding="utf-8-sig")
+FACADE = (ROOT / "unity_client" / "UnityResponseWireContractV1.cs").read_text(
+    encoding="utf-8-sig"
+)
 AGENT = AGENT_PATH.read_text(encoding="utf-8-sig")
 
 
@@ -546,20 +549,20 @@ def test_python_missing_null_and_default_source_of_truth() -> None:
 
 
 def test_b11_runs_in_the_approved_pipeline_position() -> None:
-    b9 = API_CLIENT.index("ResponseDuplicateWireBoundary.TryValidateResponse(responseBody)")
-    b7 = API_CLIENT.index("ActionEnvelopeWireBoundary.TryValidateResponse(responseBody)")
-    b11 = API_CLIENT.index("PhysicalActionWireBoundaryV1.TryValidateResponse(responseBody)")
-    b5 = API_CLIENT.index("AuthorityWireBoundary.TryValidateResponse(responseBody)")
-    typed = API_CLIENT.index("JsonConvert.DeserializeObject<RespuestaAPI>(responseBody)")
-    b6 = API_CLIENT.index("ActionBindingVerifierV1.TryVerifyResponse(respuesta)")
+    b9 = FACADE.index("ResponseDuplicateWireBoundary.TryValidateResponse(rawJson)")
+    b7 = FACADE.index("ActionEnvelopeWireBoundary.TryValidateResponse(rawJson)")
+    b11 = FACADE.index("PhysicalActionWireBoundaryV1.TryValidateResponse(rawJson)")
+    b5 = FACADE.index("AuthorityWireBoundary.TryValidateResponse(rawJson)")
+    typed = FACADE.index("JsonConvert.DeserializeObject<RespuestaAPI>(rawJson)")
+    b6 = FACADE.index("ActionBindingVerifierV1.TryVerifyResponse(response)")
 
     assert b9 < b7 < b11 < b5 < typed < b6
 
 
 def test_failure_uses_invalid_response_before_any_success_or_physical_path() -> None:
-    guarded = API_CLIENT.split(
-        "if (PhysicalActionWireBoundaryV1.TryValidateResponse(responseBody))", 1
-    )[1].split("if (respuesta == null)", 1)[0]
+    guarded = FACADE.split(
+        "PhysicalActionWireBoundaryV1.TryValidateResponse(rawJson)", 1
+    )[1]
     failure = API_CLIENT.split("if (respuesta == null)", 1)[1].split("else if", 1)[0]
 
     assert "JsonConvert.DeserializeObject<RespuestaAPI>" in guarded

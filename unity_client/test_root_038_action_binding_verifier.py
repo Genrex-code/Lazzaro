@@ -22,6 +22,9 @@ API_CLIENT = (ROOT / "unity_client" / "ApiClient.cs").read_text(
     encoding="utf-8-sig"
 )
 VERIFIER_SOURCE = VERIFIER.read_text(encoding="utf-8-sig")
+FACADE = (ROOT / "unity_client" / "UnityResponseWireContractV1.cs").read_text(
+    encoding="utf-8-sig"
+)
 
 
 def _load_vectors() -> list[dict]:
@@ -341,11 +344,12 @@ def test_actual_unity_toolchain_matches_python_vectors_and_rejects_mutations() -
 
 
 def test_verifier_is_between_b5_boundary_and_on_success() -> None:
-    b5 = API_CLIENT.index("AuthorityWireBoundary.TryValidateResponse(responseBody)")
-    typed = API_CLIENT.index("JsonConvert.DeserializeObject<RespuestaAPI>(responseBody)")
-    b6 = API_CLIENT.index("ActionBindingVerifierV1.TryVerifyResponse(respuesta)")
+    b5 = FACADE.index("AuthorityWireBoundary.TryValidateResponse(rawJson)")
+    typed = FACADE.index("JsonConvert.DeserializeObject<RespuestaAPI>(rawJson)")
+    b6 = FACADE.index("ActionBindingVerifierV1.TryVerifyResponse(response)")
     success = API_CLIENT.index("onSuccess?.Invoke(respuesta)")
-    assert b5 < typed < b6 < success
+    assert b5 < typed < b6
+    assert API_CLIENT.index("UnityResponseWireContractV1.TryParse") < success
 
     invalid_branch = API_CLIENT.split("if (respuesta == null)", 1)[1].split(
         "else if", 1

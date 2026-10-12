@@ -23,6 +23,9 @@ API_CLIENT_PATH = ROOT / "unity_client" / "ApiClient.cs"
 AGENT_PATH = ROOT / "unity_client" / "LazzaroAgent.cs"
 BOUNDARY = BOUNDARY_PATH.read_text(encoding="utf-8-sig")
 API_CLIENT = API_CLIENT_PATH.read_text(encoding="utf-8-sig")
+FACADE = (ROOT / "unity_client" / "UnityResponseWireContractV1.cs").read_text(
+    encoding="utf-8-sig"
+)
 AGENT = AGENT_PATH.read_text(encoding="utf-8-sig")
 
 
@@ -557,23 +560,18 @@ def test_python_action_scalar_source_of_truth() -> None:
 
 
 def test_b7_runs_before_b5_typed_deserialization_and_b6() -> None:
-    action_envelope = API_CLIENT.index(
-        "ActionEnvelopeWireBoundary.TryValidateResponse(responseBody)"
-    )
-    authority = API_CLIENT.index("AuthorityWireBoundary.TryValidateResponse(responseBody)")
-    deserialization = API_CLIENT.index(
-        "JsonConvert.DeserializeObject<RespuestaAPI>(responseBody)"
-    )
-    binding = API_CLIENT.index("ActionBindingVerifierV1.TryVerifyResponse(respuesta)")
+    action_envelope = FACADE.index("ActionEnvelopeWireBoundary.TryValidateResponse(rawJson)")
+    authority = FACADE.index("AuthorityWireBoundary.TryValidateResponse(rawJson)")
+    deserialization = FACADE.index("JsonConvert.DeserializeObject<RespuestaAPI>(rawJson)")
+    binding = FACADE.index("ActionBindingVerifierV1.TryVerifyResponse(response)")
 
     assert action_envelope < authority < deserialization < binding
 
 
 def test_rejection_precedes_all_cancellation_side_effects() -> None:
-    guarded_branch = API_CLIENT.split(
-        "if (ActionEnvelopeWireBoundary.TryValidateResponse(responseBody))",
-        1,
-    )[1].split("if (respuesta == null)", 1)[0]
+    guarded_branch = FACADE.split(
+        "ActionEnvelopeWireBoundary.TryValidateResponse(rawJson)", 1
+    )[1]
     failure_branch = API_CLIENT.split("if (respuesta == null)", 1)[1].split(
         "else if", 1
     )[0]

@@ -18,6 +18,9 @@ BOUNDARY_PATH = ROOT / "unity_client" / "ResponseDuplicateWireBoundary.cs"
 API_CLIENT_PATH = ROOT / "unity_client" / "ApiClient.cs"
 BOUNDARY = BOUNDARY_PATH.read_text(encoding="utf-8-sig")
 API_CLIENT = API_CLIENT_PATH.read_text(encoding="utf-8-sig")
+FACADE = (ROOT / "unity_client" / "UnityResponseWireContractV1.cs").read_text(
+    encoding="utf-8-sig"
+)
 FIXTURE = ROOT / "core" / "fixtures" / "root_038_action_binding_v1.jsonl"
 
 
@@ -267,17 +270,11 @@ Write-Output ("PASS|" + $cases.Count)
 
 
 def test_b9_runs_before_b7_b5_typed_deserialization_and_b6() -> None:
-    duplicate = API_CLIENT.index(
-        "ResponseDuplicateWireBoundary.TryValidateResponse(responseBody)"
-    )
-    action_envelope = API_CLIENT.index(
-        "ActionEnvelopeWireBoundary.TryValidateResponse(responseBody)"
-    )
-    authority = API_CLIENT.index("AuthorityWireBoundary.TryValidateResponse(responseBody)")
-    deserialization = API_CLIENT.index(
-        "JsonConvert.DeserializeObject<RespuestaAPI>(responseBody)"
-    )
-    binding = API_CLIENT.index("ActionBindingVerifierV1.TryVerifyResponse(respuesta)")
+    duplicate = FACADE.index("ResponseDuplicateWireBoundary.TryValidateResponse(rawJson)")
+    action_envelope = FACADE.index("ActionEnvelopeWireBoundary.TryValidateResponse(rawJson)")
+    authority = FACADE.index("AuthorityWireBoundary.TryValidateResponse(rawJson)")
+    deserialization = FACADE.index("JsonConvert.DeserializeObject<RespuestaAPI>(rawJson)")
+    binding = FACADE.index("ActionBindingVerifierV1.TryVerifyResponse(response)")
 
     assert duplicate < action_envelope < authority < deserialization < binding
 
@@ -290,11 +287,11 @@ def test_mandatory_exploit_is_rejected_before_typed_execution() -> None:
     assert '"status":"error","status":"ok"' in exploit
     assert '"nombre":"hablar","nombre":"girar_avatar"' in exploit
 
-    guarded = API_CLIENT.split(
-        "if (ResponseDuplicateWireBoundary.TryValidateResponse(responseBody))", 1
-    )[1].split("if (respuesta == null)", 1)[0]
+    guarded = FACADE.split(
+        "if (!ResponseDuplicateWireBoundary.TryValidateResponse(rawJson))", 1
+    )[1]
     failure = API_CLIENT.split("if (respuesta == null)", 1)[1].split("else if", 1)[0]
-    assert "JsonConvert.DeserializeObject<RespuestaAPI>" in guarded
+    assert "TryParseV0" in guarded and "TryParseV1" in guarded
     assert '"INVALID_RESPONSE"' in failure
     assert "onSuccess" not in failure
 

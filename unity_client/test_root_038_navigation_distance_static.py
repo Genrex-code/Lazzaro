@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import struct
 
 import pytest
 
@@ -51,7 +52,8 @@ def test_canonical_distance_is_forwarded_to_the_exact_unclamped_consumer(
         "private void RestaurarDistanciaParadaDeAccion()",
     )
 
-    assert canonical.parameters_dict()["distancia"] == distance
+    expected = struct.unpack("!f", struct.pack("!f", distance))[0]
+    assert canonical.parameters_dict()["distancia"] == expected
     assert "navAgent.stoppingDistance = distanciaParada.Value;" in apply
     assert "Mathf.Clamp" not in apply
 

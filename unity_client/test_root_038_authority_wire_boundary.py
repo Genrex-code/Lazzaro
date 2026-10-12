@@ -18,6 +18,9 @@ BOUNDARY_PATH = ROOT / "unity_client" / "AuthorityWireBoundary.cs"
 API_CLIENT_PATH = ROOT / "unity_client" / "ApiClient.cs"
 BOUNDARY = BOUNDARY_PATH.read_text(encoding="utf-8-sig")
 API_CLIENT = API_CLIENT_PATH.read_text(encoding="utf-8-sig")
+FACADE = (ROOT / "unity_client" / "UnityResponseWireContractV1.cs").read_text(
+    encoding="utf-8-sig"
+)
 
 
 def _authority(generation: object = 1) -> dict[str, object]:
@@ -393,15 +396,13 @@ Write-Output ("PASS|" + $cases.Count)
 
 
 def test_boundary_runs_before_typed_response_deserialization() -> None:
-    validation = API_CLIENT.index("AuthorityWireBoundary.TryValidateResponse(responseBody)")
-    deserialization = API_CLIENT.index(
-        "JsonConvert.DeserializeObject<RespuestaAPI>(responseBody)"
-    )
+    validation = FACADE.index("AuthorityWireBoundary.TryValidateResponse(rawJson)")
+    deserialization = FACADE.index("JsonConvert.DeserializeObject<RespuestaAPI>(rawJson)")
 
     assert validation < deserialization
-    guarded_branch = API_CLIENT.split(
-        "if (AuthorityWireBoundary.TryValidateResponse(responseBody))", 1
-    )[1].split("if (respuesta == null)", 1)[0]
+    guarded_branch = FACADE.split(
+        "AuthorityWireBoundary.TryValidateResponse(rawJson)", 1
+    )[1]
     failure_branch = API_CLIENT.split("if (respuesta == null)", 1)[1].split(
         "else if", 1
     )[0]

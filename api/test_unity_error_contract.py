@@ -9,6 +9,9 @@ ROOT = Path(__file__).resolve().parents[1]
 API_CLIENT = (ROOT / "unity_client" / "ApiClient.cs").read_text(encoding="utf-8-sig")
 DTOS = (ROOT / "unity_client" / "DTOs.cs").read_text(encoding="utf-8-sig")
 AGENT = (ROOT / "unity_client" / "LazzaroAgent.cs").read_text(encoding="utf-8-sig")
+ERROR_BOUNDARY = (
+    ROOT / "unity_client" / "UnityPublicErrorWireContractV1.cs"
+).read_text(encoding="utf-8-sig")
 
 
 def assert_true(condition: bool, message: str) -> None:
@@ -48,17 +51,17 @@ def test_03_known_codes_use_local_allowlisted_messages() -> None:
         assert_true(code in API_CLIENT, f"Allowlist Unity incompleta: {code}")
 
 
-def test_04_unknown_code_fails_closed_and_keeps_valid_correlation() -> None:
+def test_04_unknown_code_fails_closed_to_generic_local_error() -> None:
     parser = _method_body("private static bool TryParsePublicError", "private static bool StatusCompatible")
-    assert_true('"BACKEND_ERROR"' in parser, "Code desconocido debe degradarse.")
-    assert_true("parsedCorrelation.ToString()" in parser, "Correlation valida debe sobrevivir.")
-    assert_true("return true;" in parser, "Envelope desconocido valido debe entregar failure tipado.")
+    assert_true("UnityPublicErrorWireContractV1.TryParse" in parser, "Debe delegar al boundary raw.")
+    assert_true("!Codes.Contains(code)" in ERROR_BOUNDARY, "Code desconocido debe rechazarse.")
+    assert_true('"BACKEND_ERROR"' in API_CLIENT, "Fallback debe conservar error local generico.")
 
 
 def test_05_invalid_version_or_malformed_json_never_exposes_body() -> None:
-    parser = _method_body("private static bool TryParsePublicError", "private static bool StatusCompatible")
-    assert_true("envelope.version != 1" in parser, "Debe validar version exacta.")
-    assert_true("catch (Exception)" in parser and "return false;" in parser, "Parse fail debe cerrarse.")
+    assert_true("IsExactInteger(root[\"version\"], 1)" in ERROR_BOUNDARY, "Debe validar version exacta.")
+    assert_true("catch (Exception error)" in ERROR_BOUNDARY, "Parse fail debe cerrarse.")
+    assert_true("return false;" in ERROR_BOUNDARY, "Parse fail debe cerrarse.")
     assert_true("CANARY_HTTP_BODY" not in API_CLIENT, "No debe existir body fixture en produccion.")
 
 

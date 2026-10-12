@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import struct
 
 import pytest
 
@@ -23,7 +24,8 @@ def _method(source: str, start: str, end: str) -> str:
 @pytest.mark.parametrize("degrees", (-360.0, -0.5, -0.1, 0.0, 0.1, 0.5, 360.0))
 def test_python_canonical_domain_is_preserved_at_unity_consumer(degrees: float) -> None:
     canonical = MotorActionAdapterV1.require("girar_avatar", {"grados": degrees})
-    assert canonical.parameters_dict()["grados"] == degrees
+    expected = struct.unpack("!f", struct.pack("!f", degrees))[0]
+    assert canonical.parameters_dict()["grados"] == expected
 
     parser = _method(
         AGENT,

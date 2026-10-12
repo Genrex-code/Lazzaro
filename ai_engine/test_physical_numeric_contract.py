@@ -107,9 +107,9 @@ def test_finite_numeric_strings_are_preserved_and_normalized() -> None:
     assert_true(position.model_dump() == {"x": 1.0, "y": -1.0, "z": 3.5}, "Las coordenadas string deben normalizarse.")
     expected_norm = math.hypot(1.0, -1.0, 3.5)
     assert_true(
-        math.isclose(force.vector_x, 1.0 / expected_norm)
-        and math.isclose(force.vector_y, -1.0 / expected_norm)
-        and math.isclose(force.vector_z, 3.5 / expected_norm),
+        math.isclose(force.vector_x, 1.0 / expected_norm, abs_tol=2e-6)
+        and math.isclose(force.vector_y, -1.0 / expected_norm, abs_tol=2e-6)
+        and math.isclose(force.vector_z, 3.5 / expected_norm, abs_tol=2e-6),
         "El vector string debe normalizarse como direccion unitaria.",
     )
     assert_true(force.fuerza == 3.5, "La magnitud string finita debe conservarse.")
@@ -131,6 +131,7 @@ def test_unbounded_coordinates_and_vectors_keep_finite_large_values() -> None:
             math.isclose(
                 math.hypot(force.vector_x, force.vector_y, force.vector_z),
                 1.0,
+                abs_tol=2e-6,
             ),
             "La direccion canónica debe quedar normalizada.",
         )
@@ -138,7 +139,11 @@ def test_unbounded_coordinates_and_vectors_keep_finite_large_values() -> None:
 
 def test_existing_physical_ranges_and_defaults_are_preserved() -> None:
     accepted = (
-        NavigateToObjectParams(nombre_objeto="Cube", distancia=0.1).distancia == 0.1,
+        math.isclose(
+            NavigateToObjectParams(nombre_objeto="Cube", distancia=0.1).distancia,
+            0.1,
+            rel_tol=1e-6,
+        ),
         NavigateToObjectParams(nombre_objeto="Cube", distancia=10.0).distancia == 10.0,
         MoveAwayParams(nombre_objeto="Cube", distancia=0.5).distancia == 0.5,
         MoveAwayParams(nombre_objeto="Cube", distancia=5.0).distancia == 5.0,
@@ -146,7 +151,17 @@ def test_existing_physical_ranges_and_defaults_are_preserved() -> None:
         RotateAvatarParams(grados=360.0).grados == 360.0,
         ReleaseObjectParams(fuerza_lanzamiento=0.0).fuerza_lanzamiento == 0.0,
         ReleaseObjectParams(fuerza_lanzamiento=20.0).fuerza_lanzamiento == 20.0,
-        ApplyForceParams(nombre_objeto="Cube", vector_x=1, vector_y=0, vector_z=0, fuerza=0.0001).fuerza == 0.0001,
+        math.isclose(
+            ApplyForceParams(
+                nombre_objeto="Cube",
+                vector_x=1,
+                vector_y=0,
+                vector_z=0,
+                fuerza=0.0001,
+            ).fuerza,
+            0.0001,
+            rel_tol=1e-6,
+        ),
         ApplyForceParams(nombre_objeto="Cube", vector_x=1, vector_y=0, vector_z=0, fuerza=100.0).fuerza == 100.0,
         NavigateToObjectParams(nombre_objeto="Cube").distancia is None,
         MoveAwayParams(nombre_objeto="Cube").distancia == 2.0,
