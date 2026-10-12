@@ -89,7 +89,9 @@ corrección B1–B15 fue revertida.
 Los parámetros físicos se canonicalizan en Python al valor float32 finito que
 Unity puede representar antes de ledger, JSON canónico, SHA y wire. Se rechazan
 overflow y cualquier no-cero que colapse a cero. El cero físico se representa
-únicamente como `+0.0`.
+únicamente como `+0.0`. La comprobación léxica de `-0` se limita a esos campos
+numéricos físicos; ROOT-038 no redefine el signed zero de valores numéricos
+informativos o no físicos dentro del envelope V1.
 
 La dirección de `aplicar_fuerza` se normaliza de forma robusta y después se
 redondea a float32. Su revalidación es un punto fijo exacto. Unity verifica una
@@ -136,7 +138,9 @@ fuerza float32.
 
 Las pruebas negativas cubren missing/null/tipo/casing/extras/duplicados/enums,
 versión desconocida o mal formada, autoridad ausente, overflow, underflow,
-signed zero e int64. Existe una prueba explícita de que V1 inválido no cae a V0.
+signed zero físico e int64. Una regresión separada confirma que `-0` no físico
+no queda vetado globalmente. Existe una prueba explícita de que V1 inválido no
+cae a V0.
 
 La migración usa dual reader y un único writer V1. Versión desconocida falla
 cerrada. Cambios de tipo, requiredness, enum o semántica física exigen una nueva

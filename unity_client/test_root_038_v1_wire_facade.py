@@ -127,6 +127,11 @@ def _cases() -> list[dict[str, object]]:
     underflow["accion"]["parametros"]["x"] = 1.0e-100
     signed_zero = deepcopy(valid_position)
     signed_zero["accion"]["parametros"]["x"] = -0.0
+    nonphysical_signed_zero = deepcopy(base)
+    nonphysical_signed_zero["accion"] = _action(
+        "hablar",
+        {"texto": "hola", "informational_zero": -0.0},
+    )
 
     wrong_version = deepcopy(base)
     wrong_version["wire_version"] = 2
@@ -154,7 +159,8 @@ def _cases() -> list[dict[str, object]]:
         ("v1_missing_authority", missing_authority, False, False),
         ("float_overflow", overflow, False, False),
         ("float_underflow", underflow, False, False),
-        ("signed_zero", signed_zero, False, False),
+        ("physical_signed_zero", signed_zero, False, False),
+        ("nonphysical_signed_zero", nonphysical_signed_zero, True, False),
         ("unknown_version", wrong_version, False, False),
         ("malformed_version", string_version, False, False),
         ("v1_missing_required", missing_required, False, False),

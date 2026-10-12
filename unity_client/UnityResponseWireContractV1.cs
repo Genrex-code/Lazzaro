@@ -165,8 +165,8 @@ public static class UnityResponseWireContractV1
         {
             if (
                 !HasNoDuplicateProperties(rawJson)
-                || !HasNoNegativeZeroNumber(rawJson)
                 || !ValidateV1Shape(root)
+                || !HasNoNegativeZeroPhysicalParameters(rawJson, root)
                 || !ResponseEnvelopeWireBoundaryV1.TryValidateResponse(rawJson)
                 || !ActionEnvelopeWireBoundary.TryValidateResponse(rawJson)
                 || !PhysicalActionWireBoundaryV1.TryValidateResponse(rawJson)
@@ -472,45 +472,139 @@ public static class UnityResponseWireContractV1
         return containers.Count == 0 && objectProperties.Count == 0;
     }
 
-    private static bool HasNoNegativeZeroNumber(string rawJson)
+    private static bool HasNoNegativeZeroPhysicalParameters(
+        string rawJson,
+        JObject root
+    )
     {
-        bool inString = false;
-        bool escaped = false;
+        JToken actionToken = root["accion"];
+        if (actionToken == null || actionToken.Type == JTokenType.Null)
+        {
+            return true;
+        }
+
+        JObject action = (JObject)actionToken;
+        HashSet<string> physicalFields = PhysicalNumericFields(
+            action["nombre"].Value<string>()
+        );
+        if (physicalFields == null)
+        {
+            return true;
+        }
+
         for (int index = 0; index < rawJson.Length; index++)
         {
-            char current = rawJson[index];
-            if (inString)
-            {
-                if (escaped)
-                {
-                    escaped = false;
-                }
-                else if (current == '\\')
-                {
-                    escaped = true;
-                }
-                else if (current == '"')
-                {
-                    inString = false;
-                }
-                continue;
-            }
-            if (current == '"')
-            {
-                inString = true;
-                continue;
-            }
-            if (current != '-' || index + 1 >= rawJson.Length || rawJson[index + 1] != '0')
+            if (rawJson[index] != '"')
             {
                 continue;
             }
-            int end = index + 2;
-            while (end < rawJson.Length && IsNumberCharacter(rawJson[end]))
+
+            int stringEnd = FindJsonStringEnd(rawJson, index);
+            if (stringEnd < 0)
             {
-                end++;
+                return false;
             }
-            string token = rawJson.Substring(index, end - index);
+
+            string propertyName;
+            try
+            {
+                propertyName = JsonConvert.DeserializeObject<string>(
+                    rawJson.Substring(index, stringEnd - index + 1)
+                );
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
+
+            int cursor = SkipWhitespace(rawJson, stringEnd + 1);
             if (
+                physicalFields.Contains(propertyName)
+                && cursor < rawJson.Length
+                && rawJson[cursor] == ':'
+            )
+            {
+                cursor = SkipWhitespace(rawJson, cursor + 1);
+                if (IsNegativeZeroNumberAt(rawJson, cursor))
+                {
+                    return false;
+                }
+            }
+            index = stringEnd;
+        }
+        return true;
+    }
+
+    private static HashSet<string> PhysicalNumericFields(string actionName)
+    {
+        switch (actionName)
+        {
+            case "navegar_a_objeto":
+            case "alejarse_de_objeto":
+                return Set("distancia");
+            case "navegar_a_posicion":
+                return Set("x", "y", "z");
+            case "girar_avatar":
+                return Set("grados");
+            case "soltar_objeto":
+                return Set("fuerza_lanzamiento");
+            case "aplicar_fuerza":
+                return Set("vector_x", "vector_y", "vector_z", "fuerza");
+            default:
+                return null;
+        }
+    }
+
+    private static int FindJsonStringEnd(string rawJson, int start)
+    {
+        bool escaped = false;
+        for (int index = start + 1; index < rawJson.Length; index++)
+        {
+            char current = rawJson[index];
+            if (escaped)
+            {
+                escaped = false;
+            }
+            else if (current == '\\')
+            {
+                escaped = true;
+            }
+            else if (current == '"')
+            {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private static int SkipWhitespace(string rawJson, int start)
+    {
+        int cursor = start;
+        while (cursor < rawJson.Length && char.IsWhiteSpace(rawJson[cursor]))
+        {
+            cursor++;
+        }
+        return cursor;
+    }
+
+    private static bool IsNegativeZeroNumberAt(string rawJson, int start)
+    {
+        if (
+            start < 0
+            || start + 1 >= rawJson.Length
+            || rawJson[start] != '-'
+            || rawJson[start + 1] != '0'
+        )
+        {
+            return false;
+        }
+        int end = start + 2;
+        while (end < rawJson.Length && IsNumberCharacter(rawJson[end]))
+        {
+            end++;
+        }
+        string token = rawJson.Substring(start, end - start);
+        return (
                 double.TryParse(
                     token,
                     NumberStyles.Float,
@@ -518,13 +612,7 @@ public static class UnityResponseWireContractV1
                     out double value
                 )
                 && value == 0.0d
-            )
-            {
-                return false;
-            }
-            index = end - 1;
-        }
-        return !inString;
+        );
     }
 
     private static bool IsNumberCharacter(char value)
