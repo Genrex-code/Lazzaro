@@ -184,7 +184,7 @@ class PerceptionDataV1(BaseModel):
     logical_world_id: StrictStr | None = None
     producer_capture_id: StrictStr
     generation: StrictInt = Field(ge=0, le=MAX_GENERATION)
-    captured_at_utc_ms: StrictInt
+    captured_at_utc_ms: StrictInt = Field(ge=0, le=MAX_GENERATION)
     objects: tuple[PerceivedObjectDataV1, ...]
 
     model_config = ConfigDict(extra="forbid", frozen=True)

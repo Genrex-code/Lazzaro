@@ -3,6 +3,7 @@ motor_schemas.py - Esquemas Pydantic para acciones fisicas de la Capa 1.
 """
 
 import math
+import struct
 from enum import Enum
 from typing import Annotated, Any, ClassVar, Literal, Optional, Self, Union
 
@@ -38,6 +39,24 @@ def _validar_numero_fisico_canonico(value: Any) -> float:
 PhysicalFloat = Annotated[float, BeforeValidator(_validar_numero_fisico_canonico)]
 
 
+def _canonicalizar_float32(value: Any) -> float:
+    """Produce exactamente el valor finito que Unity almacenara en ``float``."""
+
+    normalized = _validar_numero_fisico_canonico(value)
+    try:
+        canonical = struct.unpack("!f", struct.pack("!f", normalized))[0]
+    except (OverflowError, struct.error) as error:
+        raise ValueError("El parametro fisico excede el dominio float32.") from error
+    if not math.isfinite(canonical):
+        raise ValueError("El parametro fisico excede el dominio float32.")
+    if normalized != 0.0 and canonical == 0.0:
+        raise ValueError("El parametro fisico no puede colapsar a cero en float32.")
+    return 0.0 if canonical == 0.0 else float(canonical)
+
+
+PhysicalFloat32 = Annotated[float, BeforeValidator(_canonicalizar_float32)]
+
+
 class StrictParams(BaseModel):
     """Base estricta: el motor no acepta parametros fisicos inventados."""
 
@@ -58,7 +77,7 @@ class StrictParams(BaseModel):
 
 class NavigateToObjectParams(StrictParams):
     nombre_objeto: str = Field(..., description="Nombre exacto o aproximado del objeto destino.")
-    distancia: Optional[PhysicalFloat] = Field(
+    distancia: Optional[PhysicalFloat32] = Field(
         None,
         ge=0.1,
         le=10.0,
@@ -67,9 +86,9 @@ class NavigateToObjectParams(StrictParams):
 
 
 class NavigateToPositionParams(StrictParams):
-    x: PhysicalFloat = Field(..., description="Coordenada X en el mundo 3D.")
-    y: PhysicalFloat = Field(..., description="Coordenada Y en el mundo 3D.")
-    z: PhysicalFloat = Field(..., description="Coordenada Z en el mundo 3D.")
+    x: PhysicalFloat32 = Field(..., description="Coordenada X en el mundo 3D.")
+    y: PhysicalFloat32 = Field(..., description="Coordenada Y en el mundo 3D.")
+    z: PhysicalFloat32 = Field(..., description="Coordenada Z en el mundo 3D.")
 
 
 class InteractObjectParams(StrictParams):
@@ -85,7 +104,7 @@ class GrabObjectParams(StrictParams):
 
 
 class ReleaseObjectParams(StrictParams):
-    fuerza_lanzamiento: PhysicalFloat = Field(
+    fuerza_lanzamiento: PhysicalFloat32 = Field(
         0.0,
         ge=0.0,
         le=20.0,
@@ -95,11 +114,11 @@ class ReleaseObjectParams(StrictParams):
 
 class MoveAwayParams(StrictParams):
     nombre_objeto: str = Field(..., description="Objeto del cual alejarse.")
-    distancia: PhysicalFloat = Field(2.0, ge=0.5, le=5.0, description="Metros a retroceder.")
+    distancia: PhysicalFloat32 = Field(2.0, ge=0.5, le=5.0, description="Metros a retroceder.")
 
 
 class RotateAvatarParams(StrictParams):
-    grados: PhysicalFloat = Field(
+    grados: PhysicalFloat32 = Field(
         ...,
         ge=-360.0,
         le=360.0,
@@ -112,7 +131,7 @@ class ApplyForceParams(StrictParams):
     vector_x: PhysicalFloat = Field(..., description="Componente X de la direccion.")
     vector_y: PhysicalFloat = Field(..., description="Componente Y de la direccion.")
     vector_z: PhysicalFloat = Field(..., description="Componente Z de la direccion.")
-    fuerza: PhysicalFloat = Field(..., gt=0.0, le=100.0, description="Magnitud de la fuerza.")
+    fuerza: PhysicalFloat32 = Field(..., gt=0.0, le=100.0, description="Magnitud de la fuerza.")
 
     @model_validator(mode="after")
     def _normalizar_direccion(self) -> Self:
@@ -128,42 +147,11 @@ class ApplyForceParams(StrictParams):
         if scale == 0.0:
             raise ValueError("La direccion de fuerza no puede ser el vector cero.")
 
-        # ROOT-029 liga el JSON canónico y ledger/replay lo revalida. Un vector
-        # ya unitario debe ser un punto fijo exacto, no cambiar un ulp después.
-        if math.hypot(*components) == 1.0:
-            object.__setattr__(self, "vector_x", components[0])
-            object.__setattr__(self, "vector_y", components[1])
-            object.__setattr__(self, "vector_z", components[2])
-            return self
-
         scaled = tuple(component / scale for component in components)
         norm = math.hypot(*scaled)
-        normalized = [component / norm for component in scaled]
-
-        # El redondeo IEEE-754 puede dejar hypot a un ulp de 1. Ajustar sólo la
-        # componente dominante crea una representación unitaria e idempotente;
-        # no introduce un umbral físico ni altera la magnitud de `fuerza`.
-        dominant = max(range(3), key=lambda index: abs(scaled[index]))
-        for _ in range(8):
-            normalized_norm = math.hypot(*normalized)
-            if normalized_norm == 1.0:
-                break
-            target = (
-                math.copysign(math.inf, normalized[dominant])
-                if normalized_norm < 1.0
-                else math.copysign(0.0, normalized[dominant])
-            )
-            normalized[dominant] = math.nextafter(
-                normalized[dominant],
-                target,
-            )
-        if math.hypot(*normalized) != 1.0:
-            raise ValueError("No fue posible canonicalizar la direccion de fuerza.")
-
-        normalized = [
-            0.0 if component == 0.0 else component
-            for component in normalized
-        ]
+        normalized = [_canonicalizar_float32(component / norm) for component in scaled]
+        if not any(normalized):
+            raise ValueError("La direccion de fuerza no puede colapsar a cero en float32.")
 
         object.__setattr__(self, "vector_x", normalized[0])
         object.__setattr__(self, "vector_y", normalized[1])
@@ -481,7 +469,10 @@ class MotorActionAdapterV1:
                 continue
             is_physical_numeric = any(
                 isinstance(metadata, BeforeValidator)
-                and metadata.func is _validar_numero_fisico_canonico
+                and metadata.func in (
+                    _validar_numero_fisico_canonico,
+                    _canonicalizar_float32,
+                )
                 for metadata in field_info.metadata
             )
             if not is_physical_numeric:
