@@ -73,6 +73,7 @@ from core.action_ledger import (
     ActionState,
     ActionTransitionEvent,
     OutcomeConsumptionStatus,
+    OutcomeReplayStatus,
     OutcomeRecordResult,
     OutcomeRecordStatus,
     TransitionClassification,
@@ -776,6 +777,9 @@ class Orchestrator:
                 "inicio_ejecucion_accion",
             }:
                 self._validar_replay_lifecycle(evento)
+                return None
+            if evento.tipo_evento == "resultado_accion":
+                self._validar_replay_outcome(evento)
                 return None
             cacheada = self._obtener_transaccion_cacheada(evento.id_transaccion)
             if cacheada is not None:
@@ -4255,6 +4259,55 @@ class Orchestrator:
         if result.classification == TransitionClassification.CONFLICT:
             raise TransactionConflictError(
                 f"Receipt lifecycle reutilizado con otro contenido: {evento.id_transaccion}"
+            )
+
+    def _validar_replay_outcome(self, evento: EventoEntrante) -> None:
+        """Valida el receipt durable de outcome sin repetir consumidores ni writes."""
+
+        detalles = evento.detalles if isinstance(evento.detalles, dict) else {}
+        ledger = self._obtener_action_ledger()
+        action_id = str(detalles.get("id_accion") or "")
+        action = ledger.get_action(action_id)
+        material_attestation_valid = True
+        outcome_payload_details = detalles
+        if action is not None:
+            attestation = validate_material_attestation(
+                action_name=action.action_name,
+                action_id=action.action_id,
+                success=detalles.get("exito"),
+                payload=detalles,
+            )
+            if not attestation.valid:
+                material_attestation_valid = False
+            else:
+                outcome_payload_details = dict(detalles)
+                if attestation.receipt is None:
+                    outcome_payload_details.pop("material_attestation", None)
+                else:
+                    outcome_payload_details["material_attestation"] = (
+                        attestation.receipt.to_payload()
+                    )
+
+        validation = ledger.validate_outcome_replay(
+            action_id=action_id,
+            outcome_transaction_id=str(evento.id_transaccion),
+            success=detalles.get("exito"),
+            action_name=str(detalles.get("accion") or "") or None,
+            originating_transaction_id=(
+                str(detalles.get("id_transaccion_origen") or "").strip() or None
+            ),
+            payload=self._payload_outcome_minimo(outcome_payload_details),
+        )
+        if validation.status is OutcomeReplayStatus.MISSING_RECEIPT:
+            raise TurnReconciliationRequiredError(
+                f"Outcome completado sin receipt durable: {evento.id_transaccion}"
+            )
+        if (
+            validation.status is OutcomeReplayStatus.CONFLICT
+            or not material_attestation_valid
+        ):
+            raise TransactionConflictError(
+                f"Receipt de outcome reutilizado con otro contenido: {evento.id_transaccion}"
             )
 
     def _procesar_inicio_ejecucion_accion(self, evento: EventoEntrante):

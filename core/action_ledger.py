@@ -98,6 +98,12 @@ class OutcomeRecordStatus(str, Enum):
     INVALID_ATTESTATION = "invalid_attestation"
 
 
+class OutcomeReplayStatus(str, Enum):
+    MATCH = "match"
+    CONFLICT = "conflict"
+    MISSING_RECEIPT = "missing_receipt"
+
+
 class ActionState(str, Enum):
     """Estados durables del lifecycle; no describen calidad material del efecto."""
 
@@ -235,6 +241,12 @@ class OutcomeAttemptRecord:
     classification: OutcomeRecordStatus
     payload_fingerprint: str
     received_at: str
+
+
+@dataclass(frozen=True)
+class OutcomeReplayValidation:
+    status: OutcomeReplayStatus
+    prior_classification: OutcomeRecordStatus | None
 
 
 @dataclass(frozen=True)
@@ -1395,15 +1407,38 @@ class ActionLedger:
                     (outcome_transaction_id,),
                 ).fetchone()
                 if prior_attempt is not None:
+                    canonical_transaction = supplied_transaction or (
+                        action_row["transaction_id"] if action_row is not None else ""
+                    )
                     current_fingerprint = self._outcome_fingerprint(
                         success,
                         supplied_name
                         or (action_row["action_name"] if action_row is not None else ""),
                         payload_json,
+                        originating_transaction_id=canonical_transaction,
+                    )
+                    legacy_fingerprint = self._outcome_fingerprint(
+                        success,
+                        supplied_name
+                        or (action_row["action_name"] if action_row is not None else ""),
+                        payload_json,
+                    )
+                    legacy_match_is_safe = (
+                        prior_attempt["payload_fingerprint"] == legacy_fingerprint
+                        and (
+                            not supplied_transaction
+                            or (
+                                action_row is not None
+                                and supplied_transaction == action_row["transaction_id"]
+                            )
+                        )
                     )
                     same_attempt = (
                         prior_attempt["action_id"] == action_id
-                        and prior_attempt["payload_fingerprint"] == current_fingerprint
+                        and (
+                            prior_attempt["payload_fingerprint"] == current_fingerprint
+                            or legacy_match_is_safe
+                        )
                     )
                     recorded_action_id = prior_attempt["action_id"]
                     recorded_action_row = self._connection.execute(
@@ -1427,7 +1462,12 @@ class ActionLedger:
                     )
 
                 if action_row is None:
-                    fingerprint = self._outcome_fingerprint(success, supplied_name, payload_json)
+                    fingerprint = self._outcome_fingerprint(
+                        success,
+                        supplied_name,
+                        payload_json,
+                        originating_transaction_id=supplied_transaction,
+                    )
                     self._insert_attempt(
                         outcome_transaction_id, action_id, OutcomeRecordStatus.UNKNOWN,
                         fingerprint, received_at,
@@ -1437,7 +1477,13 @@ class ActionLedger:
 
                 action = self._action_from_row(action_row)
                 canonical_name = supplied_name or action.action_name
-                fingerprint = self._outcome_fingerprint(success, canonical_name, payload_json)
+                canonical_transaction = supplied_transaction or action.transaction_id
+                fingerprint = self._outcome_fingerprint(
+                    success,
+                    canonical_name,
+                    payload_json,
+                    originating_transaction_id=canonical_transaction,
+                )
                 if (
                     (supplied_name and supplied_name != action.action_name)
                     or (
@@ -1456,9 +1502,15 @@ class ActionLedger:
                     "SELECT * FROM outcomes WHERE action_id = ?", (action_id,)
                 ).fetchone()
                 if outcome_row is not None:
+                    legacy_fingerprint = self._outcome_fingerprint(
+                        success,
+                        canonical_name,
+                        payload_json,
+                    )
                     status = (
                         OutcomeRecordStatus.DUPLICATE
-                        if outcome_row["payload_fingerprint"] == fingerprint
+                        if outcome_row["payload_fingerprint"]
+                        in {fingerprint, legacy_fingerprint}
                         else OutcomeRecordStatus.CONFLICT
                     )
                     self._insert_attempt(
@@ -1576,6 +1628,124 @@ class ActionLedger:
             OutcomeRecordStatus.ACCEPTED,
             self._action_from_row(action_row),
             self._outcome_from_row(outcome_row),
+        )
+
+    def validate_outcome_replay(
+        self,
+        *,
+        action_id: str,
+        outcome_transaction_id: str,
+        success: bool,
+        action_name: str | None,
+        payload: dict[str, Any] | None,
+        originating_transaction_id: str | None = None,
+    ) -> OutcomeReplayValidation:
+        """Compara un replay completado sin crear ni modificar estado durable."""
+
+        action_id = _clean_id(action_id, "action_id")
+        outcome_transaction_id = _clean_id(
+            outcome_transaction_id, "outcome_transaction_id"
+        )
+        if type(success) is not bool:
+            raise TypeError("success debe ser bool estricto")
+        supplied_name = str(action_name or "").strip()
+        supplied_transaction = str(originating_transaction_id or "").strip()
+        payload_json = _canonical_json(payload or {})
+
+        with self._lock:
+            prior_attempt = self._connection.execute(
+                "SELECT * FROM outcome_attempts WHERE outcome_transaction_id = ?",
+                (outcome_transaction_id,),
+            ).fetchone()
+            if prior_attempt is None:
+                return OutcomeReplayValidation(
+                    OutcomeReplayStatus.MISSING_RECEIPT,
+                    None,
+                )
+
+            prior_classification = OutcomeRecordStatus(
+                prior_attempt["classification"]
+            )
+            if prior_attempt["action_id"] != action_id:
+                return OutcomeReplayValidation(
+                    OutcomeReplayStatus.CONFLICT,
+                    prior_classification,
+                )
+
+            action_row = self._connection.execute(
+                "SELECT * FROM actions WHERE action_id = ?",
+                (action_id,),
+            ).fetchone()
+            canonical_name = supplied_name or (
+                action_row["action_name"] if action_row is not None else ""
+            )
+            canonical_transaction = supplied_transaction or (
+                action_row["transaction_id"] if action_row is not None else ""
+            )
+            current_fingerprint = self._outcome_fingerprint(
+                success,
+                canonical_name,
+                payload_json,
+                originating_transaction_id=canonical_transaction,
+            )
+            legacy_fingerprint = self._outcome_fingerprint(
+                success,
+                canonical_name,
+                payload_json,
+            )
+            legacy_match_is_safe = (
+                prior_attempt["payload_fingerprint"] == legacy_fingerprint
+                and (
+                    not supplied_transaction
+                    or (
+                        action_row is not None
+                        and supplied_transaction == action_row["transaction_id"]
+                    )
+                )
+            )
+            exact_fingerprint = (
+                prior_attempt["payload_fingerprint"] == current_fingerprint
+            )
+            if not exact_fingerprint and not legacy_match_is_safe:
+                return OutcomeReplayValidation(
+                    OutcomeReplayStatus.CONFLICT,
+                    prior_classification,
+                )
+
+            if (
+                supplied_transaction
+                and action_row is not None
+                and supplied_transaction != action_row["transaction_id"]
+                and not (
+                    prior_classification is OutcomeRecordStatus.MISMATCH
+                    and exact_fingerprint
+                )
+            ):
+                return OutcomeReplayValidation(
+                    OutcomeReplayStatus.CONFLICT,
+                    prior_classification,
+                )
+
+            if prior_classification is OutcomeRecordStatus.ACCEPTED:
+                outcome_row = self._connection.execute(
+                    "SELECT * FROM outcomes WHERE action_id = ?",
+                    (action_id,),
+                ).fetchone()
+                if (
+                    outcome_row is None
+                    or outcome_row["outcome_transaction_id"]
+                    != outcome_transaction_id
+                    or outcome_row["payload_fingerprint"]
+                    != prior_attempt["payload_fingerprint"]
+                ):
+                    return OutcomeReplayValidation(
+                        OutcomeReplayStatus.MISSING_RECEIPT,
+                        prior_classification,
+                    )
+
+        return OutcomeReplayValidation(
+            OutcomeReplayStatus.MATCH,
+            prior_classification,
         )
 
     def mark_outcome_consumed(self, action_id: str) -> OutcomeConsumptionStatus:
@@ -1800,10 +1970,21 @@ class ActionLedger:
         return ActionState(value) if value else None
 
     @staticmethod
-    def _outcome_fingerprint(success: bool, action_name: str, payload_json: str) -> str:
-        canonical = _canonical_json(
-            {"success": success, "action_name": action_name, "payload": _decode_object(payload_json)}
-        )
+    def _outcome_fingerprint(
+        success: bool,
+        action_name: str,
+        payload_json: str,
+        *,
+        originating_transaction_id: str | None = None,
+    ) -> str:
+        identity = {
+            "success": success,
+            "action_name": action_name,
+            "payload": _decode_object(payload_json),
+        }
+        if originating_transaction_id is not None:
+            identity["originating_transaction_id"] = originating_transaction_id
+        canonical = _canonical_json(identity)
         return sha256(canonical.encode("utf-8")).hexdigest()
 
     @staticmethod
