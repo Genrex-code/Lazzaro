@@ -51,25 +51,10 @@ public class ApiClient : MonoBehaviour
                 {
                     string responseBody = request.downloadHandler.text;
                     RespuestaAPI respuesta = null;
-                    if (ResponseDuplicateWireBoundary.TryValidateResponse(responseBody))
+                    UnityResponseWireContractResultV1 wireResult;
+                    if (UnityResponseWireContractV1.TryParse(responseBody, out wireResult))
                     {
-                        if (ResponseEnvelopeWireBoundaryV1.TryValidateResponse(responseBody))
-                        {
-                            if (ActionEnvelopeWireBoundary.TryValidateResponse(responseBody))
-                            {
-                                if (PhysicalActionWireBoundaryV1.TryValidateResponse(responseBody))
-                                {
-                                    if (AuthorityWireBoundary.TryValidateResponse(responseBody))
-                                    {
-                                        respuesta = JsonConvert.DeserializeObject<RespuestaAPI>(responseBody);
-                                        if (!ActionBindingVerifierV1.TryVerifyResponse(respuesta))
-                                        {
-                                            respuesta = null;
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        respuesta = wireResult.typed_response;
                     }
                     if (respuesta == null)
                     {
@@ -167,21 +152,7 @@ public class ApiClient : MonoBehaviour
         }
 
         PublicErrorEnvelope envelope;
-        try
-        {
-            envelope = JsonConvert.DeserializeObject<PublicErrorEnvelope>(body);
-        }
-        catch (Exception)
-        {
-            return false;
-        }
-
-        if (
-            envelope == null
-            || envelope.version != 1
-            || envelope.error == null
-            || (envelope.status != "error" && envelope.status != "pendiente")
-        )
+        if (!UnityPublicErrorWireContractV1.TryParse(body, out envelope))
         {
             return false;
         }

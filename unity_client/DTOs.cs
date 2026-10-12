@@ -67,6 +67,7 @@ public class PerceptionAuthorityReferenceV1
 [Serializable]
 public class RespuestaAPI
 {
+    public int wire_version;
     public string status;
     public string mensaje;
     public string id_transaccion;

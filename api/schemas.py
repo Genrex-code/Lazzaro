@@ -173,6 +173,13 @@ class DecisionPublica(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    @field_validator("version", mode="before")
+    @classmethod
+    def _strict_version(cls, value: Any) -> int:
+        if type(value) is not int or value != 1:
+            raise ValueError("version must be the exact integer 1")
+        return value
+
     @classmethod
     def from_outcome(cls, outcome: DecisionOutcome) -> "DecisionPublica":
         return cls.model_validate(outcome.public_projection())
@@ -263,6 +270,10 @@ class RespuestaAPI(BaseModel):
     Incluye estado, mensaje y opcionalmente una accion a ejecutar.
     """
 
+    wire_version: Literal[1] = Field(
+        1,
+        description="Version del contrato Python-Unity de la respuesta.",
+    )
     status: Literal["ok", "error", "pendiente"] = Field(
         "ok",
         description="Resultado del procesamiento.",
@@ -291,8 +302,10 @@ class RespuestaAPI(BaseModel):
     )
 
     model_config = ConfigDict(
+        extra="forbid",
         json_schema_extra={
             "example": {
+                "wire_version": 1,
                 "status": "ok",
                 "mensaje": "Evento procesado y accion generada.",
                 "id_transaccion": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
@@ -310,6 +323,13 @@ class RespuestaAPI(BaseModel):
             }
         }
     )
+
+    @field_validator("wire_version", mode="before")
+    @classmethod
+    def _strict_wire_version(cls, value: Any) -> int:
+        if type(value) is not int or value != 1:
+            raise ValueError("wire_version must be the exact integer 1")
+        return value
 
 
 class PublicErrorCode(str, Enum):
@@ -346,6 +366,13 @@ class PublicErrorEnvelope(BaseModel):
     error: PublicErrorDetail
 
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("version", mode="before")
+    @classmethod
+    def _strict_version(cls, value: Any) -> int:
+        if type(value) is not int or value != 1:
+            raise ValueError("version must be the exact integer 1")
+        return value
 
 
 class NotificacionSaliente(BaseModel):
