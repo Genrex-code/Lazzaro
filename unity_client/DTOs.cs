@@ -11,6 +11,31 @@ public class EventoEntrante
     public string id_transaccion;
     public string objeto_involucrado = "ninguno";
     public Dictionary<string, object> detalles;
+    public int? request_identity_version;
+    public string request_fingerprint_sha256;
+}
+
+[Serializable]
+public class ReconciliacionTransaccionV1
+{
+    public int version = 1;
+    public string id_transaccion;
+    public string origen;
+    public string tipo_evento;
+    public int? request_identity_version;
+    public string request_fingerprint_sha256;
+}
+
+[Serializable]
+public class ReconciliacionTransaccionRespuestaV1
+{
+    public int version;
+    public string id_transaccion;
+    public string resolution;
+    public string directive;
+    public string receipt_kind;
+    public string receipt_status;
+    public AccionSaliente accion;
 }
 
 [Serializable]

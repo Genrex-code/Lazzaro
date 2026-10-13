@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
@@ -36,6 +37,13 @@ public class LazzaroAgent : MonoBehaviour
         new Dictionary<string, ContextoAccion>();
     private readonly Dictionary<string, EventoEntrante> eventosEnVuelo =
         new Dictionary<string, EventoEntrante>();
+    private readonly Dictionary<string, ContextoAccion> accionesEsperandoInicio =
+        new Dictionary<string, ContextoAccion>();
+    private readonly HashSet<string> accionesEntregadasAEjecucion =
+        new HashSet<string>(StringComparer.Ordinal);
+    private UnityDeliveryOutboxV1 deliveryOutbox;
+    private const int MaxIntentosDelivery = 3;
+    private const int MaxIntentosReconciliacion = 3;
     private const float DistanciaMaximaInteraccion = 2.0f;
     private const float DistanciaMaximaAgarrar = 1.5f;
     private const int MaxTareasUsuarioEnCola = 8;
@@ -137,6 +145,17 @@ public class LazzaroAgent : MonoBehaviour
         materializacion = GetComponent<ObjectMaterializationController>();
         exactTargetResolver = GetComponent<ExactTargetResolver>();
         movimiento.OnMovimientoCompletado += ManejarMovimientoCompletado;
+        try
+        {
+            deliveryOutbox = new UnityDeliveryOutboxV1(
+                Path.Combine(Application.persistentDataPath, "lazzaro_delivery_outbox_v1.json")
+            );
+        }
+        catch (Exception)
+        {
+            deliveryOutbox = null;
+            Debug.LogError("No se pudo abrir el outbox durable; delivery queda bloqueado.");
+        }
     }
 
     void OnDestroy()
@@ -149,6 +168,7 @@ public class LazzaroAgent : MonoBehaviour
 
     void Start()
     {
+        RestaurarDeliveryPendiente();
         ultimosObjetosPercibidos = percepcion.ObtenerObjetosInteractuables();
         var detalles = percepcion.EscanearEntorno();
         detalles["mensaje"] = ConstruirManualEspacial();
@@ -501,20 +521,52 @@ public class LazzaroAgent : MonoBehaviour
             detalles = detalles ?? new Dictionary<string, object>()
         };
 
-        if (prioridadMaxima)
+        if (
+            deliveryOutbox == null
+            || !UnityDeliveryIdentityV1.TryPrepare(evento)
+            || !deliveryOutbox.Enqueue(evento)
+        )
         {
-            colaEventos.AddFirst(evento);
-        }
-        else
-        {
-            colaEventos.AddLast(evento);
+            Debug.LogError("El evento no pudo quedar durable; no se enviara.");
+            return "";
         }
 
-        if (!procesandoCola)
-        {
-            StartCoroutine(ProcesarColaEventos());
-        }
+        EncolarEventoExistente(evento, prioridadMaxima);
         return evento.id_transaccion;
+    }
+
+    private void EncolarEventoExistente(EventoEntrante evento, bool prioridadMaxima)
+    {
+        if (evento == null || string.IsNullOrWhiteSpace(evento.id_transaccion)) return;
+        foreach (EventoEntrante pendiente in colaEventos)
+        {
+            if (pendiente.id_transaccion == evento.id_transaccion) return;
+        }
+        if (eventosEnVuelo.ContainsKey(evento.id_transaccion)) return;
+
+        if (prioridadMaxima) colaEventos.AddFirst(evento);
+        else colaEventos.AddLast(evento);
+        if (!procesandoCola) StartCoroutine(ProcesarColaEventos());
+    }
+
+    private void RestaurarDeliveryPendiente()
+    {
+        if (deliveryOutbox == null) return;
+        foreach (DeliveryOutboxRecordV1 record in deliveryOutbox.SnapshotPending())
+        {
+            if (record.request == null) continue;
+            if (
+                record.state == UnityDeliveryOutboxV1.ExecutionHandoff
+                || record.state == UnityDeliveryOutboxV1.Paused
+                || record.state == UnityDeliveryOutboxV1.Terminal
+            )
+            {
+                continue;
+            }
+            // Tras un reinicio incluso QUEUED es ambiguo: reconciliar primero.
+            eventosEnVuelo[record.request.id_transaccion] = record.request;
+            StartCoroutine(ReconciliarEvento(record.request));
+        }
     }
 
     public void ConfirmarAccion(string idAccion, bool approved)
@@ -539,7 +591,7 @@ public class LazzaroAgent : MonoBehaviour
 
     private void EncolarInicioEjecucion(ContextoAccion contexto)
     {
-        EnviarEvento(
+        string transactionId = EnviarEvento(
             "inicio_ejecucion_accion",
             new Dictionary<string, object>
             {
@@ -548,6 +600,10 @@ public class LazzaroAgent : MonoBehaviour
             },
             prioridadMaxima: true
         );
+        if (!string.IsNullOrWhiteSpace(transactionId))
+        {
+            accionesEsperandoInicio[transactionId] = contexto;
+        }
     }
 
     public void ReportarDolor(
@@ -616,7 +672,16 @@ public class LazzaroAgent : MonoBehaviour
         AgregarDetallesExtra(detalles, contexto.DetallesResultado);
         AgregarDetallesExtra(detalles, detallesExtra);
 
-        EnviarEvento("resultado_accion", detalles, objetoInvolucrado);
+        string outcomeTransaction = EnviarEvento(
+            "resultado_accion",
+            detalles,
+            objetoInvolucrado
+        );
+        if (!string.IsNullOrWhiteSpace(outcomeTransaction))
+        {
+            // El outcome ya esta durable en el outbox antes de retirar el handoff.
+            deliveryOutbox?.CompleteExecutionHandoffForAction(contexto.IdAccion);
+        }
         CompletarTareaUsuarioActual(contexto.IdTransaccionOrigen, exito, mensaje);
     }
 
@@ -627,19 +692,261 @@ public class LazzaroAgent : MonoBehaviour
         {
             EventoEntrante evento = colaEventos.First.Value;
             colaEventos.RemoveFirst();
+            if (deliveryOutbox == null || !deliveryOutbox.MarkSending(evento.id_transaccion))
+            {
+                Debug.LogError("Delivery sin registro durable; request bloqueado.");
+                continue;
+            }
             eventosEnVuelo[evento.id_transaccion] = evento;
 
             yield return StartCoroutine(
                 api.EnviarEvento(
                     evento,
-                    respuesta => ProcesarRespuestaDelCerebro(evento.id_transaccion, respuesta),
-                    failure => Debug.LogWarning(
-                        $"No se pudo enviar el evento {evento.tipo_evento}: {failure.ToSafeString()}"
-                    )
+                    respuesta => ProcesarRespuestaTransporte(evento, respuesta),
+                    failure => ProcesarFalloTransporte(evento, failure)
                 )
             );
         }
         procesandoCola = false;
+    }
+
+    private static bool RequiereReceiptDurable(string tipoEvento)
+    {
+        return tipoEvento == "confirmacion_accion"
+            || tipoEvento == "inicio_ejecucion_accion"
+            || tipoEvento == "resultado_accion";
+    }
+
+    private void ProcesarRespuestaTransporte(EventoEntrante evento, RespuestaAPI respuesta)
+    {
+        if (RequiereReceiptDurable(evento.tipo_evento))
+        {
+            // Un 2xx no es ACK semantico para lifecycle/outcome.
+            StartCoroutine(ReconciliarEvento(evento));
+            return;
+        }
+        ProcesarRespuestaDelCerebro(evento.id_transaccion, respuesta);
+        deliveryOutbox?.Complete(evento.id_transaccion);
+    }
+
+    private void ProcesarFalloTransporte(EventoEntrante evento, ApiFailure failure)
+    {
+        string code = failure != null ? failure.Code : "TRANSPORT_FAILURE";
+        Debug.LogWarning(
+            $"No se pudo enviar el evento {evento.tipo_evento}: "
+            + (failure != null ? failure.ToSafeString() : code)
+        );
+        if (
+            code == "TRANSACTION_CONFLICT"
+            || code == "TURN_ABORTED"
+            || code == "TURN_PROCESSING_FAILED"
+            || code == "VALIDATION_ERROR"
+        )
+        {
+            deliveryOutbox?.MarkTerminal(evento.id_transaccion, code);
+            eventosEnVuelo.Remove(evento.id_transaccion);
+            return;
+        }
+        deliveryOutbox?.MarkUnknown(evento.id_transaccion, code);
+        StartCoroutine(ReconciliarEvento(evento));
+    }
+
+    private IEnumerator ReconciliarEvento(EventoEntrante evento)
+    {
+        if (
+            deliveryOutbox == null
+            || evento == null
+            || !deliveryOutbox.MarkReconciling(evento.id_transaccion)
+        )
+        {
+            yield break;
+        }
+
+        ReconciliacionTransaccionRespuestaV1 receipt = null;
+        ApiFailure failure = null;
+        yield return StartCoroutine(
+            api.ReconciliarTransaccion(
+                evento,
+                value => receipt = value,
+                value => failure = value
+            )
+        );
+        if (receipt != null)
+        {
+            ProcesarReconciliacion(evento, receipt);
+            yield break;
+        }
+
+        string code = failure != null ? failure.Code : "RECONCILIATION_TRANSPORT_FAILURE";
+        deliveryOutbox.MarkUnknown(evento.id_transaccion, code);
+        if (
+            deliveryOutbox.ReconciliationAttemptCount(evento.id_transaccion)
+            < MaxIntentosReconciliacion
+        )
+        {
+            yield return new WaitForSeconds(1.0f);
+            yield return StartCoroutine(ReconciliarEvento(evento));
+        }
+        else
+        {
+            deliveryOutbox.MarkPaused(evento.id_transaccion, code);
+        }
+    }
+
+    private void ProcesarReconciliacion(
+        EventoEntrante evento,
+        ReconciliacionTransaccionRespuestaV1 receipt
+    )
+    {
+        if (
+            receipt == null
+            || !string.Equals(
+                receipt.id_transaccion,
+                evento.id_transaccion,
+                StringComparison.Ordinal
+            )
+        )
+        {
+            deliveryOutbox?.MarkPaused(evento.id_transaccion, "CORRELATION_MISMATCH");
+            return;
+        }
+
+        if (receipt.directive == "RETRY_SAME_TX")
+        {
+            if (
+                receipt.resolution != "NOT_FOUND"
+                || evento.request_identity_version != UnityDeliveryIdentityV1.Version
+                || string.IsNullOrWhiteSpace(evento.request_fingerprint_sha256)
+                || deliveryOutbox.SendAttemptCount(evento.id_transaccion) >= MaxIntentosDelivery
+            )
+            {
+                deliveryOutbox.MarkPaused(evento.id_transaccion, "RETRY_NOT_PROVEN");
+                return;
+            }
+            if (!deliveryOutbox.MarkQueuedAfterNotFound(evento.id_transaccion))
+            {
+                deliveryOutbox.MarkPaused(evento.id_transaccion, "OUTBOX_WRITE_FAILED");
+                return;
+            }
+            eventosEnVuelo.Remove(evento.id_transaccion);
+            EncolarEventoExistente(evento, RequiereReceiptDurable(evento.tipo_evento));
+            return;
+        }
+        if (receipt.directive == "WAIT")
+        {
+            deliveryOutbox.MarkUnknown(evento.id_transaccion, "IN_PROGRESS");
+            if (
+                deliveryOutbox.ReconciliationAttemptCount(evento.id_transaccion)
+                < MaxIntentosReconciliacion
+            )
+            {
+                StartCoroutine(ReconciliarEventoDespues(evento, 1.0f));
+            }
+            else
+            {
+                deliveryOutbox.MarkPaused(evento.id_transaccion, "IN_PROGRESS");
+            }
+            return;
+        }
+        if (receipt.directive == "REQUIRES_RECONCILIATION")
+        {
+            deliveryOutbox.MarkPaused(evento.id_transaccion, receipt.resolution);
+            return;
+        }
+        if (receipt.directive == "TERMINAL")
+        {
+            deliveryOutbox.MarkTerminal(evento.id_transaccion, receipt.resolution);
+            eventosEnVuelo.Remove(evento.id_transaccion);
+            return;
+        }
+        if (receipt.directive != "RESOLVED")
+        {
+            deliveryOutbox.MarkPaused(evento.id_transaccion, "UNKNOWN_DIRECTIVE");
+            return;
+        }
+
+        if (evento.tipo_evento == "inicio_ejecucion_accion")
+        {
+            ProcesarStartConfirmado(evento, receipt);
+            return;
+        }
+        if (evento.tipo_evento == "resultado_accion")
+        {
+            if (
+                receipt.receipt_kind != "OUTCOME"
+                || (receipt.receipt_status != "ACCEPTED" && receipt.receipt_status != "DUPLICATE")
+            )
+            {
+                deliveryOutbox.MarkPaused(evento.id_transaccion, "OUTCOME_RECEIPT_INVALID");
+                return;
+            }
+            eventosEnVuelo.Remove(evento.id_transaccion);
+            deliveryOutbox.Complete(evento.id_transaccion);
+            return;
+        }
+
+        RespuestaAPI response = new RespuestaAPI
+        {
+            wire_version = 1,
+            status = receipt.accion != null
+                && receipt.accion.estado_ejecucion == "awaiting_authorization"
+                    ? "pendiente"
+                    : "ok",
+            mensaje = "Resultado durable reconciliado.",
+            id_transaccion = evento.id_transaccion,
+            timestamp_servidor = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture),
+            accion = receipt.accion,
+        };
+        ProcesarRespuestaDelCerebro(evento, response);
+        eventosEnVuelo.Remove(evento.id_transaccion);
+        deliveryOutbox.Complete(evento.id_transaccion);
+    }
+
+    private IEnumerator ReconciliarEventoDespues(EventoEntrante evento, float seconds)
+    {
+        yield return new WaitForSeconds(seconds);
+        yield return StartCoroutine(ReconciliarEvento(evento));
+    }
+
+    private void ProcesarStartConfirmado(
+        EventoEntrante evento,
+        ReconciliacionTransaccionRespuestaV1 receipt
+    )
+    {
+        if (
+            receipt.receipt_kind != "ACTION_LIFECYCLE"
+            || (receipt.receipt_status != "APPLIED" && receipt.receipt_status != "ALREADY_APPLIED")
+        )
+        {
+            deliveryOutbox.MarkPaused(evento.id_transaccion, "START_RECEIPT_INVALID");
+            return;
+        }
+        if (!accionesEsperandoInicio.TryGetValue(
+            evento.id_transaccion,
+            out ContextoAccion contexto
+        ))
+        {
+            // Tras reinicio no se puede distinguir handoff previo: no reejecutar.
+            deliveryOutbox.MarkPaused(evento.id_transaccion, "EXECUTION_CONTEXT_UNAVAILABLE");
+            return;
+        }
+        if (!accionesEntregadasAEjecucion.Add(contexto.IdAccion))
+        {
+            deliveryOutbox.Complete(evento.id_transaccion);
+            eventosEnVuelo.Remove(evento.id_transaccion);
+            accionesEsperandoInicio.Remove(evento.id_transaccion);
+            return;
+        }
+
+        if (!deliveryOutbox.MarkExecutionHandoff(evento.id_transaccion))
+        {
+            deliveryOutbox.MarkPaused(evento.id_transaccion, "OUTBOX_WRITE_FAILED");
+            accionesEntregadasAEjecucion.Remove(contexto.IdAccion);
+            return;
+        }
+        eventosEnVuelo.Remove(evento.id_transaccion);
+        accionesEsperandoInicio.Remove(evento.id_transaccion);
+        EjecutarAccionConfirmada(contexto);
     }
 
     private void ProcesarRespuestaDelCerebro(
@@ -735,6 +1042,14 @@ public class LazzaroAgent : MonoBehaviour
         }
         accionesEsperandoAutorizacion.Remove(contexto.IdAccion);
 
+        // ROOT-054: dispatched no autoriza efecto fisico. El handler se invoca
+        // unicamente desde ProcesarStartConfirmado tras receipt durable.
+        EncolarInicioEjecucion(contexto);
+    }
+
+    private void EjecutarAccionConfirmada(ContextoAccion contexto)
+    {
+
         // La voz publica viaja solamente como parametro contractual de `hablar`.
         if (contexto.Nombre == "hablar")
         {
@@ -748,8 +1063,6 @@ public class LazzaroAgent : MonoBehaviour
         {
             textoVozUI.text = ""; // Limpia la burbuja de voz si hace otra cosa
         }
-
-        EncolarInicioEjecucion(contexto);
 
         switch (contexto.Nombre)
         {

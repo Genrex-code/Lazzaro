@@ -16,6 +16,8 @@ from pydantic import (
     Field,
     PrivateAttr,
     StrictBool,
+    StrictInt,
+    StrictStr,
     field_validator,
     model_validator,
 )
@@ -29,6 +31,15 @@ from core.runtime_capabilities import (
     RuntimeVerification,
 )
 from core.perception_authority import PerceptionAuthorityReferenceV1
+from core.transport_delivery import (
+    DeliveryDirectiveV1,
+    DeliveryResolutionV1,
+    DurableReceiptKindV1,
+    DurableReceiptStatusV1,
+    request_fingerprint_sha256_v1,
+    validate_delivery_reconciliation,
+    validate_request_identity,
+)
 
 
 class LivenessPublicaV1(BaseModel):
@@ -91,6 +102,14 @@ class EventoEntrante(BaseModel):
         default_factory=dict,
         description="Payload flexible con informacion especifica del evento.",
     )
+    request_identity_version: Optional[StrictInt] = Field(
+        None,
+        description="Version de identidad semantica de delivery; ausente en clientes legacy.",
+    )
+    request_fingerprint_sha256: Optional[StrictStr] = Field(
+        None,
+        description="SHA-256 de la proyeccion semantica V1 del request.",
+    )
     _received_at_utc_ms: int = PrivateAttr(default_factory=lambda: time.time_ns() // 1_000_000)
     _local_ingest_id: str = PrivateAttr(default_factory=lambda: str(uuid4()))
 
@@ -149,6 +168,59 @@ class EventoEntrante(BaseModel):
             and ("approved" not in self.detalles or type(self.detalles["approved"]) is not bool)
         ):
             raise ValueError("confirmacion_accion.detalles.approved debe ser un bool estricto")
+        return self
+
+    @model_validator(mode="after")
+    def identidad_delivery_es_versionada_y_verificable(self) -> "EventoEntrante":
+        version, fingerprint = validate_request_identity(
+            self.request_identity_version,
+            self.request_fingerprint_sha256,
+        )
+        if version is None:
+            return self
+        expected = request_fingerprint_sha256_v1(
+            transaction_id=self.id_transaccion,
+            origin=self.origen,
+            event_type=self.tipo_evento,
+            involved_object=self.objeto_involucrado,
+            details=self.detalles,
+        )
+        if fingerprint != expected:
+            raise ValueError("request_fingerprint_sha256 no coincide con el request V1")
+        return self
+
+
+class ReconciliacionTransaccionV1(BaseModel):
+    version: Literal[1] = 1
+    id_transaccion: StrictStr
+    origen: Literal["roblox", "unity", "sandbox", "terminal", "otro"]
+    tipo_evento: StrictStr
+    request_identity_version: Optional[StrictInt] = None
+    request_fingerprint_sha256: Optional[StrictStr] = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("version", mode="before")
+    @classmethod
+    def _strict_version(cls, value: Any) -> int:
+        if type(value) is not int or value != 1:
+            raise ValueError("version debe ser el entero exacto 1")
+        return value
+
+    @field_validator("id_transaccion", "tipo_evento")
+    @classmethod
+    def _required_string(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("campo requerido no puede estar vacio")
+        return cleaned
+
+    @model_validator(mode="after")
+    def _identity_pair(self) -> "ReconciliacionTransaccionV1":
+        validate_request_identity(
+            self.request_identity_version,
+            self.request_fingerprint_sha256,
+        )
         return self
 
 
@@ -262,6 +334,36 @@ class AccionSaliente(BaseModel):
             }
         }
     )
+
+
+class ReconciliacionTransaccionRespuestaV1(BaseModel):
+    version: Literal[1] = 1
+    id_transaccion: StrictStr
+    resolution: DeliveryResolutionV1
+    directive: DeliveryDirectiveV1
+    receipt_kind: DurableReceiptKindV1
+    receipt_status: DurableReceiptStatusV1
+    accion: Optional[AccionSaliente] = None
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("version", mode="before")
+    @classmethod
+    def _strict_version(cls, value: Any) -> int:
+        if type(value) is not int or value != 1:
+            raise ValueError("version debe ser el entero exacto 1")
+        return value
+
+    @model_validator(mode="after")
+    def _retry_only_for_not_found(self) -> "ReconciliacionTransaccionRespuestaV1":
+        validate_delivery_reconciliation(
+            resolution=self.resolution,
+            directive=self.directive,
+            receipt_kind=self.receipt_kind,
+            receipt_status=self.receipt_status,
+            has_action=self.accion is not None,
+        )
+        return self
 
 
 class RespuestaAPI(BaseModel):

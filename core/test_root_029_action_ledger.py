@@ -176,5 +176,5 @@ def test_v3_database_is_migrated_additively_without_rebuilding_actions(tmp_path)
         "authority_reference_json",
         "action_binding_sha256",
     }.issubset(columns)
-    assert version == "4"
+    assert version == "5"
     ledger.close()

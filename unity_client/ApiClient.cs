@@ -24,6 +24,7 @@ public class ApiClient : MonoBehaviour
         };
 
     public string EventoUrl = "http://localhost:8000/api/v1/evento";
+    public string ReconciliacionUrl = "http://localhost:8000/api/v1/transacciones/reconciliar";
     [Range(15, 180)]
     public int TimeoutSegundos = 90;
 
@@ -135,6 +136,98 @@ public class ApiClient : MonoBehaviour
                         false
                     ));
                 }
+            }
+        }
+    }
+
+    public IEnumerator ReconciliarTransaccion(
+        EventoEntrante evento,
+        Action<ReconciliacionTransaccionRespuestaV1> onSuccess,
+        Action<ApiFailure> onFailure = null
+    )
+    {
+        if (
+            evento == null
+            || evento.request_identity_version != UnityDeliveryIdentityV1.Version
+            || string.IsNullOrWhiteSpace(evento.request_fingerprint_sha256)
+        )
+        {
+            onFailure?.Invoke(CrearFalloLocal(
+                "UNVERIFIABLE_REQUEST",
+                "El request no tiene identidad verificable para reconciliacion.",
+                0,
+                false
+            ));
+            yield break;
+        }
+
+        var payload = new ReconciliacionTransaccionV1
+        {
+            id_transaccion = evento.id_transaccion,
+            origen = evento.origen,
+            tipo_evento = evento.tipo_evento,
+            request_identity_version = evento.request_identity_version,
+            request_fingerprint_sha256 = evento.request_fingerprint_sha256,
+        };
+        string json = JsonConvert.SerializeObject(payload);
+        using (UnityWebRequest request = new UnityWebRequest(ReconciliacionUrl, "POST"))
+        {
+            request.uploadHandler = new UploadHandlerRaw(System.Text.Encoding.UTF8.GetBytes(json));
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.SetRequestHeader("Content-Type", "application/json");
+            request.timeout = Mathf.Clamp(TimeoutSegundos, 15, 180);
+            yield return request.SendWebRequest();
+
+            string body = request.downloadHandler != null ? request.downloadHandler.text : "";
+            if (request.result == UnityWebRequest.Result.Success)
+            {
+                if (
+                    UnityDeliveryReconciliationWireV1.TryParse(
+                        body,
+                        out ReconciliacionTransaccionRespuestaV1 response
+                    )
+                    && string.Equals(
+                        response.id_transaccion,
+                        evento.id_transaccion,
+                        StringComparison.Ordinal
+                    )
+                )
+                {
+                    onSuccess?.Invoke(response);
+                }
+                else
+                {
+                    onFailure?.Invoke(CrearFalloLocal(
+                        "INVALID_RECONCILIATION_RESPONSE",
+                        "El backend devolvio una reconciliacion invalida.",
+                        request.responseCode,
+                        false
+                    ));
+                }
+                yield break;
+            }
+
+            if (TryParsePublicError(body, request.responseCode, out ApiFailure failure))
+            {
+                onFailure?.Invoke(failure);
+            }
+            else if (EsTimeout(request))
+            {
+                onFailure?.Invoke(CrearFalloLocal(
+                    "TRANSPORT_TIMEOUT",
+                    "La reconciliacion excedio el tiempo limite.",
+                    request.responseCode,
+                    true
+                ));
+            }
+            else
+            {
+                onFailure?.Invoke(CrearFalloLocal(
+                    "RECONCILIATION_TRANSPORT_FAILURE",
+                    "No fue posible reconciliar el request.",
+                    request.responseCode,
+                    request.responseCode == 0
+                ));
             }
         }
     }

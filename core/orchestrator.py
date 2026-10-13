@@ -123,6 +123,10 @@ from core.material_attestation import (
 )
 from core.operational_acknowledgement import manual_conversation_save_acknowledgement
 from core.tool_policy import ToolPolicy
+from core.transport_delivery import (
+    DeliveryReconciliationResultV1,
+    DeliveryResolutionV1,
+)
 from core.triage_boundary import (
     TriageBoundaryFailureV1,
     TriageEvaluationResultV1,
@@ -309,6 +313,35 @@ class Orchestrator:
                 )
             finally:
                 self._end_audit_timing()
+
+    def reconciliar_transaccion(
+        self,
+        *,
+        transaction_id: str,
+        origin: str,
+        event_type: str,
+        request_identity_version: int | None,
+        request_fingerprint_sha256: str | None,
+    ) -> tuple[DeliveryReconciliationResultV1, AccionSaliente | None]:
+        """Consulta delivery durable sin procesar de nuevo ni mutar autoridades."""
+
+        result = self._obtener_action_ledger().reconcile_delivery(
+            transaction_id,
+            origin=origin,
+            event_type=event_type,
+            request_identity_version=request_identity_version,
+            request_fingerprint_sha256=request_fingerprint_sha256,
+        )
+        action = None
+        if result.resolution is DeliveryResolutionV1.COMPLETED_WITH_ACTION:
+            if result.action_id is not None:
+                record = self._obtener_action_ledger().get_action(result.action_id)
+                action = self._accion_desde_record(record) if record is not None else None
+            else:
+                action = self._restaurar_accion_desde_ledger(result.response_action)
+            if action is not None:
+                action = self._actualizar_snapshot_accion(action)
+        return result, action
 
     @classmethod
     def _audit_timing_stack(cls) -> list[int]:
@@ -733,17 +766,27 @@ class Orchestrator:
         ledger = self._obtener_action_ledger()
         claim_turn = getattr(ledger, "claim_turn_transaction", None)
         atomic_turn_claim = callable(claim_turn)
+        identity_kwargs = (
+            {
+                "request_identity_version": evento.request_identity_version,
+                "request_fingerprint_sha256": evento.request_fingerprint_sha256,
+            }
+            if evento.request_identity_version is not None
+            else {}
+        )
         claim = (
             claim_turn(
                 str(evento.id_transaccion),
                 origin=str(evento.origen),
                 event_type=str(evento.tipo_evento),
+                **identity_kwargs,
             )
             if atomic_turn_claim
             else ledger.claim_transaction(
                 str(evento.id_transaccion),
                 origin=str(evento.origen),
                 event_type=str(evento.tipo_evento),
+                **identity_kwargs,
             )
         )
         if claim.status == TransactionClaimStatus.CONFLICT:

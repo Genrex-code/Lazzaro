@@ -22,6 +22,8 @@ from api.schemas import (
     CapabilityPublicaV1,
     LivenessPublicaV1,
     ReadinessPublicaV1,
+    ReconciliacionTransaccionV1,
+    ReconciliacionTransaccionRespuestaV1,
 )
 from core.runtime_capabilities import RuntimeCapabilityHolder, RuntimeOverall
 from core.logger import get_logger
@@ -144,6 +146,41 @@ async def procesar_evento(
         return public_error_from_exception(error, component="api.evento")
     except Exception as error:
         return public_error_from_exception(error, component="api.evento")
+
+
+@router.post(
+    "/transacciones/reconciliar",
+    response_model=ReconciliacionTransaccionRespuestaV1,
+    responses=_EVENT_ERROR_RESPONSES,
+)
+async def reconciliar_transaccion(
+    request_body: ReconciliacionTransaccionV1,
+    orchestrator=Depends(get_orchestrator),
+):
+    """Lee receipts durables; no reclama ni vuelve a procesar la transaccion."""
+
+    try:
+        # La consulta es una proyeccion SQLite acotada y read-only. Mantenerla
+        # directa evita introducir otra cola/worker como autoridad de delivery.
+        result, action = orchestrator.reconciliar_transaccion(
+            transaction_id=request_body.id_transaccion,
+            origin=request_body.origen,
+            event_type=request_body.tipo_evento,
+            request_identity_version=request_body.request_identity_version,
+            request_fingerprint_sha256=request_body.request_fingerprint_sha256,
+        )
+        return ReconciliacionTransaccionRespuestaV1(
+            id_transaccion=result.transaction_id,
+            resolution=result.resolution,
+            directive=result.directive,
+            receipt_kind=result.receipt_kind,
+            receipt_status=result.receipt_status,
+            accion=action,
+        )
+    except ActionLedgerError as error:
+        return public_error_from_exception(error, component="api.reconciliation")
+    except Exception as error:
+        return public_error_from_exception(error, component="api.reconciliation")
 
 
 @router.get(

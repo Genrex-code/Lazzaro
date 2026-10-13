@@ -153,7 +153,7 @@ def _outcome_event(transaction_id: str, action_id: str) -> EventoEntrante:
     )
 
 
-def test_01_v2_to_v4_preserves_history_and_marks_legacy_unknown() -> None:
+def test_01_v2_to_current_preserves_history_and_marks_legacy_unknown() -> None:
     with TemporaryDirectory(prefix="root007-migration-") as directory:
         path = Path(directory) / "ledger.sqlite3"
         old = ActionLedger(path)
@@ -184,11 +184,18 @@ def test_01_v2_to_v4_preserves_history_and_marks_legacy_unknown() -> None:
 
         migrated = ActionLedger(path)
         action = migrated.get_action("legacy-action")
+        legacy_transaction = migrated.get_transaction("legacy-transaction")
         restored_outcome = migrated.get_outcome("legacy-action")
         version = migrated._connection.execute(
             "SELECT value FROM ledger_meta WHERE key = 'schema_version'"
         ).fetchone()["value"]
-        assert_true(version == "4", "La migracion debe terminar en schema v4.")
+        assert_true(version == "5", "La migracion debe terminar en schema v5.")
+        assert_true(
+            legacy_transaction is not None
+            and legacy_transaction.request_identity_version is None
+            and legacy_transaction.request_fingerprint_sha256 is None,
+            "La migracion debe agregar columnas V5 sin fabricar identidad legacy.",
+        )
         assert_true(action is not None and action.action_state == ActionState.REPORTED_SUCCESS, "Debe preservar action y lifecycle.")
         assert_true(
             action is not None
@@ -707,7 +714,7 @@ def test_20_failure_matrix_covers_f0_through_f17_without_root015_claims() -> Non
 
 
 TESTS = [
-    test_01_v2_to_v4_preserves_history_and_marks_legacy_unknown,
+    test_01_v2_to_current_preserves_history_and_marks_legacy_unknown,
     test_02_effect_receipts_are_terminal_and_commit_is_atomic,
     test_03_required_failure_prevents_commit,
     test_04_behavior_owner_rolls_back_mutate_then_raise,

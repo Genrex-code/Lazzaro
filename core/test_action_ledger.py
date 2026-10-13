@@ -708,7 +708,10 @@ def test_unity_source_roundtrips_action_identity_without_last_action_fallback() 
     dto = (root / "unity_client" / "DTOs.cs").read_text(encoding="utf-8-sig")
     assert_true('detalles["id_accion"] = contexto.IdAccion;' in agent, "Cada resultado debe devolver id_accion.")
     assert_true('detalles["id_transaccion_origen"] = contexto.IdTransaccionOrigen;' in agent, "Debe conservar la request de origen.")
-    assert_true("respuesta => ProcesarRespuestaDelCerebro(evento.id_transaccion, respuesta)" in agent, "La response debe viajar con request exacta.")
+    assert_true(
+        "respuesta => ProcesarRespuestaTransporte(evento, respuesta)" in agent,
+        "La response debe viajar con el request exacto al boundary ROOT-054.",
+    )
     assert_true("Action<string, bool, string> OnMovimientoCompletado" in movement, "Movimiento debe devolver actionId exacto.")
     assert_true("UltimaAccionMovimiento" not in agent + movement, "No debe existir correlacion por ultima accion.")
     assert_true("public string id_accion;" in dto, "El DTO de accion debe cruzar id_accion.")

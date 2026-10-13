@@ -21,11 +21,19 @@ from typing import Any
 
 from core.logger import get_logger
 from core.safe_error_logging import log_safe_boundary_failure
+from core.transport_delivery import (
+    DeliveryDirectiveV1,
+    DeliveryReconciliationResultV1,
+    DeliveryResolutionV1,
+    DurableReceiptKindV1,
+    DurableReceiptStatusV1,
+    validate_request_identity,
+)
 
 logger = get_logger(__name__)
 
 
-LEDGER_SCHEMA_VERSION = 4
+LEDGER_SCHEMA_VERSION = 5
 MAX_JSON_BYTES = 64 * 1024
 _SENSITIVE_KEY_PARTS = (
     "api_key",
@@ -182,6 +190,8 @@ class TransactionRecord:
     response_action: dict[str, Any] | None
     created_at: str
     completed_at: str | None
+    request_identity_version: int | None = None
+    request_fingerprint_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -291,6 +301,18 @@ class ActionTransitionResult:
     classification: TransitionClassification
     timestamp: str
     receipt_id: str | None = None
+
+
+@dataclass(frozen=True)
+class TransitionReceiptRecord:
+    receipt_id: str
+    action_id: str
+    event: ActionTransitionEvent
+    fingerprint: str
+    classification: TransitionClassification
+    state_before: ActionState | None
+    state_after: ActionState | None
+    created_at: str
 
 
 @dataclass(frozen=True)
@@ -450,7 +472,9 @@ class ActionLedger:
             action_id TEXT,
             response_json TEXT,
             created_at TEXT NOT NULL,
-            completed_at TEXT
+            completed_at TEXT,
+            request_identity_version INTEGER,
+            request_fingerprint_sha256 TEXT
         );
         CREATE TABLE IF NOT EXISTS actions (
             action_id TEXT PRIMARY KEY,
@@ -509,6 +533,11 @@ class ActionLedger:
                 ).fetchone()
             if meta is not None and meta["value"] == "3":
                 self._migrate_v3_to_v4()
+                meta = self._connection.execute(
+                    "SELECT value FROM ledger_meta WHERE key = 'schema_version'"
+                ).fetchone()
+            if meta is not None and meta["value"] == "4":
+                self._migrate_v4_to_v5()
                 meta = self._connection.execute(
                     "SELECT value FROM ledger_meta WHERE key = 'schema_version'"
                 ).fetchone()
@@ -667,6 +696,33 @@ class ActionLedger:
                     )
             self._connection.execute(
                 "UPDATE ledger_meta SET value = ? WHERE key = 'schema_version'",
+                ("4",),
+            )
+            self._commit()
+        except (OSError, sqlite3.Error):
+            self._rollback()
+            raise
+
+    def _migrate_v4_to_v5(self) -> None:
+        """Agrega identidad ROOT-054 sin atribuir fingerprints a filas legacy."""
+        try:
+            self._begin()
+            columns = {
+                row["name"]
+                for row in self._connection.execute(
+                    "PRAGMA table_info(transactions)"
+                ).fetchall()
+            }
+            if "request_identity_version" not in columns:
+                self._connection.execute(
+                    "ALTER TABLE transactions ADD COLUMN request_identity_version INTEGER"
+                )
+            if "request_fingerprint_sha256" not in columns:
+                self._connection.execute(
+                    "ALTER TABLE transactions ADD COLUMN request_fingerprint_sha256 TEXT"
+                )
+            self._connection.execute(
+                "UPDATE ledger_meta SET value = ? WHERE key = 'schema_version'",
                 (str(LEDGER_SCHEMA_VERSION),),
             )
             self._commit()
@@ -692,10 +748,16 @@ class ActionLedger:
         *,
         origin: str,
         event_type: str,
+        request_identity_version: int | None = None,
+        request_fingerprint_sha256: str | None = None,
     ) -> TransactionClaimResult:
         transaction_id = _clean_id(transaction_id, "transaction_id")
         origin = _clean_id(origin, "origin")
         event_type = _clean_id(event_type, "event_type")
+        identity_version, identity_fingerprint = validate_request_identity(
+            request_identity_version,
+            request_fingerprint_sha256,
+        )
         created_at = _utc_now()
         with self._lock:
             try:
@@ -703,10 +765,18 @@ class ActionLedger:
                 cursor = self._connection.execute(
                     """
                     INSERT OR IGNORE INTO transactions(
-                        transaction_id, origin, event_type, status, created_at
-                    ) VALUES(?, ?, ?, 'incomplete', ?)
+                        transaction_id, origin, event_type, status, created_at,
+                        request_identity_version, request_fingerprint_sha256
+                    ) VALUES(?, ?, ?, 'incomplete', ?, ?, ?)
                     """,
-                    (transaction_id, origin, event_type, created_at),
+                    (
+                        transaction_id,
+                        origin,
+                        event_type,
+                        created_at,
+                        identity_version,
+                        identity_fingerprint,
+                    ),
                 )
                 row = self._connection.execute(
                     "SELECT * FROM transactions WHERE transaction_id = ?",
@@ -723,6 +793,15 @@ class ActionLedger:
             status = TransactionClaimStatus.CREATED
         elif record.origin != origin or record.event_type != event_type:
             status = TransactionClaimStatus.CONFLICT
+        elif (
+            record.request_identity_version is not None
+            and identity_version is not None
+            and (
+                record.request_identity_version != identity_version
+                or record.request_fingerprint_sha256 != identity_fingerprint
+            )
+        ):
+            status = TransactionClaimStatus.CONFLICT
         elif record.status == "completed":
             status = TransactionClaimStatus.COMPLETED
         else:
@@ -736,11 +815,17 @@ class ActionLedger:
         origin: str,
         event_type: str,
         phase: str = "claimed",
+        request_identity_version: int | None = None,
+        request_fingerprint_sha256: str | None = None,
     ) -> TransactionClaimResult:
         """Reclama identidad y crea la UoW nueva dentro del mismo COMMIT."""
         transaction_id = _clean_id(transaction_id, "transaction_id")
         origin = _clean_id(origin, "origin")
         event_type = _clean_id(event_type, "event_type")
+        identity_version, identity_fingerprint = validate_request_identity(
+            request_identity_version,
+            request_fingerprint_sha256,
+        )
         phase = _clean_id(phase, "phase")
         created_at = _utc_now()
         with self._lock:
@@ -749,10 +834,18 @@ class ActionLedger:
                 cursor = self._connection.execute(
                     """
                     INSERT OR IGNORE INTO transactions(
-                        transaction_id, origin, event_type, status, created_at
-                    ) VALUES(?, ?, ?, 'incomplete', ?)
+                        transaction_id, origin, event_type, status, created_at,
+                        request_identity_version, request_fingerprint_sha256
+                    ) VALUES(?, ?, ?, 'incomplete', ?, ?, ?)
                     """,
-                    (transaction_id, origin, event_type, created_at),
+                    (
+                        transaction_id,
+                        origin,
+                        event_type,
+                        created_at,
+                        identity_version,
+                        identity_fingerprint,
+                    ),
                 )
                 if cursor.rowcount == 1:
                     self._connection.execute(
@@ -779,6 +872,15 @@ class ActionLedger:
             status = TransactionClaimStatus.CREATED
         elif record.origin != origin or record.event_type != event_type:
             status = TransactionClaimStatus.CONFLICT
+        elif (
+            record.request_identity_version is not None
+            and identity_version is not None
+            and (
+                record.request_identity_version != identity_version
+                or record.request_fingerprint_sha256 != identity_fingerprint
+            )
+        ):
+            status = TransactionClaimStatus.CONFLICT
         elif record.status == "completed":
             status = TransactionClaimStatus.COMPLETED
         else:
@@ -793,6 +895,182 @@ class ActionLedger:
                 (transaction_id,),
             ).fetchone()
         return self._transaction_from_row(row) if row is not None else None
+
+    def reconcile_delivery(
+        self,
+        transaction_id: str,
+        *,
+        origin: str,
+        event_type: str,
+        request_identity_version: int | None,
+        request_fingerprint_sha256: str | None,
+    ) -> DeliveryReconciliationResultV1:
+        """Proyecta evidencia durable sin reclamar, reintentar ni mutar el ledger."""
+
+        transaction_id = _clean_id(transaction_id, "transaction_id")
+        origin = _clean_id(origin, "origin")
+        event_type = _clean_id(event_type, "event_type")
+        identity_version, identity_fingerprint = validate_request_identity(
+            request_identity_version,
+            request_fingerprint_sha256,
+        )
+        if identity_version is None:
+            return DeliveryReconciliationResultV1(
+                transaction_id,
+                DeliveryResolutionV1.UNVERIFIABLE,
+                DeliveryDirectiveV1.REQUIRES_RECONCILIATION,
+            )
+
+        record = self.get_transaction(transaction_id)
+        if record is None:
+            return DeliveryReconciliationResultV1(
+                transaction_id,
+                DeliveryResolutionV1.NOT_FOUND,
+                DeliveryDirectiveV1.RETRY_SAME_TX,
+            )
+        if (
+            record.request_identity_version is None
+            or record.request_fingerprint_sha256 is None
+        ):
+            return DeliveryReconciliationResultV1(
+                transaction_id,
+                DeliveryResolutionV1.UNVERIFIABLE,
+                DeliveryDirectiveV1.REQUIRES_RECONCILIATION,
+            )
+        if (
+            record.origin != origin
+            or record.event_type != event_type
+            or record.request_identity_version != identity_version
+            or record.request_fingerprint_sha256 != identity_fingerprint
+        ):
+            return DeliveryReconciliationResultV1(
+                transaction_id,
+                DeliveryResolutionV1.REQUIRES_RECONCILIATION,
+                DeliveryDirectiveV1.REQUIRES_RECONCILIATION,
+            )
+
+        if record.status != "completed":
+            uow = self.get_turn_uow(transaction_id)
+            if uow is None:
+                resolution = DeliveryResolutionV1.UNKNOWN
+                directive = DeliveryDirectiveV1.REQUIRES_RECONCILIATION
+            elif uow.status is TurnUoWStatus.OPEN:
+                resolution = DeliveryResolutionV1.IN_PROGRESS
+                directive = DeliveryDirectiveV1.WAIT
+            elif uow.status is TurnUoWStatus.ABORTED_CLEAN:
+                resolution = DeliveryResolutionV1.FAILED_TERMINAL
+                directive = DeliveryDirectiveV1.TERMINAL
+            else:
+                resolution = DeliveryResolutionV1.REQUIRES_RECONCILIATION
+                directive = DeliveryDirectiveV1.REQUIRES_RECONCILIATION
+            return DeliveryReconciliationResultV1(
+                transaction_id,
+                resolution,
+                directive,
+            )
+
+        if event_type in {"confirmacion_accion", "inicio_ejecucion_accion"}:
+            receipt = self.get_transition_receipt(f"lifecycle:{transaction_id}")
+            if receipt is None:
+                return DeliveryReconciliationResultV1(
+                    transaction_id,
+                    DeliveryResolutionV1.REQUIRES_RECONCILIATION,
+                    DeliveryDirectiveV1.REQUIRES_RECONCILIATION,
+                    DurableReceiptKindV1.ACTION_LIFECYCLE,
+                    DurableReceiptStatusV1.MISSING,
+                )
+            if receipt.classification in {
+                TransitionClassification.APPLIED,
+                TransitionClassification.ALREADY_APPLIED,
+            }:
+                receipt_status = (
+                    DurableReceiptStatusV1.APPLIED
+                    if receipt.classification is TransitionClassification.APPLIED
+                    else DurableReceiptStatusV1.ALREADY_APPLIED
+                )
+                if event_type == "confirmacion_accion":
+                    action = self.get_action(receipt.action_id)
+                    if action is None:
+                        return DeliveryReconciliationResultV1(
+                            transaction_id,
+                            DeliveryResolutionV1.REQUIRES_RECONCILIATION,
+                            DeliveryDirectiveV1.REQUIRES_RECONCILIATION,
+                            DurableReceiptKindV1.ACTION_LIFECYCLE,
+                            DurableReceiptStatusV1.MISSING,
+                        )
+                    return DeliveryReconciliationResultV1(
+                        transaction_id,
+                        DeliveryResolutionV1.COMPLETED_WITH_ACTION,
+                        DeliveryDirectiveV1.RESOLVED,
+                        DurableReceiptKindV1.ACTION_LIFECYCLE,
+                        receipt_status,
+                        action_id=action.action_id,
+                    )
+                return DeliveryReconciliationResultV1(
+                    transaction_id,
+                    DeliveryResolutionV1.COMPLETED_NO_ACTION,
+                    DeliveryDirectiveV1.RESOLVED,
+                    DurableReceiptKindV1.ACTION_LIFECYCLE,
+                    receipt_status,
+                )
+            return DeliveryReconciliationResultV1(
+                transaction_id,
+                DeliveryResolutionV1.FAILED_TERMINAL,
+                DeliveryDirectiveV1.TERMINAL,
+                DurableReceiptKindV1.ACTION_LIFECYCLE,
+                DurableReceiptStatusV1.REJECTED,
+            )
+
+        if event_type == "resultado_accion":
+            attempt = self.get_outcome_attempt(transaction_id)
+            if attempt is None:
+                return DeliveryReconciliationResultV1(
+                    transaction_id,
+                    DeliveryResolutionV1.REQUIRES_RECONCILIATION,
+                    DeliveryDirectiveV1.REQUIRES_RECONCILIATION,
+                    DurableReceiptKindV1.OUTCOME,
+                    DurableReceiptStatusV1.MISSING,
+                )
+            if attempt.classification in {
+                OutcomeRecordStatus.ACCEPTED,
+                OutcomeRecordStatus.DUPLICATE,
+            }:
+                receipt_status = (
+                    DurableReceiptStatusV1.ACCEPTED
+                    if attempt.classification is OutcomeRecordStatus.ACCEPTED
+                    else DurableReceiptStatusV1.DUPLICATE
+                )
+                return DeliveryReconciliationResultV1(
+                    transaction_id,
+                    DeliveryResolutionV1.COMPLETED_NO_ACTION,
+                    DeliveryDirectiveV1.RESOLVED,
+                    DurableReceiptKindV1.OUTCOME,
+                    receipt_status,
+                )
+            return DeliveryReconciliationResultV1(
+                transaction_id,
+                DeliveryResolutionV1.FAILED_TERMINAL,
+                DeliveryDirectiveV1.TERMINAL,
+                DurableReceiptKindV1.OUTCOME,
+                DurableReceiptStatusV1.REJECTED,
+            )
+
+        if record.response_action is not None:
+            return DeliveryReconciliationResultV1(
+                transaction_id,
+                DeliveryResolutionV1.COMPLETED_WITH_ACTION,
+                DeliveryDirectiveV1.RESOLVED,
+                DurableReceiptKindV1.TRANSACTION,
+                DurableReceiptStatusV1.COMMITTED,
+                response_action=record.response_action,
+            )
+        return DeliveryReconciliationResultV1(
+            transaction_id,
+            DeliveryResolutionV1.COMPLETED_NO_ACTION,
+            DeliveryDirectiveV1.RESOLVED,
+            DurableReceiptKindV1.TRANSACTION,
+            DurableReceiptStatusV1.COMMITTED,
+        )
 
     def begin_turn_uow(self, transaction_id: str, *, phase: str = "claimed") -> TurnUoWRecord:
         """Crea el UoW de un claim nuevo sin inferir filas para turnos historicos."""
@@ -1213,6 +1491,26 @@ class ActionLedger:
                 (action_id,),
             ).fetchall()
         return [self._transition_from_row(row) for row in rows]
+
+    def get_transition_receipt(self, receipt_id: str) -> TransitionReceiptRecord | None:
+        receipt_id = _clean_id(receipt_id, "receipt_id")
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM transition_receipts WHERE receipt_id = ?",
+                (receipt_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return TransitionReceiptRecord(
+            receipt_id=row["receipt_id"],
+            action_id=row["action_id"],
+            event=ActionTransitionEvent(row["event"]),
+            fingerprint=row["fingerprint"],
+            classification=TransitionClassification(row["classification"]),
+            state_before=self._optional_state(row["state_before"]),
+            state_after=self._optional_state(row["state_after"]),
+            created_at=row["created_at"],
+        )
 
     def transition_action(
         self,
@@ -2004,6 +2302,8 @@ class ActionLedger:
             response_action=response_action,
             created_at=row["created_at"],
             completed_at=row["completed_at"],
+            request_identity_version=row["request_identity_version"],
+            request_fingerprint_sha256=row["request_fingerprint_sha256"],
         )
 
     @staticmethod
