@@ -793,6 +793,10 @@ class Orchestrator:
             raise TransactionConflictError(
                 f"id_transaccion reutilizado con otro contrato: {evento.id_transaccion}"
             )
+        if claim.status == TransactionClaimStatus.UNVERIFIABLE:
+            raise TurnReconciliationRequiredError(
+                f"Identidad de request no verificable: {evento.id_transaccion}"
+            )
         if claim.status == TransactionClaimStatus.INCOMPLETE:
             get_uow = getattr(ledger, "get_turn_uow", None)
             uow = get_uow(str(evento.id_transaccion)) if callable(get_uow) else None

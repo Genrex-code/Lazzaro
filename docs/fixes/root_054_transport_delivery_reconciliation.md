@@ -55,6 +55,13 @@ resultados byte por byte.
 Las filas históricas de ActionLedger conservan `NULL` en los campos de
 identidad. La migración no les atribuye retrospectivamente un fingerprint.
 
+La relación entre identidad durable y entrante se clasifica una sola vez como
+`LEGACY_COMPATIBLE`, `VERIFIED_MATCH`, `VERIFIED_CONFLICT` o `UNVERIFIABLE`.
+Sólo legacy/legacy conserva el replay histórico y sólo V1/V1 exacto acredita
+equivalencia moderna. Mezclar una fila legacy con un request V1 —o una fila V1
+con un request legacy— produce `UNVERIFIABLE / REQUIRES_RECONCILIATION`; nunca
+reutiliza una respuesta histórica ni altera la fila durable.
+
 ## Reconciliación durable
 
 `POST /api/v1/transacciones/reconciliar` es read-only. Consulta:

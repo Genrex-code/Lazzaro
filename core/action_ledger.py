@@ -27,6 +27,8 @@ from core.transport_delivery import (
     DeliveryResolutionV1,
     DurableReceiptKindV1,
     DurableReceiptStatusV1,
+    RequestIdentityRelationshipV1,
+    classify_request_identity_relationship,
     validate_request_identity,
 )
 
@@ -88,6 +90,7 @@ class TransactionClaimStatus(str, Enum):
     COMPLETED = "completed"
     INCOMPLETE = "incomplete"
     CONFLICT = "conflict"
+    UNVERIFIABLE = "unverifiable"
 
 
 class ActionRecordStatus(str, Enum):
@@ -742,6 +745,31 @@ class ActionLedger:
         except sqlite3.Error:
             pass
 
+    @staticmethod
+    def _existing_transaction_claim_status(
+        record: TransactionRecord,
+        *,
+        origin: str,
+        event_type: str,
+        identity_version: int | None,
+        identity_fingerprint: str | None,
+    ) -> TransactionClaimStatus:
+        if record.origin != origin or record.event_type != event_type:
+            return TransactionClaimStatus.CONFLICT
+        relationship = classify_request_identity_relationship(
+            stored_version=record.request_identity_version,
+            stored_fingerprint=record.request_fingerprint_sha256,
+            incoming_version=identity_version,
+            incoming_fingerprint=identity_fingerprint,
+        )
+        if relationship is RequestIdentityRelationshipV1.VERIFIED_CONFLICT:
+            return TransactionClaimStatus.CONFLICT
+        if relationship is RequestIdentityRelationshipV1.UNVERIFIABLE:
+            return TransactionClaimStatus.UNVERIFIABLE
+        if record.status == "completed":
+            return TransactionClaimStatus.COMPLETED
+        return TransactionClaimStatus.INCOMPLETE
+
     def claim_transaction(
         self,
         transaction_id: str,
@@ -791,21 +819,14 @@ class ActionLedger:
         record = self._transaction_from_row(row)
         if cursor.rowcount == 1:
             status = TransactionClaimStatus.CREATED
-        elif record.origin != origin or record.event_type != event_type:
-            status = TransactionClaimStatus.CONFLICT
-        elif (
-            record.request_identity_version is not None
-            and identity_version is not None
-            and (
-                record.request_identity_version != identity_version
-                or record.request_fingerprint_sha256 != identity_fingerprint
-            )
-        ):
-            status = TransactionClaimStatus.CONFLICT
-        elif record.status == "completed":
-            status = TransactionClaimStatus.COMPLETED
         else:
-            status = TransactionClaimStatus.INCOMPLETE
+            status = self._existing_transaction_claim_status(
+                record,
+                origin=origin,
+                event_type=event_type,
+                identity_version=identity_version,
+                identity_fingerprint=identity_fingerprint,
+            )
         return TransactionClaimResult(status=status, transaction=record)
 
     def claim_turn_transaction(
@@ -870,21 +891,14 @@ class ActionLedger:
         record = self._transaction_from_row(row)
         if cursor.rowcount == 1:
             status = TransactionClaimStatus.CREATED
-        elif record.origin != origin or record.event_type != event_type:
-            status = TransactionClaimStatus.CONFLICT
-        elif (
-            record.request_identity_version is not None
-            and identity_version is not None
-            and (
-                record.request_identity_version != identity_version
-                or record.request_fingerprint_sha256 != identity_fingerprint
-            )
-        ):
-            status = TransactionClaimStatus.CONFLICT
-        elif record.status == "completed":
-            status = TransactionClaimStatus.COMPLETED
         else:
-            status = TransactionClaimStatus.INCOMPLETE
+            status = self._existing_transaction_claim_status(
+                record,
+                origin=origin,
+                event_type=event_type,
+                identity_version=identity_version,
+                identity_fingerprint=identity_fingerprint,
+            )
         return TransactionClaimResult(status=status, transaction=record)
 
     def get_transaction(self, transaction_id: str) -> TransactionRecord | None:
@@ -914,24 +928,26 @@ class ActionLedger:
             request_identity_version,
             request_fingerprint_sha256,
         )
-        if identity_version is None:
-            return DeliveryReconciliationResultV1(
-                transaction_id,
-                DeliveryResolutionV1.UNVERIFIABLE,
-                DeliveryDirectiveV1.REQUIRES_RECONCILIATION,
-            )
-
         record = self.get_transaction(transaction_id)
         if record is None:
+            if identity_version is None:
+                return DeliveryReconciliationResultV1(
+                    transaction_id,
+                    DeliveryResolutionV1.UNVERIFIABLE,
+                    DeliveryDirectiveV1.REQUIRES_RECONCILIATION,
+                )
             return DeliveryReconciliationResultV1(
                 transaction_id,
                 DeliveryResolutionV1.NOT_FOUND,
                 DeliveryDirectiveV1.RETRY_SAME_TX,
             )
-        if (
-            record.request_identity_version is None
-            or record.request_fingerprint_sha256 is None
-        ):
+        relationship = classify_request_identity_relationship(
+            stored_version=record.request_identity_version,
+            stored_fingerprint=record.request_fingerprint_sha256,
+            incoming_version=identity_version,
+            incoming_fingerprint=identity_fingerprint,
+        )
+        if relationship is RequestIdentityRelationshipV1.UNVERIFIABLE:
             return DeliveryReconciliationResultV1(
                 transaction_id,
                 DeliveryResolutionV1.UNVERIFIABLE,
@@ -940,8 +956,7 @@ class ActionLedger:
         if (
             record.origin != origin
             or record.event_type != event_type
-            or record.request_identity_version != identity_version
-            or record.request_fingerprint_sha256 != identity_fingerprint
+            or relationship is RequestIdentityRelationshipV1.VERIFIED_CONFLICT
         ):
             return DeliveryReconciliationResultV1(
                 transaction_id,

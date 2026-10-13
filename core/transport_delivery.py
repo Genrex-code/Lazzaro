@@ -56,6 +56,13 @@ class DurableReceiptStatusV1(str, Enum):
     MISSING = "MISSING"
 
 
+class RequestIdentityRelationshipV1(str, Enum):
+    LEGACY_COMPATIBLE = "LEGACY_COMPATIBLE"
+    VERIFIED_MATCH = "VERIFIED_MATCH"
+    VERIFIED_CONFLICT = "VERIFIED_CONFLICT"
+    UNVERIFIABLE = "UNVERIFIABLE"
+
+
 @dataclass(frozen=True)
 class DeliveryReconciliationResultV1:
     transaction_id: str
@@ -168,6 +175,31 @@ def validate_request_identity(
     if not isinstance(fingerprint, str) or not _SHA256_RE.fullmatch(fingerprint):
         raise ValueError("request_fingerprint_sha256 debe ser SHA-256 lowercase")
     return version, fingerprint
+
+
+def classify_request_identity_relationship(
+    *,
+    stored_version: object | None,
+    stored_fingerprint: object | None,
+    incoming_version: object | None,
+    incoming_fingerprint: object | None,
+) -> RequestIdentityRelationshipV1:
+    """Compara identidad durable y entrante sin fabricar equivalencia legacy/V1."""
+
+    try:
+        stored = validate_request_identity(stored_version, stored_fingerprint)
+    except (TypeError, ValueError):
+        return RequestIdentityRelationshipV1.UNVERIFIABLE
+    incoming = validate_request_identity(incoming_version, incoming_fingerprint)
+    stored_is_legacy = stored[0] is None
+    incoming_is_legacy = incoming[0] is None
+    if stored_is_legacy and incoming_is_legacy:
+        return RequestIdentityRelationshipV1.LEGACY_COMPATIBLE
+    if stored_is_legacy != incoming_is_legacy:
+        return RequestIdentityRelationshipV1.UNVERIFIABLE
+    if stored == incoming:
+        return RequestIdentityRelationshipV1.VERIFIED_MATCH
+    return RequestIdentityRelationshipV1.VERIFIED_CONFLICT
 
 
 def request_identity_payload(
